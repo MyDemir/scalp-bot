@@ -121,7 +121,7 @@ async function evaluate(symbol, oiDeltaPct = null, fundingRate = null) {
 
   if (!gateResult.pass) {
     // DEBUG: çok gürültülü olabilir, ihtiyaca göre açabilirsin
-    // console.log(`[GATE] ${symbol} reddedildi: ${gateResult.reason}`);
+    console.log(`[GATE] ${symbol} reddedildi: ${gateResult.reason}`);
     return;
   }
 
