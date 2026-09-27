@@ -55,13 +55,19 @@ let wsClient = null;
 function startWebSocket(symbols, timeframes, onKline, cfg) {
   if (wsClient) stopWebSocket();
 
+  // Binance USDⓈ-M WS Base URL Split (duyuru 2026-03-06, eski URL'ler 2026-04-23'te emekli):
+  //   kline / aggTrade / markPrice / ticker → wss://fstream.binance.com/market
+  // Eski wss://fstream.binance.com/ws/... adresi BAĞLANIYOR ama kline verisi GÖNDERMİYOR.
+  //
+  // DİKKAT: 'binance' npm v2.15.x'te 'wsUrlMap' diye bir seçenek YOK (sessizce yok sayılır).
+  // Desteklenen tek override 'wsUrl' — kütüphane bunun sonuna '/ws/<stream>' ekler:
+  //   wss://fstream.binance.com/market/ws/btcusdt@kline_5m
+  // wsUrl TÜM marketler için geçerli; biz sadece USDⓈ-M kline kullandığımız için sorun değil.
   wsClient = new WebsocketClient({
     api_key:    process.env.BINANCE_API_KEY,
     api_secret: process.env.BINANCE_API_SECRET,
     beautify:   true,
-    wsUrlMap: {
-      usdmfutures: 'wss://fstream.binance.com/market',
-    },
+    wsUrl:      'wss://fstream.binance.com/market',
   });
 
   for (const symbol of symbols) {
@@ -76,15 +82,6 @@ function startWebSocket(symbols, timeframes, onKline, cfg) {
     const kline   = data.kline   || data.k;
     if (!symbol || !kline) return;
     const tf       = kline.interval    || kline.i;
-    const isFinal  = kline.final ?? kline.x ?? false;
-    if (tf) onKline(symbol, tf, kline, isFinal);
-  });
-
-  wsClient.on('kline', (data) => {
-    const symbol   = data.symbol || data.s;
-    const kline    = data.kline  || data.k;
-    if (!symbol || !kline) return;
-    const tf       = kline.interval || kline.i;
     const isFinal  = kline.final ?? kline.x ?? false;
     if (tf) onKline(symbol, tf, kline, isFinal);
   });
