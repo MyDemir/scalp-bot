@@ -25,7 +25,8 @@ scalp-bot/
 ├── src/
 │   ├── index.js          # Ana giriş noktası
 │   ├── config.js         # Tüm parametreler
-│   ├── binanceClient.js  # WebSocket + REST istemcisi
+│   ├── binanceClient.js  # REST (weight bütçeli kuyruk) + sembol listesi
+│   ├── streamClient.js   # Combined stream WS (bağlantı başına ≤800 stream, watchdog)
 │   ├── candleStore.js    # Mum tamponu (her sembol × TF)
 │   ├── indicators.js     # RSI, EMA, ATR, CVD, negatif tepe
 │   ├── regime.js         # Market regime tespiti (Reversal / Continuation)
@@ -36,8 +37,9 @@ scalp-bot/
 │   ├── backtest.js       # Look-ahead'siz geçmiş test
 │   ├── signalEngine.js   # Orkestrasyon — evaluate()
 │   ├── htfPoller.js      # 4h/1D REST polling + OI delta
-│   ├── eventTracker.js   # MFE/MAE/TP-SL hit/R-multiple takibi
-│   ├── telegram.js       # Alert gönderimi + bot komutları
+│   ├── outcome.js        # WIN/LOSS kuralları (canlı + backtest ortak)
+│   ├── eventTracker.js   # Canlı sinyal takibi (TP-A → WIN, TP-B 4 saat izlenir)
+│   ├── telegram.js       # Gönderim kuyruğu (20 msg/dk, 429 tekrar) + komutlar (fetch)
 │   └── db.js             # SQLite sinyal log + sorgular
 ├── .env.example
 ├── .gitignore
@@ -127,8 +129,41 @@ fly ssh console
 | `ema21DistanceThreshold` | `0.5` | Min EMA21 uzaklığı (ATR cinsinden) |
 | `initialRiskPct` | `0.5` | R-multiple hesabı için risk % |
 | `minScoreToSend` | `40` | Bu skoru geçemeyen sinyal gönderilmez |
+| `autoFilter.maxCoins` | `30` | Production'da en likit N coin — `0` = tüm market |
+| `heartbeatMs` | 5 dk | Tek satırlık sağlık özeti aralığı |
+| `logGateRejects` | `null` | Sembol başına red logu (null: test'te açık, production'da kapalı) |
+
+## Tüm Futures Market'i Tarama
+
+`src/config.js` içinde:
+
+```js
+mode: 'production',
+autoFilter: { minVolume24hUSDT: 10_000_000, maxCoins: 0, ... },
+```
+
+- Semboller `exchangeInfo`'dan gelir: yalnızca **PERPETUAL + TRADING + USDT**; stablecoin'ler baz varlıkta tam eşleşmeyle elenir.
+- WebSocket combined stream kullanır: 500+ sembol × 4 TF ≈ 2–3 bağlantı (Binance limiti bağlantı başına 1024 stream).
+- Başlangıç seed'i weight bütçeli kuyruktan geçer (≈1200 weight/dk): 500 sembolde birkaç dakika sürer, bu sürede o semboller "veri hazır değil" sayılır.
+- Sembol listesi başlangıçta belirlenir; yeni listelenen coinler için botu yeniden başlat.
+
+## Loglar
+
+Her 5 dakikada bir:
+
+```
+[HEARTBEAT] WS 3/3 bağlı (2200 stream) | son 5dk: 812000 mesaj, 550 kapanış(5m) → 550 değerlendirme (0 veri hazır değil), 1 sinyal
+            | red: Günlük EMA200 veya majör direnç yakınında değil: 480, 1h RSI yetersiz: 55 | açık sinyal: 2
+            | telegram: 1 gönderildi, 0 kuyrukta | bellek: 180 MB
+```
+
+- `[UYARI] ... hiç 5m mum kapanışı gelmedi` → veri akışı durmuş (WS bağlı görünse bile).
+- `[WS#n] ... sn'dir veri yok — bağlantı yenileniyor` → watchdog devrede; veri dönünce kaçan mumlar REST ile doldurulur.
+- `[TELEGRAM] 409 çakışma` → aynı token'la başka bir kopya çalışıyor (ör. lokalde `npm start`).
 
 ## Telegram Komutları
+
+Komutlara **yalnızca `TELEGRAM_CHAT_ID` sohbetinden** yanıt verilir; başka sohbetlerden gelenler yok sayılır.
 
 | Komut | Açıklama |
 |---|---|

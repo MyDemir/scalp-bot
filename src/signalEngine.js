@@ -38,15 +38,38 @@ function setDailyLevel(symbol, data) {
 
 // Günlük yakınlık hesabı levels.js'te (backtest ile ortak)
 
+// "[GATE] X reddedildi" satırları: null → test modunda açık, production'da kapalı
+const LOG_GATE = cfg.logGateRejects ?? (cfg.mode === 'test');
+
+// ── Heartbeat sayaçları ──────────────────────────────────
+let counters = newCounters();
+function newCounters() {
+  return { evaluated: 0, notReady: 0, cooldown: 0, rejects: {}, planInvalid: 0, belowScore: 0, signals: 0 };
+}
+/** Sayaçları döndürür ve sıfırlar */
+function takeCounters() {
+  const c = counters;
+  counters = newCounters();
+  return c;
+}
+function reject(symbol, reason) {
+  // "1h RSI yetersiz (65.2 < 70)" → "1h RSI yetersiz"
+  const key = reason.split(' (')[0].split(' — ')[0];
+  counters.rejects[key] = (counters.rejects[key] || 0) + 1;
+  if (LOG_GATE) console.log(`[GATE] ${symbol} reddedildi: ${reason}`);
+}
+
 /**
  * @param {string} symbol
  * @param {number|null} oiDeltaPct   - OI delta % (opsiyonel)
  * @param {number|null} fundingRate  - funding rate (opsiyonel)
  */
 async function evaluate(symbol, oiDeltaPct = null, fundingRate = null) {
+  counters.evaluated++;
+
   // Cooldown kontrolü
   const lastTs = lastSignalAt.get(symbol);
-  if (lastTs && Date.now() - lastTs < cfg.cooldownMs) return;
+  if (lastTs && Date.now() - lastTs < cfg.cooldownMs) { counters.cooldown++; return; }
 
   // ── Çoklu TF indikatörleri ────────────────────────────
   const candles5m  = candleStore.get(symbol, '5m');
@@ -58,6 +81,7 @@ async function evaluate(symbol, oiDeltaPct = null, fundingRate = null) {
   if (!candleStore.isReady(symbol, '5m') ||
       !candleStore.isReady(symbol, '15m') ||
       !candleStore.isReady(symbol, '1h')) {
+    counters.notReady++;
     return;
   }
 
@@ -98,8 +122,7 @@ async function evaluate(symbol, oiDeltaPct = null, fundingRate = null) {
   });
 
   if (!gateResult.pass) {
-    // DEBUG: çok gürültülü olabilir, ihtiyaca göre açabilirsin
-    console.log(`[GATE] ${symbol} reddedildi: ${gateResult.reason}`);
+    reject(symbol, gateResult.reason);
     return;
   }
 
@@ -112,7 +135,8 @@ async function evaluate(symbol, oiDeltaPct = null, fundingRate = null) {
   });
 
   if (!plan.valid) {
-    console.log(`[GATE] ${symbol} reddedildi: ${plan.reason}`);
+    counters.planInvalid++;
+    reject(symbol, plan.reason);
     return;
   }
 
@@ -131,7 +155,7 @@ async function evaluate(symbol, oiDeltaPct = null, fundingRate = null) {
   });
 
   // D derecesi → gönderme
-  if (score < cfg.minScoreToSend) return;
+  if (score < cfg.minScoreToSend) { counters.belowScore++; return; }
 
   // ── Sinyal ID ─────────────────────────────────────────
   const now = Date.now();
@@ -158,8 +182,9 @@ async function evaluate(symbol, oiDeltaPct = null, fundingRate = null) {
     fundingRate:    fundingRate !== null ? +fundingRate.toFixed(6) : null,
     dailyResistance: daily?.resistance ?? null,
     dailyEMA200:     daily?.ema200 ?? null,
-    tpA: plan.tpA,
-    tpB: plan.tpB,
+    tpA:     plan.tpA,
+    tpB:     plan.tpB,
+    slLevel: plan.slLevel,
     sentAt: now,
   };
 
@@ -169,17 +194,18 @@ async function evaluate(symbol, oiDeltaPct = null, fundingRate = null) {
   // ── Cooldown güncelle ─────────────────────────────────
   lastSignalAt.set(symbol, now);
 
-  // ── Telegram Alert ────────────────────────────────────
-  try {
-    await sendSignalAlert(signal, breakdown);
-  } catch (err) {
-    console.error('[TELEGRAM] Alert gönderme hatası:', err.message);
-  }
-
-  // ── Trade Event Tracker'a al ──────────────────────────
+  // ── Takip HEMEN başlar (Telegram kuyruğunu beklemez) ──
   tracker.track(signal);
+  counters.signals++;
+
+  // ── Telegram Alert — kuyruğa alınır, gönderim sırası/429 telegram.js'te ──
+  try {
+    sendSignalAlert(signal, breakdown);
+  } catch (err) {
+    console.error('[TELEGRAM] Alert kuyruğa alınamadı:', err.message);
+  }
 
   console.log(`[SIGNAL] ${grade} [${score}] ${symbol} @ ${price} | Rejim: ${regime}${gateResult.hasEMC ? ' ⚡EMC' : ''}`);
 }
 
-module.exports = { evaluate, setDailyLevel };
+module.exports = { evaluate, setDailyLevel, takeCounters };

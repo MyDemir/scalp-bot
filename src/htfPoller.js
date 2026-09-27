@@ -1,104 +1,84 @@
 'use strict';
 
 /**
- * HTF (High Timeframe) REST Poller
+ * HTF REST Poller — 4 saatte bir
  *
- * 4h ve 1D verilerini WebSocket yerine REST ile çeker.
- * Maliyet: ~2-4 weight/sorgu × sembol sayısı × günde 6 sorgu = minimal.
+ *   • 1D kline → günlük EMA200 + majör direnç (levels.js, backtest ile ortak) → signalEngine
+ *   • Open Interest → 4 saatlik OI değişimi (%)
+ *   • Funding → TÜM semboller tek istekte (premiumIndex)
  *
- * Ayrıca günlük EMA200 ve majör yatay direnç hesabı yaparak
- * signalEngine.setDailyLevel()'a iletir.
+ * 4h mumlar artık WebSocket'ten canlı geliyor (eskiden burada 4 saatte bir çekiliyordu →
+ * 4h RSI kapısı 4 saate kadar bayat veriyle çalışıyordu).
+ *
+ * İstekler binanceClient'taki weight bütçeli kuyruktan geçer; ayrıca sleep gerekmez.
  */
 
 const cfg            = require('./config');
-const { fetchKlines, fetchFundingRate, fetchOpenInterest } = require('./binanceClient');
+const { fetchKlines, fetchFundingRates, fetchOpenInterest } = require('./binanceClient');
 const { calcDailyLevels } = require('./levels');
 const candleStore    = require('./candleStore');
 const signalEngine   = require('./signalEngine');
 
-// OI takibi (delta hesabı için)
-const prevOI = new Map(); // symbol → prevOI
+const prevOI        = new Map();   // symbol → önceki OI
+const _oiDeltas     = new Map();   // symbol → OI değişimi % (son iki poll arası)
+let   _fundingRates = new Map();   // symbol → lastFundingRate
 
-/**
- * Tek bir sembol için HTF verilerini güncelle
- */
-async function pollSymbol(symbol) {
-  try {
-    // ── 4h kline ───────────────────────────────────────
-    const klines4h = await fetchKlines(symbol, '4h', 200);
-    candleStore.seed(symbol, '4h', klines4h);
-
-    // ── 1D kline → EMA200 + majör direnç ───────────────
-    const klines1d = await fetchKlines(symbol, '1d', 220);
-    candleStore.seed(symbol, '1d', klines1d);
-
-    // EMA200 + majör direnç — backtest ile ortak hesap (levels.js)
-    const daily1d = klines1d.map(k => ({ high: parseFloat(k[2]), close: parseFloat(k[4]) }));
-    signalEngine.setDailyLevel(symbol, calcDailyLevels(daily1d));
-
-    // ── Funding rate ────────────────────────────────────
-    // (signalEngine.evaluate() çağrılırken kullanılacak)
-    // Burada sadece önbelleğe alıyoruz
-
-    // ── OI Delta ────────────────────────────────────────
-    const currentOI = await fetchOpenInterest(symbol);
-    if (currentOI !== null) {
-      const prev = prevOI.get(symbol);
-      if (prev) {
-        const deltaPct = (currentOI - prev) / prev * 100;
-        _oiDeltas.set(symbol, +deltaPct.toFixed(3));
-      }
-      prevOI.set(symbol, currentOI);
-    }
-
-  } catch (err) {
-    console.error(`[HTF] ${symbol} poll hatası:`, err.message);
-  }
-}
-
-// Son OI delta değerlerini tut (signalEngine.evaluate'e geçirilecek)
-const _oiDeltas    = new Map();
-const _fundingRates = new Map();
-
-function getOIDelta(symbol)    { return _oiDeltas.get(symbol) ?? null; }
+function getOIDelta(symbol)     { return _oiDeltas.get(symbol) ?? null; }
 function getFundingRate(symbol) { return _fundingRates.get(symbol) ?? null; }
 
-/**
- * Tüm sembolleri poll et — başlangıçta ve her cfg.restPollInterval'da
- */
+async function pollSymbol(symbol) {
+  // ── 1D kline → EMA200 + majör direnç ──
+  const klines1d = await fetchKlines(symbol, '1d', 220);
+  candleStore.seed(symbol, '1d', klines1d);
+  const daily1d = klines1d.map(k => ({ high: parseFloat(k[2]), close: parseFloat(k[4]) }));
+  signalEngine.setDailyLevel(symbol, calcDailyLevels(daily1d));
+
+  // ── OI Delta ──
+  const currentOI = await fetchOpenInterest(symbol);
+  if (currentOI !== null) {
+    const prev = prevOI.get(symbol);
+    if (prev) _oiDeltas.set(symbol, +((currentOI - prev) / prev * 100).toFixed(3));
+    prevOI.set(symbol, currentOI);
+  }
+}
+
+let running = false;
+
 async function pollAll(symbols) {
-  console.log(`[HTF] ${symbols.length} sembol için HTF verisi çekiliyor...`);
-
-  // Rate limit riski → sıralı çek (paralel değil)
-  for (const symbol of symbols) {
-    await pollSymbol(symbol);
-    await _sleep(300); // 300ms ara — weight koruması
+  if (running) {
+    console.warn('[HTF] Önceki tarama hâlâ sürüyor — bu tur atlandı');
+    return;
   }
+  running = true;
+  const t0 = Date.now();
+  let errors = 0;
+  console.log(`[HTF] ${symbols.length} sembol için günlük seviye / OI / funding güncelleniyor...`);
 
-  // Funding rate'leri ayrı çek (weight yüksek, sadece ihtiyaç anında)
-  for (const symbol of symbols) {
+  try {
     try {
-      const fr = await fetchFundingRate(symbol);
-      if (fr !== null) _fundingRates.set(symbol, fr);
-      await _sleep(200);
-    } catch (_) {}
+      _fundingRates = await fetchFundingRates();
+    } catch (err) {
+      errors++;
+      console.error('[HTF] Funding çekilemedi:', err?.message || err);
+    }
+
+    for (const symbol of symbols) {
+      try {
+        await pollSymbol(symbol);
+      } catch (err) {
+        errors++;
+        console.error(`[HTF] ${symbol} poll hatası:`, err?.message || err);
+      }
+    }
+  } finally {
+    running = false;
   }
 
-  console.log('[HTF] Tamamlandı.');
+  console.log(`[HTF] Tamamlandı — ${Math.round((Date.now() - t0) / 1000)} sn, ${errors} hata.`);
 }
 
-function _sleep(ms) {
-  return new Promise(r => setTimeout(r, ms));
-}
-
-/**
- * Döngüsel polling başlat
- */
 function startPolling(symbols) {
-  // İlk çalışma
   pollAll(symbols);
-
-  // Periyodik
   setInterval(() => pollAll(symbols), cfg.restPollInterval);
 }
 

@@ -38,6 +38,8 @@ const { checkGates }     = require('./gates');
 const { calcScore }      = require('./scorer');
 const { calcDailyLevels, nearLevelInfo } = require('./levels');
 const { calcTradePlan }  = require('./tradePlan');
+const { createTrade, applyBar, toRecord } = require('./outcome');
+const { withRetry }      = require('./binanceClient');
 
 // ── Sabitler ────────────────────────────────────────────────────────────────
 
@@ -74,25 +76,6 @@ function normalizeKline(k) {
     volume:    parseFloat(k[5]),
     closeTime: Number(k[6]),
   };
-}
-
-/**
- * Rate limit (Binance kodu -1003 / Retry-After) gelirse bekleyip tekrar dener.
- * Diğer hatalar olduğu gibi fırlatılır.
- */
-async function withRetry(fn, label, maxRetries = 3) {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      const retryAfter  = Number(err?.headers?.['retry-after']);
-      const rateLimited = err?.code === -1003 || Number.isFinite(retryAfter);
-      if (!rateLimited || attempt >= maxRetries) throw err;
-      const waitSec = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60;
-      console.warn(`  [${label}] Rate limit — ${waitSec} sn bekleniyor (tekrar ${attempt + 1}/${maxRetries})`);
-      await sleep(waitSec * 1000);
-    }
-  }
 }
 
 /**
@@ -211,9 +194,10 @@ async function backtestSymbol(symbol, { startTime, endTime, minScore }) {
   const stats = {
     candles: Object.fromEntries(Object.entries(data).map(([tf, arr]) => [tf, arr.length])),
     range: c5.length ? [c5[0].openTime, c5[c5.length - 1].closeTime + 1] : null,
-    decisions: 0, nearLevel: 0, rsi1hOk: 0, rsi4hOk: 0, gatePass: 0,
+    decisions: 0, cooldown: 0, nearLevel: 0, rsi1hOk: 0, rsi4hOk: 0, gatePass: 0,
     planInvalid: 0, belowScore: 0, signals: 0,
   };
+  let lastSignalT = null;   // canlıdaki lastSignalAt ile aynı cooldown kuralı
 
   if (c5.length < BUFFER) {
     console.warn(`  [${symbol}] Yetersiz 5m veri (${c5.length} mum) — atlandı`);
@@ -242,6 +226,9 @@ async function backtestSymbol(symbol, { startTime, endTime, minScore }) {
     if (T + HOLD_CANDLES * TF_MS['5m'] > endTime) break;        // sonucu ölçecek tam 4 saat yok
     if (i + 1 < MIN_CANDLES) continue;
     stats.decisions++;
+
+    // Cooldown — canlı signalEngine ile aynı kural (cfg.cooldownMs)
+    if (lastSignalT != null && T - lastSignalT < cfg.cooldownMs) { stats.cooldown++; continue; }
 
     // ── Günlük seviye (4 saatlik blok başına bir kez, canlı htfPoller gibi) ──
     const block = Math.floor(T / TF_MS['4h']) * TF_MS['4h'];
@@ -315,8 +302,12 @@ async function backtestSymbol(symbol, { startTime, endTime, minScore }) {
     if (score < minScore) { stats.belowScore++; continue; }
 
     const futureCandles = c5.slice(i + 1, i + 1 + HOLD_CANDLES);
-    const outcome = simulateOutcome(price, plan.slLevel, plan.tpA, plan.tpB, futureCandles);
+    const outcome = simulateOutcome({
+      entryPrice: price, tpA: plan.tpA, tpB: plan.tpB, slLevel: plan.slLevel,
+      initialRiskPct: cfg.initialRiskPct, sentAt: T,
+    }, futureCandles);
 
+    lastSignalT = T;
     stats.signals++;
     signals.push({
       symbol,
@@ -349,78 +340,30 @@ async function backtestSymbol(symbol, { startTime, endTime, minScore }) {
 // ── Gelecek mum simülasyonu ─────────────────────────────────────────────────
 
 /**
- * SHORT sinyali için ileriye dönük TP/SL simülasyonu
- * @returns {{ outcome, tpHit, slHit, mfe, mae, pnlPct, holdingCandles }}
+ * SHORT sinyali için ileriye dönük sonuç — canlı tracker ile AYNI kurallar (outcome.js):
+ *   TP-A önce → WIN (çıkış TP-A) | SL önce → LOSS (çıkış SL) | aynı mumda ikisi → LOSS
+ *   önce SL sonra TP-A → LOSS_THEN_RECOVER | 4 saat → son fiyata göre
+ *   Sonuçtan sonra 4 saat dolana kadar TP-B ve MFE/MAE izlenir. pnl/R çıkış fiyatından.
+ *
+ * Her mum bir fiyat çubuğudur (ts = mumun kapanışı) → mum içi sıra bilinmediğinden
+ * aynı mumda hem SL hem TP-A görülürse muhafazakâr olarak LOSS sayılır.
  */
-function simulateOutcome(entryPrice, slLevel, tpA, tpB, futureCandles) {
-  let mfe = 0;         // max favorable excursion %
-  let mae = 0;         // max adverse excursion %
-  let tpHit   = null;  // 'TP_A' | 'TP_B' | null
-  let slHit   = false;
-  let tpHitAt = null;
-  let slHitAt = null;
-
-  const maxCandles = Math.min(futureCandles.length, HOLD_CANDLES);
-
-  for (let j = 0; j < maxCandles; j++) {
-    const c = futureCandles[j];
-
-    // SHORT: fiyat düşerse favorable
-    const lowChange  = (entryPrice - c.low)  / entryPrice * 100;  // max kazanç
-    const highChange = (entryPrice - c.high) / entryPrice * 100;  // max kayıp (negatif)
-
-    if (lowChange  > mfe) mfe = lowChange;
-    if (-highChange > mae) mae = -highChange;
-
-    // TP kontrol (worst-case: high önce check et → SL riski)
-    if (!slHit && c.high >= slLevel) {
-      slHit   = true;
-      slHitAt = j;
-    }
-
-    if (tpA != null && c.low <= tpA) {
-      if (!tpHit) { tpHit = 'TP_A'; tpHitAt = j; }
-    }
-    if (tpB != null && c.low <= tpB) {
-      tpHit   = 'TP_B';
-      tpHitAt = j;
-    }
-
-    // Erken çözüm: her ikisi de geldiyse kararlaştır
-    if (slHit && tpHit) break;
-    if (tpHit && !slHit) break;  // TP önce → WIN
-    if (slHit && !tpHit) break;  // SL önce → LOSS
+function simulateOutcome(trade, futureCandles) {
+  const t = createTrade(trade);
+  let bars = 0;
+  for (const c of futureCandles.slice(0, HOLD_CANDLES)) {
+    applyBar(t, { ts: c.closeTime + 1, high: c.high, low: c.low, close: c.close });
+    bars++;
+    if (t.finalizedAt != null) break;
   }
-
-  // Outcome belirleme
-  let outcome;
-  const lastClose = futureCandles[Math.min(maxCandles, futureCandles.length) - 1]?.close ?? entryPrice;
-  const pnlPct    = (entryPrice - lastClose) / entryPrice * 100;
-
-  if (slHit && tpHit) {
-    outcome = slHitAt < tpHitAt ? 'LOSS_THEN_RECOVER' : 'WIN';
-  } else if (tpHit) {
-    outcome = 'WIN';
-  } else if (slHit) {
-    outcome = 'LOSS';
-  } else if (futureCandles.length > 0) {
-    if (pnlPct > 0.3)       outcome = 'WIN';
-    else if (pnlPct < -0.3) outcome = 'LOSS';
-    else                     outcome = 'NEUTRAL';
-  } else {
-    outcome = 'NEUTRAL';
-  }
-
+  const rec = toRecord(t);
+  const barIndex = ts => (ts == null ? null : Math.round((ts - trade.sentAt) / TF_MS['5m']) - 1);
   return {
-    outcome,
-    tpHit:        tpHit,
-    slHit:        slHit ? 1 : 0,
-    tpHitCandle:  tpHitAt,
-    slHitCandle:  slHitAt,
-    mfe:          +mfe.toFixed(4),
-    mae:          +mae.toFixed(4),
-    pnlPct:       +pnlPct.toFixed(4),
-    holdingCandles: Math.min(maxCandles, futureCandles.length),
+    ...rec,
+    tpHitCandle:  barIndex(rec.tpHitAt),
+    tpBHitCandle: barIndex(rec.tpBHitAt),
+    slHitCandle:  barIndex(rec.slHitAt),
+    holdingCandles: bars,
   };
 }
 
@@ -501,6 +444,7 @@ function printFunnel(allStats) {
   const sum = key => Object.values(allStats).reduce((s, st) => s + (st[key] || 0), 0);
   const steps = [
     ['Değerlendirilen 5m kapanış', 'decisions'],
+    ['− Cooldown (elendi)',        'cooldown'],
     ['Günlük seviyeye yakın',      'nearLevel'],
     ['+ 1h RSI ≥ ' + cfg.rsi1hMin, 'rsi1hOk'],
     ['+ 4h RSI ≥ ' + cfg.rsi4hMin, 'rsi4hOk'],
@@ -528,25 +472,29 @@ function printSymbolSummary(symbol, signals) {
 
   const avgMFE  = avg(signals.map(s => s.mfe)).toFixed(2);
   const avgMAE  = avg(signals.map(s => s.mae)).toFixed(2);
+  const avgR    = avg(signals.map(s => s.rMultiple)).toFixed(2);
+  const tpB     = signals.filter(s => s.tpBHitAt != null).length;
 
   console.log(`  [${symbol}] ${total} sinyal → Win: ${wins} (${winRate}%)  Loss: ${losses}  Neutral: ${neutral}  LTR: ${ltr}`);
-  console.log(`             Ort MFE: ${avgMFE}%  Ort MAE: ${avgMAE}%`);
+  console.log(`             Ort R: ${avgR}  Ort MFE: ${avgMFE}%  Ort MAE: ${avgMAE}%  TP-B'ye ulaşan: ${tpB}`);
 }
 
 function printGradeBreakdown(signals) {
   if (!signals.length) { console.log('\n  Sinyal yok.'); return; }
 
   console.log('\n📊 Dereceye Göre Win Rate:');
-  console.log('  Grade  | Total  | Win%   | Ort MFE | Ort MAE');
-  console.log('  -------+--------+--------+---------+--------');
+  console.log('  Grade  | Total  | Win%   | Ort R  | TP-B%  | Ort MFE | Ort MAE');
+  console.log('  -------+--------+--------+--------+--------+---------+--------');
 
   for (const grade of ['A+', 'A', 'B', 'C']) {
     const grp = signals.filter(s => s.grade === grade);
     if (!grp.length) continue;
-    const wr = ((grp.filter(s => s.outcome === 'WIN').length / grp.length) * 100).toFixed(1);
+    const wr  = ((grp.filter(s => s.outcome === 'WIN').length / grp.length) * 100).toFixed(1);
+    const r   = avg(grp.map(s => s.rMultiple)).toFixed(2);
+    const tpb = ((grp.filter(s => s.tpBHitAt != null).length / grp.length) * 100).toFixed(0);
     const mfe = avg(grp.map(s => s.mfe)).toFixed(2);
     const mae = avg(grp.map(s => s.mae)).toFixed(2);
-    console.log(`  ${grade.padEnd(6)} | ${String(grp.length).padEnd(6)} | ${wr.padEnd(6)}% | ${mfe}%      | ${mae}%`);
+    console.log(`  ${grade.padEnd(6)} | ${String(grp.length).padEnd(6)} | ${wr.padEnd(6)}% | ${r.padEnd(6)} | ${tpb.padEnd(5)}% | ${mfe}%   | ${mae}%`);
   }
 }
 
