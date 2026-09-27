@@ -31,6 +31,9 @@ scalp-bot/
 │   ├── regime.js         # Market regime tespiti (Reversal / Continuation)
 │   ├── gates.js          # Mert 3A zorunlu koşullar
 │   ├── scorer.js         # 0–100 skor motoru + derece sistemi
+│   ├── levels.js         # Günlük EMA200/direnç + yakınlık (canlı + backtest ortak)
+│   ├── tradePlan.js      # TP-A/TP-B/SL planı (canlı + backtest ortak)
+│   ├── backtest.js       # Look-ahead'siz geçmiş test
 │   ├── signalEngine.js   # Orkestrasyon — evaluate()
 │   ├── htfPoller.js      # 4h/1D REST polling + OI delta
 │   ├── eventTracker.js   # MFE/MAE/TP-SL hit/R-multiple takibi
@@ -156,6 +159,26 @@ fly ssh console
 2. **Walk-Forward** → out-of-sample test
 3. **Paper Trade** → gerçek zamanlı, sıfır risk
 4. **Small Capital** → gerçek işlem, küçük lot
+
+## Backtest Çalıştırma
+
+Binance'e erişimi olan bir yerde çalıştır (`fly ssh console` içinde `cd /app` ya da kendi Ubuntu ortamın):
+
+```bash
+node src/backtest.js                                   # config.testSymbols, 90 gün
+node src/backtest.js --symbol BTCUSDT,ETHUSDT --days 30
+node src/backtest.js --days 90 --min-score 55
+```
+
+- Veri sayfalanarak çekilir; `--days` gerçekten o kadar günü kapsar (+200 mum ısınma).
+- Look-ahead yok: her 5m kararında 15m/1h/4h için yalnızca o ana kadar kapanmış mumlar +
+  5m'lerden kurulan devam eden mum kullanılır; günlük seviyeler 4 saatte bir o ana kadarki
+  veriyle hesaplanır (canlı `htfPoller` gibi).
+- Kapı, TP planı ve skor canlı botla aynı modüllerden gelir (`gates`, `tradePlan`, `scorer`, `levels`).
+- Rate limit koruması: istekler arası 350 ms (≈ 860 weight/dk, limit 2400).
+  Sembol başına 90 günde ~40 istek → ~15–20 sn.
+- Raporda "Eleme Hunisi" sinyallerin hangi kapıda elendiğini gösterir.
+- Sonuçlar `backtest-results/*.json` dosyasına yazılır.
 
 ## Önemli Notlar
 

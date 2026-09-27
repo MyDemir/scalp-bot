@@ -4,12 +4,21 @@
  * Backtest Motoru — Scalp Sinyal Motoru
  *
  * Amacı:
- *   1. Binance REST'ten geçmiş kline verisi çek (her sembol × TF)
- *   2. Her 5m mumda sinyal motoru mantığını replay et
+ *   1. Binance REST'ten istenen gün sayısı kadar geçmiş kline verisini SAYFALAYARAK çek
+ *   2. Her kapanan 5m mumda canlı motorun (signalEngine) kararını, o an BİLİNEN veriyle yeniden üret
  *   3. Sinyal üretildiğinde ileriye dönük mumlarla TP/SL simüle et
- *   4. Grade / Regime / EMC bazında win rate tablosu yaz
+ *   4. Grade / Regime / EMC / skor bandı bazında win rate tablosu yaz
  *
- * Çalıştırma:
+ * Canlı bot ile aynı kalması gereken her şey ortak modüllerden gelir:
+ *   indicators.js, regime.js, gates.js, scorer.js, levels.js (günlük seviye), tradePlan.js (TP/SL)
+ *
+ * Look-ahead (geleceği görme) koruması:
+ *   Karar anı T = 5m mumun kapanışı. 15m/1h/4h için yalnızca T'den ÖNCE kapanmış mumlar +
+ *   T'ye kadarki 5m mumlardan kurulan "devam eden" mum kullanılır — canlıda WebSocket'in
+ *   candleStore'a yazdığı yarım mumla aynı. Günlük seviyeler de 4 saatte bir (canlı htfPoller
+ *   gibi) o ana kadarki veriyle hesaplanır.
+ *
+ * Çalıştırma (Binance'e erişimi olan bir yerde: Fly ssh console veya kendi Ubuntu ortamın):
  *   node src/backtest.js
  *   node src/backtest.js --symbol BTCUSDT --days 90
  *   node src/backtest.js --symbol ETHUSDT,SOLUSDT --days 30 --min-score 55
@@ -22,141 +31,277 @@ require('dotenv').config();
 const fs   = require('fs');
 const path = require('path');
 
-const cfg            = require('./config');
-const { restClient } = require('./binanceClient');
-const { computeAll } = require('./indicators');
-const { detectRegime }  = require('./regime');
-const { checkGates }    = require('./gates');
-const { calcScore }     = require('./scorer');
+const cfg                = require('./config');
+const { computeAll }     = require('./indicators');
+const { detectRegime }   = require('./regime');
+const { checkGates }     = require('./gates');
+const { calcScore }      = require('./scorer');
+const { calcDailyLevels, nearLevelInfo } = require('./levels');
+const { calcTradePlan }  = require('./tradePlan');
 
-// ── CLI argümanları ─────────────────────────────────────────────────────────
+// ── Sabitler ────────────────────────────────────────────────────────────────
 
-const args = parseArgs(process.argv.slice(2));
+const MIN = 60 * 1000;
+const TF_MS = { '5m': 5 * MIN, '15m': 15 * MIN, '1h': 60 * MIN, '4h': 240 * MIN, '1d': 1440 * MIN };
 
-const SYMBOLS     = args.symbol
-  ? args.symbol.split(',').map(s => s.trim().toUpperCase())
-  : cfg.testSymbols;
+const BUFFER       = 200;  // canlı candleStore tampon boyu (BUFFER_SIZE) ile aynı
+const MIN_CANDLES  = 50;   // canlı candleStore.isReady() eşiği ile aynı
+const DAILY_WINDOW = 220;  // canlı htfPoller 1d limit=220 ile aynı
+const HOLD_CANDLES = 48;   // sonuç penceresi: 4 saat = 48 × 5m (eventTracker MAX_HOLD ile aynı)
 
-const DAYS        = parseInt(args.days    || 90, 10);
-const MIN_SCORE   = parseInt(args['min-score'] || cfg.minScoreToSend, 10);
-const CANDLE_LIMIT = Math.min(1000, DAYS * 288 + 50); // 288 mum/gün (5m)
+const PAGE_LIMIT   = 1000; // Binance futures klines: limit 500–1000 → weight 5
+// ≈ 860 weight/dk — 2400/dk limitinin çok altında (kendi IP'n korunur). Testlerde 0 yapılabilir.
+const REQ_DELAY_MS = Number(process.env.BACKTEST_REQ_DELAY_MS ?? 350);
 
-const OUT_DIR = path.join(__dirname, '..', 'backtest-results');
-if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
+// ── Veri kaynağı (testlerde sahte kaynak enjekte edilebilir) ────────────────
 
-// ── Ana fonksiyon ───────────────────────────────────────────────────────────
+let klineSource = null;
+function source() {
+  if (!klineSource) klineSource = require('./binanceClient').restClient;
+  return klineSource;
+}
+function setKlineSource(src) { klineSource = src; }
 
-async function main() {
-  console.log('\n════════════════════════════════════════════');
-  console.log('  Scalp Bot — Backtest Motoru');
-  console.log(`  Semboller  : ${SYMBOLS.join(', ')}`);
-  console.log(`  Gün        : ${DAYS}  |  Min skor: ${MIN_SCORE}`);
-  console.log('════════════════════════════════════════════\n');
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-  const allResults = [];
+function normalizeKline(k) {
+  return {
+    openTime:  Number(k[0]),
+    open:      parseFloat(k[1]),
+    high:      parseFloat(k[2]),
+    low:       parseFloat(k[3]),
+    close:     parseFloat(k[4]),
+    volume:    parseFloat(k[5]),
+    closeTime: Number(k[6]),
+  };
+}
 
-  for (const symbol of SYMBOLS) {
-    console.log(`\n[${symbol}] Veri çekiliyor...`);
-    const result = await backtestSymbol(symbol);
-    allResults.push(...result);
-    printSymbolSummary(symbol, result);
+/**
+ * Rate limit (Binance kodu -1003 / Retry-After) gelirse bekleyip tekrar dener.
+ * Diğer hatalar olduğu gibi fırlatılır.
+ */
+async function withRetry(fn, label, maxRetries = 3) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const retryAfter  = Number(err?.headers?.['retry-after']);
+      const rateLimited = err?.code === -1003 || Number.isFinite(retryAfter);
+      if (!rateLimited || attempt >= maxRetries) throw err;
+      const waitSec = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60;
+      console.warn(`  [${label}] Rate limit — ${waitSec} sn bekleniyor (tekrar ${attempt + 1}/${maxRetries})`);
+      await sleep(waitSec * 1000);
+    }
+  }
+}
+
+/**
+ * [startTime, endTime) aralığındaki TÜM KAPANMIŞ mumları sayfalayarak çeker.
+ * (Eski sürüm tek istekle en fazla 1000 mum alıyordu → "--days 90" aslında 3.5 gündü.)
+ */
+async function fetchRange(symbol, interval, startTime, endTime) {
+  const tfMs   = TF_MS[interval];
+  const byOpen = new Map();
+  let from = startTime;
+
+  while (from < endTime) {
+    const raw = await withRetry(
+      () => source().getKlines({ symbol, interval, startTime: from, endTime: endTime - 1, limit: PAGE_LIMIT }),
+      `${symbol} ${interval}`,
+    );
+    await sleep(REQ_DELAY_MS);
+    if (!raw || !raw.length) break;
+
+    for (const k of raw) {
+      const c = normalizeKline(k);
+      byOpen.set(c.openTime, c);
+    }
+
+    const next = Number(raw[raw.length - 1][0]) + tfMs;
+    if (next <= from) break;          // ilerleme yoksa sonsuz döngüye girme
+    from = next;
+    if (raw.length < PAGE_LIMIT) break;
   }
 
-  // ── Genel rapor ─────────────────────────────────────────────────────────
-  console.log('\n\n════════════════════════════════════════════');
-  console.log('  GENEL RAPOR');
-  console.log('════════════════════════════════════════════');
+  return [...byOpen.values()]
+    .filter(c => c.closeTime < endTime)            // yalnızca kapanmış mumlar
+    .sort((a, b) => a.openTime - b.openTime);
+}
 
-  printGradeBreakdown(allResults);
-  printRegimeBreakdown(allResults);
-  printEMCBreakdown(allResults);
-  printScoreCalibration(allResults);
+// ── Look-ahead'siz üst zaman dilimi görünümü ────────────────────────────────
 
-  // JSON çıktı
-  const timestamp = new Date().toISOString().replace(/[:T.]/g, '-').slice(0, 19);
-  const outFile   = path.join(OUT_DIR, `backtest-${timestamp}.json`);
-  fs.writeFileSync(outFile, JSON.stringify(allResults, null, 2));
-  console.log(`\n📁 Detaylı sonuçlar: ${outFile}\n`);
+/**
+ * Bir üst TF (15m/1h/4h) için, karar anı T'de canlı candleStore'da ne olacağını üretir:
+ *   T'den önce kapanmış mumlar + T'ye kadarki 5m mumlardan kurulan devam eden mum.
+ *
+ * push() her 5m mum için (atlama yapmadan önce) çağrılmalı; slice(T) artan T ile çağrılmalı.
+ */
+function makeHtfView(closedCandles, tfMs) {
+  let ptr  = 0;     // closedCandles[0..ptr) → closeTime < T
+  let part = null;  // devam eden mum (5m'lerden)
+
+  return {
+    push(c5) {
+      const periodStart = Math.floor(c5.openTime / tfMs) * tfMs;
+      if (!part || part.openTime !== periodStart) {
+        part = { openTime: periodStart, open: c5.open, high: c5.high, low: c5.low, close: c5.close, volume: c5.volume };
+      } else {
+        if (c5.high > part.high) part.high = c5.high;
+        if (c5.low  < part.low)  part.low  = c5.low;
+        part.close   = c5.close;
+        part.volume += c5.volume;
+      }
+    },
+
+    slice(T) {
+      while (ptr < closedCandles.length && closedCandles[ptr].closeTime < T) ptr++;
+      // T periyot sınırındaysa o mum zaten kapanmış (closedCandles içinde) → yarım mum yok
+      const withPartial = part !== null && T % tfMs !== 0;
+      const nClosed = withPartial ? BUFFER - 1 : BUFFER;
+      const out = closedCandles.slice(Math.max(0, ptr - nClosed), ptr);
+      if (withPartial) out.push({ ...part });
+      return out;
+    },
+  };
+}
+
+/**
+ * Canlı htfPoller 4 saatte bir günlük seviyeleri o ana kadarki 1d verisiyle (devam eden gün dahil)
+ * hesaplar. Burada da 4 saatlik blok başlangıcı B itibarıyla aynısı yapılır:
+ *   B'den önce kapanmış günler + B'ye kadarki 5m mumlardan kurulan bugünkü yarım gün.
+ */
+function dailyLevelsAt(B, dailyCandles, c5, i) {
+  const dayStart = Math.floor(B / TF_MS['1d']) * TF_MS['1d'];
+  const closedDays = dailyCandles.filter(d => d.closeTime < B);
+
+  let partDay = null;
+  for (let k = i; k >= 0 && c5[k].openTime >= dayStart; k--) {
+    if (c5[k].openTime >= B) continue;
+    if (!partDay) partDay = { high: c5[k].high, close: c5[k].close };   // en yeni mum → close
+    else if (c5[k].high > partDay.high) partDay.high = c5[k].high;
+  }
+
+  const list = closedDays.slice(-(partDay ? DAILY_WINDOW - 1 : DAILY_WINDOW));
+  if (partDay) list.push(partDay);
+  return calcDailyLevels(list);
 }
 
 // ── Sembol Backtest ─────────────────────────────────────────────────────────
 
-async function backtestSymbol(symbol) {
-  // Tüm TF verilerini çek
-  const [candles5m, candles15m, candles1h, candles4h, candles1d] = await Promise.all([
-    fetchKlines(symbol, '5m',  CANDLE_LIMIT),
-    fetchKlines(symbol, '15m', Math.ceil(CANDLE_LIMIT / 3)),
-    fetchKlines(symbol, '1h',  Math.ceil(CANDLE_LIMIT / 12)),
-    fetchKlines(symbol, '4h',  Math.ceil(CANDLE_LIMIT / 48)),
-    fetchKlines(symbol, '1d',  90),
-  ]);
+/**
+ * @returns {{ signals: object[], stats: object }}
+ */
+async function backtestSymbol(symbol, { startTime, endTime, minScore }) {
+  // Isınma: canlı bot 200 mumluk tamponla başlıyor → her TF için başlangıçtan önce 200 mum
+  const ranges = {
+    '5m':  startTime - BUFFER * TF_MS['5m'],
+    '15m': startTime - BUFFER * TF_MS['15m'],
+    '1h':  startTime - BUFFER * TF_MS['1h'],
+    '4h':  startTime - BUFFER * TF_MS['4h'],
+    '1d':  startTime - DAILY_WINDOW * TF_MS['1d'],
+  };
 
-  if (candles5m.length < 100) {
-    console.warn(`  [${symbol}] Yetersiz 5m veri (${candles5m.length} mum)`);
-    return [];
+  // Sıralı çek (paralel değil) — rate limit koruması
+  const data = {};
+  for (const tf of Object.keys(ranges)) {
+    data[tf] = await fetchRange(symbol, tf, ranges[tf], endTime);
   }
 
-  // Günlük seviye — tüm backtest boyunca sabit (gerçekçi yaklaşım için rolling yapılabilir)
-  const daily = calcDailyLevels(candles1d);
+  const c5 = data['5m'];
+  const stats = {
+    candles: Object.fromEntries(Object.entries(data).map(([tf, arr]) => [tf, arr.length])),
+    range: c5.length ? [c5[0].openTime, c5[c5.length - 1].closeTime + 1] : null,
+    decisions: 0, nearLevel: 0, rsi1hOk: 0, rsi4hOk: 0, gatePass: 0,
+    planInvalid: 0, belowScore: 0, signals: 0,
+  };
+
+  if (c5.length < BUFFER) {
+    console.warn(`  [${symbol}] Yetersiz 5m veri (${c5.length} mum) — atlandı`);
+    return { signals: [], stats };
+  }
+
+  const views = {
+    '15m': makeHtfView(data['15m'], TF_MS['15m']),
+    '1h':  makeHtfView(data['1h'],  TF_MS['1h']),
+    '4h':  makeHtfView(data['4h'],  TF_MS['4h']),
+  };
 
   const signals = [];
-  const MIN_CANDLES = 50; // her TF için minimum buffer
+  let dailyKey = null;
+  let daily    = null;
 
-  // 5m üzerinde kayan pencere — her mumda sinyal motoru çalıştır
-  for (let i = MIN_CANDLES; i < candles5m.length; i++) {
-    const ts5m = candles5m[i].openTime;
+  for (let i = 0; i < c5.length; i++) {
+    const cur = c5[i];
+    // Yarım HTF mumları her 5m mumla güncellenmeli — aşağıdaki "continue"lardan ÖNCE
+    views['15m'].push(cur);
+    views['1h'].push(cur);
+    views['4h'].push(cur);
 
-    // Her TF için zaman eşleşmeli slice al
-    const slice5m  = candles5m.slice(0, i + 1).slice(-200);
-    const slice15m  = getSliceUpToTime(candles15m, ts5m, 200);
-    const slice1h   = getSliceUpToTime(candles1h,  ts5m, 200);
-    const slice4h   = getSliceUpToTime(candles4h,  ts5m, 200);
+    const T = cur.openTime + TF_MS['5m'];                       // karar anı: 5m mum kapanışı
+    if (cur.openTime < startTime) continue;                     // ısınma bölgesi
+    if (T + HOLD_CANDLES * TF_MS['5m'] > endTime) break;        // sonucu ölçecek tam 4 saat yok
+    if (i + 1 < MIN_CANDLES) continue;
+    stats.decisions++;
 
-    if (slice15m.length < MIN_CANDLES || slice1h.length < MIN_CANDLES) continue;
+    // ── Günlük seviye (4 saatlik blok başına bir kez, canlı htfPoller gibi) ──
+    const block = Math.floor(T / TF_MS['4h']) * TF_MS['4h'];
+    if (block !== dailyKey) {
+      daily    = dailyLevelsAt(block, data['1d'], c5, i);
+      dailyKey = block;
+    }
 
-    const ind5m  = computeAll(slice5m);
-    const ind15m = computeAll(slice15m);
-    const ind1h  = computeAll(slice1h);
-    const ind4h  = slice4h.length >= MIN_CANDLES ? computeAll(slice4h) : null;
+    const price = cur.close;
+    const { nearDailyLevel, dailyProximity } = nearLevelInfo(price, daily);
 
-    const price  = ind5m.price;
-    const rsi5m  = ind5m.rsi;
-    const rsi15m = ind15m.rsi;
-    const rsi1h  = ind1h.rsi;
-    const rsi4h  = ind4h?.rsi ?? null;
+    // Aşağıdaki erken "continue"lar yalnızca hız içindir: gates.js'teki tüm kapılar VE ile
+    // bağlı olduğundan, bir kapı kalırsa sonuç zaten "reddedildi" olur. Son karar yine
+    // checkGates() ile birebir verilir.
+    if (!nearDailyLevel) continue;
+    stats.nearLevel++;
 
-    // Günlük yakınlık
-    const dailyProximity = Math.max(
-      calcDailyProximity(price, daily.ema200),
-      calcDailyProximity(price, daily.resistance),
-    );
-    const nearDailyLevel = dailyProximity >= 0.3;
+    const s15 = views['15m'].slice(T);
+    const s1h = views['1h'].slice(T);
+    if (s15.length < MIN_CANDLES || s1h.length < MIN_CANDLES) continue;   // canlı isReady()
 
-    // Regime (backtest'te OI/funding yok — null geçiyoruz)
-    const regime = detectRegime({
-      indicators:  ind5m,
-      oiDeltaPct:  null,
-      fundingRate: null,
-      candles:     slice5m,
-    });
+    const ind1h = computeAll(s1h);
+    if (!ind1h.rsi || ind1h.rsi < cfg.rsi1hMin) continue;
+    stats.rsi1hOk++;
 
-    // Gates
+    const s4h   = views['4h'].slice(T);
+    const ind4h = s4h.length >= MIN_CANDLES ? computeAll(s4h) : null;
+    if (!ind4h?.rsi || ind4h.rsi < cfg.rsi4hMin) continue;
+    stats.rsi4hOk++;
+
+    const s5     = c5.slice(Math.max(0, i - BUFFER + 1), i + 1);
+    const ind5m  = computeAll(s5);
+    const ind15m = computeAll(s15);
+
+    const regime = detectRegime({ indicators: ind5m, oiDeltaPct: null, fundingRate: null, candles: s5 });
+
     const gateResult = checkGates({
-      rsi5m,
-      rsi15m,
-      rsi1h,
-      rsi4h,
+      rsi5m:         ind5m.rsi,
+      rsi15m:        ind15m.rsi,
+      rsi1h:         ind1h.rsi,
+      rsi4h:         ind4h.rsi,
       ema21Distance: ind5m.distance,
       ema21Touched:  ind5m.touched,
       nearDailyLevel,
       fundingRate:   null,
       regime,
     });
-
     if (!gateResult.pass) continue;
+    stats.gatePass++;
 
-    // Skor
-    const primaryRSI = Math.max(rsi5m ?? 0, rsi15m ?? 0);
+    // ── İşlem planı — canlı ile aynı sıra: kapı → plan → skor ──
+    const plan = calcTradePlan({
+      entryPrice:     price,
+      ema21:          ind5m.ema21,
+      atr:            ind5m.atr,
+      initialRiskPct: cfg.initialRiskPct,
+    });
+    if (!plan.valid) { stats.planInvalid++; continue; }
+
+    const primaryRSI = Math.max(ind5m.rsi ?? 0, ind15m.rsi ?? 0);
     const { score, grade, breakdown } = calcScore({
       rsi:           primaryRSI,
       ema21Distance: ind5m.distance,
@@ -167,52 +312,38 @@ async function backtestSymbol(symbol) {
       negPeaks:      ind5m.negPeaks,
       hasEMC:        gateResult.hasEMC,
     });
+    if (score < minScore) { stats.belowScore++; continue; }
 
-    if (score < MIN_SCORE) continue;
+    const futureCandles = c5.slice(i + 1, i + 1 + HOLD_CANDLES);
+    const outcome = simulateOutcome(price, plan.slLevel, plan.tpA, plan.tpB, futureCandles);
 
-    // TP hesabı (aynı signalEngine.js mantığı)
-    const ema21_5m = ind5m.ema21;
-    const atr5m    = ind5m.atr;
-    const tpA = ema21_5m != null ? +(ema21_5m * 1.0015).toFixed(6) : null;
-    const tpB = ema21_5m != null && atr5m != null
-      ? +(ema21_5m - atr5m * 0.3).toFixed(6)
-      : null;
-    const safeTpB = tpB != null && tpA != null && tpB < tpA ? tpB : null;
-
-    // SL seviyesi
-    const slLevel = price * (1 + cfg.initialRiskPct / 100);
-
-    // İleriye dönük simülasyon
-    const futureCandles = candles5m.slice(i + 1, i + 1 + 288); // maks 24h (288 × 5m)
-    const outcome = simulateOutcome(price, slLevel, tpA, safeTpB, futureCandles);
-
+    stats.signals++;
     signals.push({
       symbol,
-      ts:     ts5m,
-      date:   new Date(ts5m).toISOString(),
+      ts:     T,
+      date:   new Date(T).toISOString(),
       grade,
       score,
       regime,
       hasEMC: gateResult.hasEMC ? 1 : 0,
       entryPrice: price,
-      tpA,
-      tpB: safeTpB,
-      slLevel,
-      rsi5m:         rsi5m    != null ? +rsi5m.toFixed(2)    : null,
-      rsi15m:        rsi15m   != null ? +rsi15m.toFixed(2)   : null,
-      rsi1h:         rsi1h    != null ? +rsi1h.toFixed(2)    : null,
-      rsi4h:         rsi4h    != null ? +rsi4h.toFixed(2)    : null,
-      ema21Distance: +ind5m.distance.toFixed(3),
-      volumeRatio:   +ind5m.volRatio.toFixed(2),
-      cvdDir:        ind5m.cvdDir,
+      tpA:     plan.tpA,
+      tpB:     plan.tpB,
+      slLevel: plan.slLevel,
+      rsi5m:   ind5m.rsi  != null ? +ind5m.rsi.toFixed(2)  : null,
+      rsi15m:  ind15m.rsi != null ? +ind15m.rsi.toFixed(2) : null,
+      rsi1h:   +ind1h.rsi.toFixed(2),
+      rsi4h:   +ind4h.rsi.toFixed(2),
+      ema21Distance:  +ind5m.distance.toFixed(3),
+      volumeRatio:    +ind5m.volRatio.toFixed(2),
+      cvdDir:         ind5m.cvdDir,
       dailyProximity: +dailyProximity.toFixed(3),
       ...outcome,
-      // Skor dağılımı (kalibrasyon için)
       scoreBreakdown: breakdown,
     });
   }
 
-  return signals;
+  return { signals, stats };
 }
 
 // ── Gelecek mum simülasyonu ─────────────────────────────────────────────────
@@ -229,12 +360,10 @@ function simulateOutcome(entryPrice, slLevel, tpA, tpB, futureCandles) {
   let tpHitAt = null;
   let slHitAt = null;
 
-  const MAX_HOLD = 4 * 60 * 60 * 1000; // 4 saat (48 mum × 5m)
-  const maxCandles = Math.min(futureCandles.length, 48);
+  const maxCandles = Math.min(futureCandles.length, HOLD_CANDLES);
 
   for (let j = 0; j < maxCandles; j++) {
     const c = futureCandles[j];
-    const ts = c.openTime + (j + 1) * 5 * 60 * 1000;
 
     // SHORT: fiyat düşerse favorable
     const lowChange  = (entryPrice - c.low)  / entryPrice * 100;  // max kazanç
@@ -295,80 +424,94 @@ function simulateOutcome(entryPrice, slLevel, tpA, tpB, futureCandles) {
   };
 }
 
-// ── Günlük Seviye Hesabı ────────────────────────────────────────────────────
+// ── Ana fonksiyon ───────────────────────────────────────────────────────────
 
-function calcDailyLevels(klines1d) {
-  if (!klines1d.length) return { ema200: null, resistance: null };
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
 
-  const closes = klines1d.map(k => k.close);
+  const SYMBOLS   = args.symbol
+    ? String(args.symbol).split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
+    : cfg.testSymbols;
+  const DAYS      = parseInt(args.days || 90, 10);
+  const MIN_SCORE = parseInt(args['min-score'] ?? cfg.minScoreToSend, 10);
 
-  // EMA200 — günlük
-  let ema200 = null;
-  if (closes.length >= 30) {
-    // Basit yaklaşım: son 30 günün EMA yerine ortalaması (az veri için)
-    const period = Math.min(closes.length, 200);
-    const slice  = closes.slice(-period);
-    ema200 = slice.reduce((s, v) => s + v, 0) / slice.length;
+  if (!Number.isFinite(DAYS) || DAYS < 1) throw new Error(`Geçersiz --days: ${args.days}`);
+
+  // Son kapanmış 5m sınırına hizala
+  const endTime   = Math.floor(Date.now() / TF_MS['5m']) * TF_MS['5m'];
+  const startTime = endTime - DAYS * TF_MS['1d'];
+
+  const OUT_DIR = path.join(__dirname, '..', 'backtest-results');
+  if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
+
+  console.log('\n════════════════════════════════════════════');
+  console.log('  Scalp Bot — Backtest Motoru');
+  console.log(`  Semboller  : ${SYMBOLS.join(', ')}`);
+  console.log(`  Dönem      : ${fmtDate(startTime)} → ${fmtDate(endTime)} (${DAYS} gün)  |  Min skor: ${MIN_SCORE}`);
+  console.log('════════════════════════════════════════════\n');
+
+  const allResults = [];
+  const allStats   = {};
+
+  for (const symbol of SYMBOLS) {
+    console.log(`\n[${symbol}] Veri çekiliyor...`);
+    try {
+      const { signals, stats } = await backtestSymbol(symbol, { startTime, endTime, minScore: MIN_SCORE });
+      allResults.push(...signals);
+      allStats[symbol] = stats;
+      printCoverage(symbol, stats);
+      printSymbolSummary(symbol, signals);
+    } catch (err) {
+      console.error(`  [${symbol}] Hata — atlandı:`, err?.message || err?.body || err);
+    }
   }
 
-  // Majör direnç — son 30 günün en yüksek 3 kapanış ortalaması
-  const highs = klines1d.slice(-30).map(k => k.high).sort((a, b) => b - a);
-  const resistance = highs.length >= 3
-    ? (highs[0] + highs[1] + highs[2]) / 3
-    : highs[0] ?? null;
+  console.log('\n\n════════════════════════════════════════════');
+  console.log('  GENEL RAPOR');
+  console.log('════════════════════════════════════════════');
 
-  return { ema200, resistance };
-}
+  printFunnel(allStats);
+  printGradeBreakdown(allResults);
+  printRegimeBreakdown(allResults);
+  printEMCBreakdown(allResults);
+  printScoreCalibration(allResults);
 
-/**
- * Fiyatın günlük seviyeye yakınlık skoru (signalEngine.js'den aynı)
- */
-function calcDailyProximity(price, level) {
-  if (!level || level === 0) return 0;
-  const pct = Math.abs(price - level) / level * 100;
-  if (pct <= 0.2) return 1.0;
-  if (pct <= 0.5) return 0.9;
-  if (pct <= 1.0) return 0.7;
-  if (pct <= 1.5) return 0.5;
-  if (pct <= 2.5) return 0.2;
-  return 0;
-}
-
-// ── Veri Yardımcıları ───────────────────────────────────────────────────────
-
-/**
- * REST'ten kline çek ve normalize et
- * @returns {{ openTime, open, high, low, close, volume }[]}
- */
-async function fetchKlines(symbol, interval, limit) {
-  try {
-    const raw = await restClient.getKlines({ symbol, interval, limit });
-    return raw.map(k => ({
-      openTime: parseInt(k[0], 10),
-      open:     parseFloat(k[1]),
-      high:     parseFloat(k[2]),
-      low:      parseFloat(k[3]),
-      close:    parseFloat(k[4]),
-      volume:   parseFloat(k[5]),
-    }));
-  } catch (err) {
-    console.error(`  [${symbol}/${interval}] Veri çekme hatası:`, err.message);
-    return [];
-  }
-}
-
-/**
- * Belirli bir zaman damgasına kadar olan mumları slice et
- * OpenTime'a göre sıralı olduğu varsayılır
- */
-function getSliceUpToTime(candles, ts, maxLen = 200) {
-  // ts: 5m mum açılış zamanı — eşit veya küçük olanları al
-  const idx = candles.findLastIndex(c => c.openTime <= ts);
-  if (idx < 0) return [];
-  return candles.slice(Math.max(0, idx - maxLen + 1), idx + 1);
+  const timestamp = new Date().toISOString().replace(/[:T.]/g, '-').slice(0, 19);
+  const outFile   = path.join(OUT_DIR, `backtest-${timestamp}.json`);
+  fs.writeFileSync(outFile, JSON.stringify({ params: { SYMBOLS, DAYS, MIN_SCORE, startTime, endTime }, stats: allStats, signals: allResults }, null, 2));
+  console.log(`\n📁 Detaylı sonuçlar: ${outFile}\n`);
 }
 
 // ── Raporlama ────────────────────────────────────────────────────────────────
+
+function fmtDate(ts) {
+  return new Date(ts).toISOString().slice(0, 16).replace('T', ' ');
+}
+
+function printCoverage(symbol, stats) {
+  const c = stats.candles;
+  const r = stats.range ? `${fmtDate(stats.range[0])} → ${fmtDate(stats.range[1])}` : '—';
+  console.log(`  [${symbol}] Veri: ${r} | 5m:${c['5m']} 15m:${c['15m']} 1h:${c['1h']} 4h:${c['4h']} 1d:${c['1d']} mum`);
+}
+
+/**
+ * Sinyallerin hangi aşamada elendiğini gösterir — kapı kalibrasyonu için
+ */
+function printFunnel(allStats) {
+  const sum = key => Object.values(allStats).reduce((s, st) => s + (st[key] || 0), 0);
+  const steps = [
+    ['Değerlendirilen 5m kapanış', 'decisions'],
+    ['Günlük seviyeye yakın',      'nearLevel'],
+    ['+ 1h RSI ≥ ' + cfg.rsi1hMin, 'rsi1hOk'],
+    ['+ 4h RSI ≥ ' + cfg.rsi4hMin, 'rsi4hOk'],
+    ['Tüm kapılar geçti',          'gatePass'],
+    ['− TP-A geçersiz (elendi)',   'planInvalid'],
+    ['− Skor eşik altı (elendi)',  'belowScore'],
+    ['= Sinyal',                   'signals'],
+  ];
+  console.log('\n🔻 Eleme Hunisi (tüm semboller):');
+  for (const [label, key] of steps) console.log(`  ${label.padEnd(28)} ${String(sum(key)).padStart(8)}`);
+}
 
 function printSymbolSummary(symbol, signals) {
   if (!signals.length) {
@@ -391,7 +534,7 @@ function printSymbolSummary(symbol, signals) {
 }
 
 function printGradeBreakdown(signals) {
-  if (!signals.length) { console.log('  Sinyal yok.'); return; }
+  if (!signals.length) { console.log('\n  Sinyal yok.'); return; }
 
   console.log('\n📊 Dereceye Göre Win Rate:');
   console.log('  Grade  | Total  | Win%   | Ort MFE | Ort MAE');
@@ -408,6 +551,7 @@ function printGradeBreakdown(signals) {
 }
 
 function printRegimeBreakdown(signals) {
+  if (!signals.length) return;
   console.log('\n🔍 Rejime Göre Win Rate:');
   console.log('  Regime       | Total  | Win%');
   console.log('  -------------+--------+------');
@@ -421,6 +565,7 @@ function printRegimeBreakdown(signals) {
 }
 
 function printEMCBreakdown(signals) {
+  if (!signals.length) return;
   console.log('\n⚡ EMC Analizi:');
   for (const hasEMC of [1, 0]) {
     const grp = signals.filter(s => s.hasEMC === hasEMC);
@@ -432,10 +577,11 @@ function printEMCBreakdown(signals) {
 }
 
 /**
- * Skor kalibrasyon tablosu — her 5 puanlık bantda win rate
+ * Skor kalibrasyon tablosu — her 5 puanlık bantta win rate
  * Bu tablo kullanılarak minScoreToSend ayarlanabilir
  */
 function printScoreCalibration(signals) {
+  if (!signals.length) return;
   console.log('\n📈 Skor Kalibrasyon Tablosu:');
   console.log('  Skor Aralığı | Total  | Win%   | Öneri');
   console.log('  -------------+--------+--------+------');
@@ -456,7 +602,6 @@ function printScoreCalibration(signals) {
     console.log(`  ${String(lower).padEnd(3)}-${String(upper).padEnd(3)}         | ${String(grp.length).padEnd(6)} | ${wr.padEnd(6)}% | ${note}`);
   }
 
-  // Genel toplam
   const total = signals.length;
   const wins  = signals.filter(s => s.outcome === 'WIN').length;
   const wr    = total ? ((wins / total) * 100).toFixed(1) : '—';
@@ -481,9 +626,21 @@ function parseArgs(argv) {
   return result;
 }
 
-// ── Başlat ───────────────────────────────────────────────────────────────────
+// ── Başlat (yalnızca doğrudan çalıştırıldığında; testler require edebilir) ──
 
-main().catch(err => {
-  console.error('\n[BACKTEST] Kritik hata:', err.message || err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch(err => {
+    console.error('\n[BACKTEST] Kritik hata:', err?.message || err);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  backtestSymbol,
+  fetchRange,
+  makeHtfView,
+  dailyLevelsAt,
+  simulateOutcome,
+  setKlineSource,
+  TF_MS,
+};

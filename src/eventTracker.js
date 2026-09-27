@@ -63,13 +63,15 @@ function onPrice(symbol, currentPrice, ts = Date.now()) {
     // tpA ve tpB her ikisi de dolu ve tpB < tpA ise:
     //   önce tpA kontrol et (yakın hedef), sonra tpB (derin hedef)
     // Her tick'te en son state.tpHit güncellenir (daha derin hedefe upgrade)
-    if (signal.tpA != null && currentPrice <= signal.tpA) {
+    // Güvence: SHORT'ta TP girişin ALTINDA olmalı. Eski sürümde TP-A girişin üstüne
+    // düşebiliyordu → fiyat hiç kıpırdamadan WIN yazılıyordu. Böyle bir TP yok sayılır.
+    if (signal.tpA != null && signal.tpA < signal.entryPrice && currentPrice <= signal.tpA) {
       if (!state.tpHit) {
         state.tpHit   = 'TP_A';
         state.tpHitAt = ts;
       }
     }
-    if (signal.tpB != null && currentPrice <= signal.tpB) {
+    if (signal.tpB != null && signal.tpB < signal.entryPrice && currentPrice <= signal.tpB) {
       // TP-B daha derin → upgrade et
       state.tpHit   = 'TP_B';
       state.tpHitAt = ts;

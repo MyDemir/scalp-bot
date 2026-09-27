@@ -12,7 +12,7 @@
 
 const cfg            = require('./config');
 const { fetchKlines, fetchFundingRate, fetchOpenInterest } = require('./binanceClient');
-const { calcEMA }    = require('./indicators');
+const { calcDailyLevels } = require('./levels');
 const candleStore    = require('./candleStore');
 const signalEngine   = require('./signalEngine');
 
@@ -32,14 +32,9 @@ async function pollSymbol(symbol) {
     const klines1d = await fetchKlines(symbol, '1d', 220);
     candleStore.seed(symbol, '1d', klines1d);
 
-    const closes1d = klines1d.map(k => parseFloat(k[4]));
-    const ema200   = closes1d.length >= 200 ? calcEMA(closes1d, 200) : null;
-
-    // Majör yatay direnç: son 30 günlük pivot high
-    const resistance = calcMajorResistance(klines1d.slice(-30));
-
-    // signalEngine'e ilet
-    signalEngine.setDailyLevel(symbol, { ema200, resistance });
+    // EMA200 + majör direnç — backtest ile ortak hesap (levels.js)
+    const daily1d = klines1d.map(k => ({ high: parseFloat(k[2]), close: parseFloat(k[4]) }));
+    signalEngine.setDailyLevel(symbol, calcDailyLevels(daily1d));
 
     // ── Funding rate ────────────────────────────────────
     // (signalEngine.evaluate() çağrılırken kullanılacak)
@@ -90,20 +85,6 @@ async function pollAll(symbols) {
   }
 
   console.log('[HTF] Tamamlandı.');
-}
-
-/**
- * Son 30 günlük pivot high → majör yatay direnç
- * Basit yöntem: en yüksek 3 mum arasındaki ortalama
- */
-function calcMajorResistance(klines1d) {
-  if (!klines1d || klines1d.length < 5) return null;
-
-  const highs = klines1d.map(k => parseFloat(k[2])); // index 2 = high
-  highs.sort((a, b) => b - a);
-  // En yüksek 3 değerin ortalaması
-  const top3 = highs.slice(0, 3);
-  return +(top3.reduce((s, v) => s + v, 0) / top3.length).toFixed(6);
 }
 
 function _sleep(ms) {

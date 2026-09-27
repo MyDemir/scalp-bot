@@ -20,6 +20,8 @@ const { sendSignalAlert } = require('./telegram');
 const db           = require('./db');
 const tracker      = require('./eventTracker');
 const candleStore  = require('./candleStore');
+const { nearLevelInfo } = require('./levels');
+const { calcTradePlan } = require('./tradePlan');
 
 // Cooldown: son sinyal zamanı { symbol → ts }
 const lastSignalAt = new Map();
@@ -34,21 +36,7 @@ function setDailyLevel(symbol, data) {
   dailyLevels.set(symbol, data);
 }
 
-/**
- * Yakınlık skoru: fiyat ne kadar direnç/ema200'e yakın?
- * 0 = uzak, 1 = tam üstünde
- * Eşik: %1.5 içindeyse "yakın" sayılır
- */
-function calcDailyProximity(price, level) {
-  if (!level || level === 0) return 0;
-  const pct = Math.abs(price - level) / level * 100;
-  if (pct <= 0.2) return 1.0;
-  if (pct <= 0.5) return 0.9;
-  if (pct <= 1.0) return 0.7;
-  if (pct <= 1.5) return 0.5;
-  if (pct <= 2.5) return 0.2;
-  return 0;
-}
+// Günlük yakınlık hesabı levels.js'te (backtest ile ortak)
 
 /**
  * @param {string} symbol
@@ -86,17 +74,7 @@ async function evaluate(symbol, oiDeltaPct = null, fundingRate = null) {
 
   // ── Günlük seviye kontrolü ────────────────────────────
   const daily = dailyLevels.get(symbol);
-  const nearDailyLevel = daily
-    ? (calcDailyProximity(price, daily.ema200) >= 0.3 ||
-       calcDailyProximity(price, daily.resistance) >= 0.3)
-    : false;
-
-  const dailyProximity = daily
-    ? Math.max(
-        calcDailyProximity(price, daily.ema200),
-        calcDailyProximity(price, daily.resistance)
-      )
-    : 0;
+  const { nearDailyLevel, dailyProximity } = nearLevelInfo(price, daily);
 
   // ── Market Regime ─────────────────────────────────────
   const regime = detectRegime({
@@ -125,6 +103,19 @@ async function evaluate(symbol, oiDeltaPct = null, fundingRate = null) {
     return;
   }
 
+  // ── İşlem planı (TP/SL) — backtest ile ortak (tradePlan.js) ──
+  const plan = calcTradePlan({
+    entryPrice:     price,
+    ema21:          ind5m.ema21,
+    atr:            ind5m.atr,
+    initialRiskPct: cfg.initialRiskPct,
+  });
+
+  if (!plan.valid) {
+    console.log(`[GATE] ${symbol} reddedildi: ${plan.reason}`);
+    return;
+  }
+
   // ── Skor Hesabı ───────────────────────────────────────
   const primaryRSI = Math.max(rsi5m ?? 0, rsi15m ?? 0);
 
@@ -141,26 +132,6 @@ async function evaluate(symbol, oiDeltaPct = null, fundingRate = null) {
 
   // D derecesi → gönderme
   if (score < cfg.minScoreToSend) return;
-
-  // ── TP Hesabı (basit — EMA21 bazlı) ──────────────────
-  const ema21_5m = ind5m.ema21;
-  const atr5m    = ind5m.atr;
-
-  // SHORT için TP = fiyat EMA21'e doğru düşer
-  // TP-A: EMA21'in %0.15 üstü (yakın hedef — ema21'e yaklaşınca kapat)
-  // TP-B: EMA21 - 0.3×ATR (derin hedef — oyalama/çakma senaryosu)
-  // Güvence: tpB mutlaka tpA'dan küçük olmalı (SHORT mantığı)
-  const tpA = ema21_5m != null
-    ? +(ema21_5m * 1.0015).toFixed(6)   // EMA21'in %0.15 üstü = yaklaşma hedefi
-    : null;
-  const tpB = ema21_5m != null && atr5m != null
-    ? +(ema21_5m - atr5m * 0.3).toFixed(6)  // EMA21'in altı = derin hedef
-    : null;
-
-  // tpA > tpB olmalı (SHORT: entry > tpA > tpB şeklinde düşer)
-  // Eğer bir şekilde tersine dönmüşse tpB'yi iptal et
-  const safeTpA = tpA;
-  const safeTpB = tpB != null && tpA != null && tpB < tpA ? tpB : null;
 
   // ── Sinyal ID ─────────────────────────────────────────
   const now = Date.now();
@@ -187,8 +158,8 @@ async function evaluate(symbol, oiDeltaPct = null, fundingRate = null) {
     fundingRate:    fundingRate !== null ? +fundingRate.toFixed(6) : null,
     dailyResistance: daily?.resistance ?? null,
     dailyEMA200:     daily?.ema200 ?? null,
-    tpA: safeTpA,
-    tpB: safeTpB,
+    tpA: plan.tpA,
+    tpB: plan.tpB,
     sentAt: now,
   };
 
