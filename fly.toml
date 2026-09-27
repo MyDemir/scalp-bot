@@ -1,0 +1,32 @@
+# ── Scalp Sinyal Motoru — Fly.io yapılandırması ─────────────────────────────
+#
+# ÖNEMLİ: 'app' adı global olarak benzersiz olmalı — deploy etmeden önce
+# değiştir (örn: "scalp-bot-mydemir").
+#
+# ÖNEMLİ: primary_region mutlaka fra veya ams olmalı — Binance Futures API
+# ABD IP'lerini (iad, ord, sea, dfw vb.) 451 hatasıyla engelliyor.
+#
+# Bu bot bir arka plan worker'ı (WebSocket + REST polling + Telegram bot
+# polling) — HTTP servisi açmıyor, bu yüzden [http_service] bloğu YOK.
+# O blok olursa Fly makineyi "trafik yok" diye uyutmaya çalışır.
+
+app = "scalp-bot-CHANGEME"
+primary_region = "fra"
+
+[build]
+
+[env]
+  NODE_ENV = "production"
+
+# Kalıcı disk — SQLite veritabanı burada yaşıyor.
+# Bu olmadan her deploy/restart'ta sinyal geçmişi silinir.
+[mounts]
+  source      = "scalp_data"
+  destination = "/data"
+
+[[vm]]
+  size   = "shared-cpu-1x"
+  memory = "512mb"
+
+[processes]
+  app = "node src/index.js"
