@@ -76,7 +76,7 @@ function startWebSocket(symbols, timeframes, onKline, cfg) {
     const kline   = data.kline   || data.k;
     if (!symbol || !kline) return;
     const tf       = kline.interval    || kline.i;
-    const isFinal  = kline.isFinalBar  ?? kline.x ?? false;
+    const isFinal  = kline.final ?? kline.x ?? false;
     if (tf) onKline(symbol, tf, kline, isFinal);
   });
 
@@ -85,7 +85,7 @@ function startWebSocket(symbols, timeframes, onKline, cfg) {
     const kline    = data.kline  || data.k;
     if (!symbol || !kline) return;
     const tf       = kline.interval || kline.i;
-    const isFinal  = kline.isFinalBar ?? kline.x ?? false;
+    const isFinal  = kline.final ?? kline.x ?? false;
     if (tf) onKline(symbol, tf, kline, isFinal);
   });
 
