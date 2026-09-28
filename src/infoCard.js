@@ -48,7 +48,7 @@ const updown = (v, d = 1) => (v == null || !Number.isFinite(v) ? '—' : `${pa(v
 
 /** RSI satırı işareti: 🔴 ≥ rsiMin (85) · 🔴🔴 ≥ rsiMin2 (90) · 🔴🔴🔴 ≥ strongRsi (95) */
 const mark = (v, s) => (v >= s.strongRsi ? ' 🔴🔴🔴' : v >= s.rsiMin2 ? ' 🔴🔴' : v >= s.rsiMin ? ' 🔴' : '');
-const circles = n => (n > 0 ? '🔴'.repeat(n) : '⚪');
+const { circles } = require('./infoEngine');
 
 function levelLines(snap, s) {
   const lv = snap.level;
@@ -146,7 +146,7 @@ function formatCard(card, s, opt = {}) {
 function formatMove(m, s) {
   const up = m.pct > 0;
   const L = [];
-  L.push(`⚡${circles(m.grade || 1)} <b>$${esc(m.symbol)}</b> · 1 dakikada <b>${ps(m.pct)}</b> ${up ? '▲' : '▼'}`);
+  L.push(`⚡${circles(m.grade || 1, up ? 'green' : 'red')} <b>$${esc(m.symbol)}</b> · 1 dakikada <b>${ps(m.pct)}</b> ${up ? '▲' : '▼'}`);
   L.push('');
   L.push(`<b>Fiyat:</b> <code>${px(m.from)}</code> → <code>${px(m.to)}</code>`);
   if (m.volX != null) L.push(`<b>Hacim:</b> son 20 dk ortalamasının ${m.volX.toFixed(1)} katı`);

@@ -140,7 +140,15 @@ function rsiGrade(snap, s) {
   return g;
 }
 
-const circles = n => (n > 0 ? '🔴'.repeat(n) : '⚪');
+/**
+ * Derece daireleri. Renk yönü gösterir: 'red' = düşüş/satış ya da aşırı alım (short tarafı),
+ * 'green' = yükseliş/alış, 'white' = nötr. 0 derece → ⚪ (şart dışı).
+ */
+const DOT = { red: '🔴', green: '🟢', white: '⚪' };
+const circles = (n, color = 'red') => (n > 0 ? (DOT[color] || DOT.red).repeat(n) : '⚪');
+/** Hacimli mum / hareket yönüne göre renk */
+const dirColor = (dirOrMove) => (dirOrMove === 'buy' || (typeof dirOrMove === 'number' && dirOrMove > 0) ? 'green'
+  : dirOrMove === 'sell' || (typeof dirOrMove === 'number' && dirOrMove < 0) ? 'red' : 'white');
 
 function separation(series, tf, price) {
   const c = series.col(tf, 'c'), h = series.col(tf, 'h'), l = series.col(tf, 'l');
@@ -324,7 +332,7 @@ const distTxt = dist => (dist <= 0 ? `${pa(dist)} kala` : `${pa(dist)} üstünde
 function burstText(b) {
   const kind = b.dir === 'sell' ? 'satış' : b.dir === 'buy' ? 'alış' : 'nötr';
   const share = b.dir === 'sell' ? `satış ${pa(100 - b.taker, 0)}` : `alış ${pa(b.taker, 0)}`;
-  return `${circles(b.grade || 1)} Hacimli ${kind} mumu: ${ps(b.body, 1)} · hacim ${b.volX.toFixed(1)} kat · ${share}`;
+  return `${circles(b.grade || 1, dirColor(b.dir))} Hacimli ${kind} mumu: ${ps(b.body, 1)} · hacim ${b.volX.toFixed(1)} kat · ${share}`;
 }
 
 const GRADE_TXT = {
@@ -501,4 +509,4 @@ function movePct(prevClose, prevT, c) {
   return base > 0 ? (c.c - base) / base * 100 : null;
 }
 
-module.exports = { evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, negPeaks, movePct, volGrade, rsiGrade, circles, RSI_TFS };
+module.exports = { evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, negPeaks, movePct, volGrade, rsiGrade, circles, dirColor, RSI_TFS };

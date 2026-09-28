@@ -105,7 +105,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, getSer
 
 <b>Derece daireleri</b>
 RSI kartı: 🔴 RSI ≥ ${settings.get().rsiMin} · 🔴🔴 RSI ≥ ${settings.get().rsiMin2} + seviye · 🔴🔴🔴 üç dilimde ≥ ${settings.get().rsiMin2} + dipte + EMA21 ayrışması (sesli)
-Hacimli mum / ⚡: 🔴 temel · 🔴🔴 hacim ≥ ${settings.get().volGrade2X}× · 🔴🔴🔴 + yön uyumu ≥ %${settings.get().dirGrade3Pct}
+Hacimli mum / ⚡: 1 daire temel · 2 daire hacim ≥ ${settings.get().volGrade2X}× · 3 daire + yön uyumu ≥ %${settings.get().dirGrade3Pct} — 🟢 alış/yükseliş · 🔴 satış/düşüş · ⚪ nötr
 RSI periyodu: ${settings.get().rsiPeriod}
 
 Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesinde RSI ≥ <b>${settings.get().rsiMin}</b>${settings.get().levelRequired ? ` ve fiyatın üstünde en fazla <b>%${settings.get().levelMaxPct}</b> uzakta bir seviye (4h/1d MA200 · EMA200 · 30 günlük tepe)` : ''}. Kontrol: 3m/5m/15m kapanışları + hacimli her 1m mum. Önceki karttan bu yana yeni veri yoksa kart gitmez.${settings.get().seriesBursts ? ' Seri sürerken (5m RSI ' + settings.get().resetRsi + ' altına inmeden) gelen hacimli mumlar şart aranmadan kart olur (#SERI).' : ''}${settings.get().moveAlertPct > 0 ? `\n\n⚡ ${settings.get().moveAlertAll ? 'Herhangi bir' : 'İzlenen'} paritede 1 dakikada ≥ %${settings.get().moveAlertPct} fiyat değişimi → ayrı uyarı.` : ''}`.trim();
@@ -183,7 +183,7 @@ Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesin
       if (!rows.length) return `${esc(sym)} için kayıtlı kart yok.`;
       const lines = rows.map(r => {
         const w = r.fwd[60] ? `60dk: ${pct(r.fwd[60].low, 1)} / ${pct(r.fwd[60].high, 1)} · sonra ${pct(r.fwd[60].close, 1)}` : r.partial ? '60dk: eksik (yeniden başlatma)' : '60dk: bekleniyor';
-        if (r.kind === 'move') return `${dayTime(r.t)} ⚡${circles(r.grade || 1)} ${pct(r.movePct)} → ${w}`;
+        if (r.kind === 'move') return `${dayTime(r.t)} ⚡${circles(r.grade || 1, r.movePct > 0 ? 'green' : 'red')} ${pct(r.movePct)} → ${w}`;
         const cls = [`RSI ${r.hits}/3`, r.level?.zone === 'dip' ? 'DİPTE' : r.level ? 'yaklaşıyor' : null, r.burst ? `${r.burst.dir === 'sell' ? '▼' : r.burst.dir === 'buy' ? '▲' : '◆'}patlama` : null, r.inSeries ? 'seri içi' : null].filter(Boolean).join(' · ');
         return `${dayTime(r.t)} ${r.grade != null ? circles(r.grade) + ' ' : ''}#${r.seq} ${cls} → ${w}`;
       });

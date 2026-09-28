@@ -33,7 +33,8 @@ Kontrol anı: **3m / 5m / 15m mum kapanışları** + **hacimli her 1m mum kapan�
 | 🔴🔴 | 2/3 dilimde RSI ≥ 90 **ve** üstte %2.5 içinde seviye | + hacim ≥ 3× (önceki 20 dk ortalaması) |
 | 🔴🔴🔴 | 3/3 dilimde RSI ≥ 90 + fiyat dirence dayalı (dipte) + EMA21 ayrışması — **sesli** | + alış/satış oranı hareket yönünde ≥ %65 |
 
-RSI satırlarında da aynı işaret: 🔴 ≥ 85 · 🔴🔴 ≥ 90 · 🔴🔴🔴 ≥ 95. Derece değişimi yeni veri sayılır
+Hacim/⚡ dairelerinin **rengi yönü** gösterir: 🟢 alış/yükseliş · 🔴 satış/düşüş · ⚪ nötr (daire sayısı derecedir).
+RSI kartı daireleri kırmızıdır (aşırı alım). RSI satırlarında: 🔴 ≥ 85 · 🔴🔴 ≥ 90 · 🔴🔴🔴 ≥ 95. Derece değişimi yeni veri sayılır
 ("Derece yükseldi: 🔴🔴🔴"). Eşikler `/ayarlar`'dan değişir (`rsiMin`, `rsiMin2`, `volGrade2X`, `dirGrade3Pct`, `rsiPeriod`).
 
 **Seri içi patlama:** bir coinde kart gittikten sonra seri sürerken (kapanmış 5m RSI 75'in altına inmeden)
