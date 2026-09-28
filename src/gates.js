@@ -21,7 +21,6 @@ const cfg = require('./config');
  * @param {number}      p.ema21Distance   - ATR cinsinden uzaklık
  * @param {boolean}     p.ema21Touched    - son N mumda dokunuş var mı
  * @param {boolean}     p.nearDailyLevel  - günlük EMA200 veya majör direnç yakını
- * @param {number}      p.fundingRate     - mevcut funding rate
  * @param {string}      p.regime          - 'REVERSAL' | 'CONTINUATION' | 'NEUTRAL'
  *
  * @returns {{ pass: boolean, reason?: string, hasEMC?: boolean }}
@@ -31,7 +30,6 @@ function checkGates(p) {
     rsi5m, rsi15m, rsi1h, rsi4h,
     ema21Distance, ema21Touched,
     nearDailyLevel,
-    fundingRate,
     regime,
   } = p;
 
@@ -83,13 +81,9 @@ function checkGates(p) {
     return { pass: false, reason: `Son ${cfg.ema21TouchLookback} mumda EMA21 dokunuşu var` };
   }
 
-  // ── 8. Funding rate (aşırı pozitif + SHORT → crowded) ─
-  if (fundingRate !== null && fundingRate !== undefined && fundingRate > 0.05) {
-    return {
-      pass:   false,
-      reason: `Aşırı pozitif funding rate (${(fundingRate * 100).toFixed(3)}%) — crowded short riski`,
-    };
-  }
+  // NOT: Funding kapısı kaldırıldı (Mert stratejisinde yok; eşik birimi de hatalıydı → hiç
+  // tetiklenmiyordu). Funding verisi toplanmaya ve sinyal kaydına yazılmaya devam ediyor —
+  // ileride backtest/istatistikle anlamlı bir filtre olduğu görülürse tekrar eklenebilir.
 
   // ── Tüm kapılar geçildi ───────────────────────────────
   const hasEMC = !!(rsi15m && rsi15m >= cfg.rsiEMCThreshold);
