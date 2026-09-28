@@ -34,7 +34,7 @@ const path = require('path');
 const cfg                = require('./config');
 const { computeAll }     = require('./indicators');
 const { detectRegime }   = require('./regime');
-const { checkGates }     = require('./gates');
+const { checkGates, listFailures, gateLabels, GATE_KEYS } = require('./gates');
 const { calcScore }      = require('./scorer');
 const { calcDailyLevels, nearLevelInfo } = require('./levels');
 const { calcTradePlan }  = require('./tradePlan');
@@ -50,6 +50,17 @@ const BUFFER       = 200;  // canlı candleStore tampon boyu (BUFFER_SIZE) ile a
 const MIN_CANDLES  = 50;   // canlı candleStore.isReady() eşiği ile aynı
 const DAILY_WINDOW = 220;  // canlı htfPoller 1d limit=220 ile aynı
 const HOLD_CANDLES = 48;   // sonuç penceresi: 4 saat = 48 × 5m (eventTracker MAX_HOLD ile aynı)
+
+// Son aşama adaylarında max(5m,15m) RSI dağılımı
+const RSI_BUCKETS = [
+  { max: 70,       label: '<70'   },
+  { max: 80,       label: '70–80' },
+  { max: 85,       label: '80–85' },
+  { max: 90,       label: '85–90' },
+  { max: 95,       label: '90–95' },
+  { max: 98,       label: '95–98' },
+  { max: Infinity, label: '≥98'   },
+];
 
 const PAGE_LIMIT   = 1000; // Binance futures klines: limit 500–1000 → weight 5
 // ≈ 860 weight/dk — 2400/dk limitinin çok altında (kendi IP'n korunur). Testlerde 0 yapılabilir.
@@ -194,6 +205,7 @@ async function backtestSymbol(symbol, { startTime, endTime, minScore }) {
   const stats = {
     candles: Object.fromEntries(Object.entries(data).map(([tf, arr]) => [tf, arr.length])),
     range: c5.length ? [c5[0].openTime, c5[c5.length - 1].closeTime + 1] : null,
+    final: { fails: {}, only: {}, rsiDist: {} },
     decisions: 0, cooldown: 0, nearLevel: 0, rsi1hOk: 0, rsi4hOk: 0, gatePass: 0,
     planInvalid: 0, belowScore: 0, signals: 0,
   };
@@ -265,7 +277,7 @@ async function backtestSymbol(symbol, { startTime, endTime, minScore }) {
 
     const regime = detectRegime({ indicators: ind5m, oiDeltaPct: null, fundingRate: null, candles: s5 });
 
-    const gateResult = checkGates({
+    const gateParams = {
       rsi5m:         ind5m.rsi,
       rsi15m:        ind15m.rsi,
       rsi1h:         ind1h.rsi,
@@ -273,9 +285,21 @@ async function backtestSymbol(symbol, { startTime, endTime, minScore }) {
       ema21Distance: ind5m.distance,
       ema21Touched:  ind5m.touched,
       nearDailyLevel,
-      fundingRate:   null,
       regime,
-    });
+    };
+
+    // ── Son aşama dökümü (günlük seviye + 1h + 4h'yi geçen adaylar) ──
+    //   fails[k]  : bu kapıya takılan aday sayısı (başka kapılara da takılmış olabilir)
+    //   only[k]   : YALNIZCA bu kapıya takılan aday → bu kapı olmasaydı sinyal olurdu
+    //   rsiDist   : max(5m,15m) RSI dağılımı → giriş eşiğinin ne kadar seçici olduğu
+    const failed = listFailures(gateParams);
+    for (const k of failed) stats.final.fails[k] = (stats.final.fails[k] || 0) + 1;
+    if (failed.length === 1) stats.final.only[failed[0]] = (stats.final.only[failed[0]] || 0) + 1;
+    const pr = Math.max(ind5m.rsi || 0, ind15m.rsi || 0);
+    const bucket = RSI_BUCKETS.find(b => pr < b.max).label;
+    stats.final.rsiDist[bucket] = (stats.final.rsiDist[bucket] || 0) + 1;
+
+    const gateResult = checkGates(gateParams);
     if (!gateResult.pass) continue;
     stats.gatePass++;
 
@@ -372,13 +396,27 @@ function simulateOutcome(trade, futureCandles) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
-  const SYMBOLS   = args.symbol
-    ? String(args.symbol).split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
-    : cfg.testSymbols;
   const DAYS      = parseInt(args.days || 90, 10);
   const MIN_SCORE = parseInt(args['min-score'] ?? cfg.minScoreToSend, 10);
 
   if (!Number.isFinite(DAYS) || DAYS < 1) throw new Error(`Geçersiz --days: ${args.days}`);
+
+  // Sembol listesi: --symbol A,B | --all (hacim filtreli tüm USDT perpetual'lar) | config.testSymbols
+  let SYMBOLS;
+  let universe = 'config.testSymbols';
+  if (args.all) {
+    const minVol = Number(args['min-volume'] ?? cfg.autoFilter.minVolume24hUSDT);
+    const maxCoins = Number(args['max-coins'] ?? 0);
+    const { getLiquidSymbols } = require('./binanceClient');
+    SYMBOLS = await getLiquidSymbols({ minVolume24hUSDT: minVol, maxCoins, excludeBaseAssets: cfg.autoFilter.excludeBaseAssets });
+    universe = `--all (24s hacim ≥ ${minVol.toLocaleString()} USDT${maxCoins > 0 ? `, en likit ${maxCoins}` : ''})`;
+    if (!SYMBOLS.length) throw new Error('--all: filtreye uyan sembol yok (--min-volume düşürülebilir)');
+  } else if (args.symbol) {
+    SYMBOLS = String(args.symbol).split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+    universe = '--symbol';
+  } else {
+    SYMBOLS = cfg.testSymbols;
+  }
 
   // --telegram: bitince tek bir özet rapor mesajı (canlı gönderim yolunu da test eder)
   const SEND_TG = Boolean(args.telegram);
@@ -396,15 +434,20 @@ async function main() {
 
   console.log('\n════════════════════════════════════════════');
   console.log('  Scalp Bot — Backtest Motoru');
-  console.log(`  Semboller  : ${SYMBOLS.join(', ')}`);
+  console.log(`  Semboller  : ${SYMBOLS.length} adet — ${universe}`);
+  console.log(`              ${SYMBOLS.slice(0, 12).join(', ')}${SYMBOLS.length > 12 ? ` … (+${SYMBOLS.length - 12})` : ''}`);
   console.log(`  Dönem      : ${fmtDate(startTime)} → ${fmtDate(endTime)} (${DAYS} gün)  |  Min skor: ${MIN_SCORE}`);
+  if (args.all) console.log('  Not        : liste BUGÜNKÜ hacme göre seçildi — dönem içinde listeden çıkan coinler yok (survivorship).');
   console.log('════════════════════════════════════════════\n');
 
   const allResults = [];
   const allStats   = {};
+  const tStart     = Date.now();
 
-  for (const symbol of SYMBOLS) {
-    console.log(`\n[${symbol}] Veri çekiliyor...`);
+  for (const [idx, symbol] of SYMBOLS.entries()) {
+    const done = idx;
+    const eta  = done > 0 ? Math.round((Date.now() - tStart) / done * (SYMBOLS.length - done) / 60000) : null;
+    console.log(`\n[${idx + 1}/${SYMBOLS.length}] ${symbol} — veri çekiliyor...${eta != null ? ` (tahmini kalan ~${eta} dk)` : ''}`);
     try {
       const { signals, stats } = await backtestSymbol(symbol, { startTime, endTime, minScore: MIN_SCORE });
       allResults.push(...signals);
@@ -428,13 +471,13 @@ async function main() {
 
   const timestamp = new Date().toISOString().replace(/[:T.]/g, '-').slice(0, 19);
   const outFile   = path.join(OUT_DIR, `backtest-${timestamp}.json`);
-  fs.writeFileSync(outFile, JSON.stringify({ params: { SYMBOLS, DAYS, MIN_SCORE, startTime, endTime }, stats: allStats, signals: allResults }, null, 2));
+  fs.writeFileSync(outFile, JSON.stringify({ params: { SYMBOLS, DAYS, MIN_SCORE, startTime, endTime, universe }, stats: allStats, signals: allResults }, null, 2));
   console.log(`\n📁 Detaylı sonuçlar: ${outFile}\n`);
 
   if (SEND_TG) {
     // telegram.js yalnızca burada yüklenir; komut dinleme (polling) BAŞLATILMAZ → canlı botla çakışmaz
     const telegram = require('./telegram');
-    const text = buildTelegramReport({ SYMBOLS, DAYS, MIN_SCORE, startTime, endTime }, allStats, allResults, telegram.esc);
+    const text = buildTelegramReport({ SYMBOLS, DAYS, MIN_SCORE, startTime, endTime, universe }, allStats, allResults, telegram.esc);
     telegram.sendText(text);
     const flushed = await telegram.flush(90_000);
     const st = telegram.takeStats();
@@ -480,7 +523,7 @@ function buildTelegramReport(p, allStats, signals, esc) {
     '<i>Geçmiş veri simülasyonu — canlı sinyal DEĞİLDİR</i>',
     '',
     `📅 ${fmtDate(p.startTime)} → ${fmtDate(p.endTime)} UTC (${p.DAYS} gün)`,
-    `🪙 ${p.SYMBOLS.length} sembol | min skor ${p.MIN_SCORE}`,
+    `🪙 ${p.SYMBOLS.length} sembol${p.universe ? ` (${esc(p.universe)})` : ''} | min skor ${p.MIN_SCORE}`,
     '',
     '<b>Eleme hunisi</b>',
     `  Değerlendirilen 5m kapanış: ${sum('decisions')}`,
@@ -491,6 +534,17 @@ function buildTelegramReport(p, allStats, signals, esc) {
     `  − TP-A geçersiz: ${sum('planInvalid')} | − skor altı: ${sum('belowScore')}`,
     `  = <b>Sinyal: ${n}</b>`,
   ];
+
+  // Son aşama dökümü — hangi kapı ne kadar eliyor
+  const f = mergeFinal(allStats);
+  if (f.candidates) {
+    const labels = gateLabels();
+    lines.push('', `<b>Son aşama: ${f.candidates} aday</b> (takılan / tek engel)`);
+    for (const k of FINAL_GATES) {
+      lines.push(`  ${esc(labels[k])}: ${f.fails[k] || 0} (${pct(f.fails[k] || 0, f.candidates)}) / ${f.only[k] || 0}`);
+    }
+    lines.push(`  RSI(max 5m,15m): ${RSI_BUCKETS.map(b => `${esc(b.label)} ${f.rsiDist[b.label] || 0}`).join(' · ')}`);
+  }
 
   if (n) {
     lines.push(
@@ -522,6 +576,38 @@ function printCoverage(symbol, stats) {
   console.log(`  [${symbol}] Veri: ${r} | 5m:${c['5m']} 15m:${c['15m']} 1h:${c['1h']} 4h:${c['4h']} 1d:${c['1d']} mum`);
 }
 
+// Son aşamada anlamlı olan kapılar (günlük seviye / 1h / 4h zaten geçilmiş)
+const FINAL_GATES = GATE_KEYS.filter(k => !['dailyLevel', 'rsi1h', 'rsi4h'].includes(k));
+
+/** Sembollerin son aşama dökümlerini birleştirir */
+function mergeFinal(allStats) {
+  const out = { candidates: 0, fails: {}, only: {}, rsiDist: {} };
+  for (const st of Object.values(allStats)) {
+    out.candidates += st.rsi4hOk || 0;
+    for (const part of ['fails', 'only', 'rsiDist']) {
+      for (const [k, v] of Object.entries(st.final?.[part] || {})) out[part][k] = (out[part][k] || 0) + v;
+    }
+  }
+  return out;
+}
+
+function printFinalBreakdown(allStats) {
+  const f = mergeFinal(allStats);
+  if (!f.candidates) return;
+  const labels = gateLabels();
+  const pct = v => `${(v / f.candidates * 100).toFixed(1)}%`;
+  console.log(`\n🔍 Son aşama: ${f.candidates} aday (seviye + 1h + 4h geçti) — kalan kapılar:`);
+  console.log(`  ${'Kapı'.padEnd(34)} ${'Takılan'.padStart(9)} ${''.padStart(7)} ${'Tek engel'.padStart(10)}`);
+  for (const k of FINAL_GATES) {
+    const v = f.fails[k] || 0;
+    console.log(`  ${labels[k].padEnd(34)} ${String(v).padStart(9)} ${pct(v).padStart(7)} ${String(f.only[k] || 0).padStart(10)}`);
+  }
+  console.log('  ("Tek engel": yalnızca bu kapıya takılan aday — bu kapı olmasaydı kapıları geçerdi; TP-A ve skor ayrıca kontrol edilir)');
+  const dist = RSI_BUCKETS.map(b => `${b.label}: ${f.rsiDist[b.label] || 0}`).join(' | ');
+  console.log(`\n📊 Adaylarda max(5m,15m) RSI dağılımı: ${dist}`);
+  console.log(`   (giriş aralığı ${cfg.rsiEntryMin}–${cfg.rsiEntryMax})`);
+}
+
 /**
  * Sinyallerin hangi aşamada elendiğini gösterir — kapı kalibrasyonu için
  */
@@ -540,6 +626,7 @@ function printFunnel(allStats) {
   ];
   console.log('\n🔻 Eleme Hunisi (tüm semboller):');
   for (const [label, key] of steps) console.log(`  ${label.padEnd(28)} ${String(sum(key)).padStart(8)}`);
+  printFinalBreakdown(allStats);
 }
 
 function printSymbolSummary(symbol, signals) {

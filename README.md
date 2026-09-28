@@ -204,7 +204,27 @@ node src/backtest.js                                   # config.testSymbols, 90 
 node src/backtest.js --symbol BTCUSDT,ETHUSDT --days 30
 node src/backtest.js --days 90 --min-score 55
 node src/backtest.js --days 30 --telegram               # bitince gruba tek özet rapor mesajı
+node src/backtest.js --all --days 90 --telegram         # tüm USDT perpetual'lar (hacim filtreli)
+node src/backtest.js --all --min-volume 20000000 --max-coins 200 --days 90
 ```
+
+`--all`: sembolleri `exchangeInfo` + 24 saatlik hacimden seçer (PERPETUAL + TRADING + USDT,
+stablecoin'ler hariç). `--min-volume` varsayılanı `config.autoFilter.minVolume24hUSDT`, `--max-coins` 0 = sınırsız.
+Liste **bugünkü** hacme göre seçildiğinden dönem içinde listeden çıkmış coinler dahil değildir.
+
+Uzun çalışmalar (tüm market × 90 gün ≈ sembol başına 15–20 sn) SSH koparsa yarıda kalır —
+arka planda başlat, rapor bitince Telegram'a gelir:
+
+```bash
+fly ssh console
+cd /app
+nohup node src/backtest.js --all --days 90 --telegram > /tmp/backtest.log 2>&1 &
+tail -f /tmp/backtest.log     # ilerlemeyi izle (Ctrl+C sadece izlemeyi bırakır)
+```
+
+Raporda "Son aşama" bölümü günlük seviye + 1h + 4h'yi geçen adayların kalan kapılarda
+nasıl elendiğini gösterir: **takılan** (o kapıya takılan aday), **tek engel** (yalnızca o kapıya
+takılan — o kapı olmasaydı geçerdi) ve adayların 5m/15m RSI dağılımı.
 
 `--telegram`: backtest bitince `TELEGRAM_CHAT_ID` sohbetine **tek** bir özet mesaj gönderir
 ("canlı sinyal değildir" etiketli). Canlı botun gönderim kodunu kullanır, komut dinlemeyi
