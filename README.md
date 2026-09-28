@@ -73,7 +73,7 @@ Kartlar ve ⚡ uyarılar **grafikli** gelir (fotoğraf + açıklama). Varsayıla
 - Yakındaki direnç seviyeleri (en yakını turuncu, diğerleri gri), hacim, son fiyat etiketi
 - 5m grafik seçilirse 3m EMA21 (beyaz) ve 5m EMA21 (sarı) çizgileri de çizilir
 
-`/ayarlar`: **Grafik TF** (5m / 15m / 1h / 4h, −/+ ile), Fibonacci, Ichimoku, Grafik (kartlar), Grafik ⚡ (uyarılar).
+`/ayarlar` → 🖼 Grafik: **Grafik TF** (5m / 15m / 1h / 4h), Fibonacci, Ichimoku, Grafik (kartlar), Grafik ⚡ (uyarılar).
 Evren dışı pariteler için grafik verisi o an REST'ten çekilir. Açıklama 1024 karakteri aşarsa "Detaylar" sondan kırpılır.
 Çizim `@napi-rs/canvas` ile, yazı tipi repo içinde (`src/assets/fonts`, DejaVu); grafikler diske yazılmaz.
 
@@ -105,7 +105,7 @@ Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı kon
 ### Telegram komutları
 | Komut | Kim | |
 |---|---|---|
-| `/ayarlar` | herkes görür, yöneticiler değiştirir | tüm parametreler ➖/➕ ve aç-kapa butonlarıyla |
+| `/ayarlar` | herkes görür, yöneticiler değiştirir | ana sayfa: bölümler + özet değerler (RSI kartı · Direnç · Derece · Hacimli mum · ⚡ Hareket · Bildirim · Grafik · İzlenen coinler) → bölüm: her ayar bir buton (aç-kapa ayarları tek dokunuşla) → sayısal ayar: kendi sayfasında −5/−1/+1/+5 adım ve ↺ Varsayılan |
 | `/ayar anahtar değer` · `/ayar sifirla` | yönetici | ör. `/ayar rsiMin 95`, `/ayar levelMaxPct 2` |
 | `/coin ETH` | herkes | coinin anlık durumu (şart aranmadan) |
 | `/sustur ETH [dk]` · `/ac ETH` · `/sessiz` | yönetici / herkes | susturma |

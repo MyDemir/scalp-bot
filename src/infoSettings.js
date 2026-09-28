@@ -15,16 +15,16 @@ const cfg  = require('./config');
 
 // type: 'num' | 'int' | 'bool' | 'enum' (options listesinden biri; −/+ ile sırayla değişir)
 const DEFS = [
-  { key: 'rsiMin', short: 'RSI 🔴', label: 'Kart eşiği RSI (🔴)', type: 'int', min: 50, max: 100, step: 1 },
+  { key: 'rsiMin', short: 'Kart eşiği', label: 'Kart eşiği RSI (🔴)', type: 'int', min: 50, max: 100, step: 1 },
   { key: 'rsiMin2', short: 'RSI 🔴🔴', label: 'RSI 🔴🔴 işareti', type: 'int', min: 50, max: 100, step: 1 },
-  { key: 'rsiEntryMax', short: 'RSI üst (98)', label: 'Kontrol: 3m/5m RSI aralığı üstü', type: 'int', min: 80, max: 100, step: 1 },
+  { key: 'rsiEntryMax', short: 'RSI üst sınır', label: 'Kontrol: 3m/5m RSI aralığı üstü', type: 'int', min: 80, max: 100, step: 1 },
   { key: 'confluencePct', short: 'Çakışma %', label: 'Kontrol: çakışan direnç mesafesi %', type: 'num', min: 0.1, max: 3, step: 0.1 },
   { key: 'grade2Min', short: '🔴🔴 skor', label: '🔴🔴 için en az kontrol skoru', type: 'int', min: 1, max: 8, step: 1 },
   { key: 'grade3Min', short: '🔴🔴🔴 skor', label: '🔴🔴🔴 için en az kontrol skoru', type: 'int', min: 1, max: 8, step: 1 },
   { key: 'rsiPeriod', short: 'RSI periyot', label: 'RSI periyodu', type: 'int', min: 2, max: 30, step: 1 },
-  { key: 'minTFs', short: 'Dilim',        label: 'Eşiği geçen dilim (3m/5m/15m)', type: 'int', min: 1, max: 3, step: 1 },
+  { key: 'minTFs', short: 'Dilim sayısı',        label: 'Eşiği geçen dilim (3m/5m/15m)', type: 'int', min: 1, max: 3, step: 1 },
   { key: 'strongRsi', short: 'RSI 🔴🔴🔴',     label: 'RSI 🔴🔴🔴 (satırda) eşiği',         type: 'int', min: 60, max: 100, step: 1 },
-  { key: 'levelMaxPct', short: 'Seviye %',   label: 'Seviyeye yakınlık %',     type: 'num', min: 0.5, max: 10, step: 0.5 },
+  { key: 'levelMaxPct', short: 'Uzaklık %',   label: 'Seviyeye yakınlık %',     type: 'num', min: 0.5, max: 10, step: 0.5 },
   { key: 'levelRequired', short: 'Seviye şartı', label: 'Seviye şartı',            type: 'bool' },
   { key: 'dipBelowPct', short: 'Dip alt %',   label: 'DİPTE: altında en fazla %', type: 'num', min: 0.1, max: 3, step: 0.1 },
   { key: 'dipAbovePct', short: 'Dip üst %',   label: 'DİPTE: üstünde en fazla %', type: 'num', min: 0, max: 2, step: 0.1 },
@@ -38,7 +38,7 @@ const DEFS = [
   { key: 'dirGrade3Pct', short: 'Yön 🔴🔴🔴 %', label: 'Hacim 🔴🔴🔴: yön uyumu (alış/satış) ≥ %', type: 'int', min: 50, max: 95, step: 1 },
   { key: 'windowMin', short: 'Pencere dk',     label: 'Sayaç penceresi (dk)',    type: 'int', min: 15, max: 200, step: 15 },
   { key: 'shortWindowMin', short: 'Kısa dk', label: 'Kısa pencere (dk)',      type: 'int', min: 5, max: 60, step: 5 },
-  { key: 'resetRsi', short: 'Sıfırla <',      label: 'Kart no. sıfırlama (5m RSI <)', type: 'int', min: 40, max: 95, step: 1 },
+  { key: 'resetRsi', short: 'Sıfırlama RSI',      label: 'Kart no. sıfırlama (5m RSI <)', type: 'int', min: 40, max: 95, step: 1 },
   { key: 'seriesBursts', short: 'Seri patlama', label: 'Seri içi patlama → şartsız kart', type: 'bool' },
   { key: 'sepATR', short: 'Ayrışma ATR',        label: 'EMA21 ayrışma (ATR)',     type: 'num', min: 0, max: 5, step: 0.1 },
   { key: 'sepRequired', short: 'Ayrışma şartı',   label: 'Ayrışma şartı',           type: 'bool' },
@@ -148,6 +148,7 @@ function createSettings({ file = defaultFile(), defaults = cfg.info, persist = t
   return {
     load, save, set, bump,
     get: () => values,
+    defaults: () => defaults,
     defs: DEFS,
     onChange: fn => listeners.push(fn),
     reset() { values = { ...defaults }; save(); },

@@ -43,26 +43,82 @@ function normSym(x) {
 function installInfoTelegram({ telegram, settings, tracker, store = null, getSeries, ctx, status, chartFor = null }) {
   const defs = settings.defs;
 
+  // ── /ayarlar: ana sayfa (bölümler + özet) → bölüm (ayar butonları) → tek ayar (− / +) ──
+  const DEF = Object.fromEntries(defs.map(d => [d.key, d]));
+  const SECTIONS = [
+    { id: 'rsi', title: '📊 RSI kartı', keys: ['rsiMin', 'rsiMin2', 'strongRsi', 'rsiEntryMax', 'minTFs', 'rsiPeriod', 'resetRsi', 'seriesBursts'],
+      sum: v => `eşik ${v.rsiMin} · ${v.minTFs}/3 dilim · RSI(${v.rsiPeriod})` },
+    { id: 'lvl', title: '🎯 Direnç', keys: ['levelRequired', 'levelMaxPct', 'dipBelowPct', 'dipAbovePct', 'confluencePct'],
+      sum: v => `${v.levelRequired ? 'şart açık' : 'şart kapalı'} · %${v.levelMaxPct} içinde` },
+    { id: 'grd', title: '🏅 Derece ve kontrol listesi', keys: ['grade2Min', 'grade3Min', 'confRsi', 'sepATR', 'sepRequired', 'confRequired', 'macdRequired'],
+      sum: v => `🔴🔴 ≥ ${v.grade2Min} · 🔴🔴🔴 ≥ ${v.grade3Min} (8 madde)` },
+    { id: 'vol', title: '📦 Hacimli mum', keys: ['burstPct1', 'burstPct2', 'volMult', 'volAvgN', 'takerBuyPct', 'takerSellPct', 'volGrade2X', 'dirGrade3Pct', 'windowMin', 'shortWindowMin'],
+      sum: v => `gövde ≥ %${v.burstPct1} · hacim ≥ ${v.volMult}×` },
+    { id: 'mov', title: '⚡ Hareket uyarısı', keys: ['moveAlertPct', 'moveAlertAll'],
+      sum: v => (v.moveAlertPct > 0 ? `1 dk ≥ %${v.moveAlertPct} · ${v.moveAlertAll ? 'tüm pariteler' : 'izlenenler'}` : 'kapalı') },
+    { id: 'snd', title: '🔔 Bildirim', keys: ['cardSound', 'moveAlertSound'],
+      sum: v => `kart ${v.cardSound ? 'sesli' : 'sessiz'} · ⚡ ${v.moveAlertSound ? 'sesli' : 'sessiz'}` },
+    { id: 'cht', title: '🖼 Grafik', keys: ['chart', 'chartMoves', 'chartTf', 'chartFib', 'chartIchi'],
+      sum: v => (v.chart ? `${v.chartTf}${v.chartIchi ? ' · Ichimoku' : ''}${v.chartFib ? ' · Fibonacci' : ''}` : 'kapalı') },
+    { id: 'uni', title: '🌐 İzlenen coinler', keys: ['minVolumeM'],
+      sum: v => `24s hacim ≥ ${v.minVolumeM}M $` },
+  ];
+  { // menüde olup hiçbir bölüme yazılmamış ayar kalmasın
+    const used = new Set(SECTIONS.flatMap(x => x.keys));
+    const rest = defs.filter(d => d.menu !== false && !used.has(d.key)).map(d => d.key);
+    if (rest.length) SECTIONS.push({ id: 'etc', title: '🧩 Diğer', keys: rest, sum: () => `${rest.length} ayar` });
+  }
+  const SEC = Object.fromEntries(SECTIONS.map(x => [x.id, x]));
+  const secOf = key => SECTIONS.find(x => x.keys.includes(key));
+  const val = (d, v) => (d.type === 'bool' ? (v ? 'açık' : 'kapalı') : String(v));
+  const num = x => String(+x.toFixed(4));
+  const pairs = btns => { const kb = []; for (let i = 0; i < btns.length; i += 2) kb.push(btns.slice(i, i + 2)); return kb; };
+  const ADMIN_NOTE = '<i>Değiştirmek yalnızca yöneticilere açık. Değişiklik anında geçerli ve kalıcı.</i>';
+
   function menu() {
     const v = settings.get();
-    const lines = defs.filter(d => d.menu !== false).map(d => `${d.type === 'bool' ? (v[d.key] ? '✅' : '▫️') : '•'} ${esc(d.label)}: <b>${d.type === 'bool' ? (v[d.key] ? 'açık' : 'kapalı') : v[d.key]}</b>`);
-    const text = `⚙️ <b>Bilgi botu ayarları</b>\n${lines.join('\n')}\n\nIchimoku: ${v.ichiTenkan}/${v.ichiKijun}/${v.ichiChikou}/${v.ichiSenkouB}/${v.ichiShift} (<code>/ayar ichiTenkan 9</code> gibi)
-
-<i>− / + ve aç-kapa butonları yalnızca yöneticiler içindir. Değişiklik anında geçerli olur ve kalıcıdır.</i>`;
-    const kb = [];
-    for (const d of defs.filter(x => x.type !== 'bool' && x.menu !== false)) {
-      kb.push([
-        { text: '➖', callback_data: `s:${d.key}:-1` },
-        { text: `${d.short}: ${v[d.key]}`, callback_data: 'n' },
-        { text: '➕', callback_data: `s:${d.key}:1` },
-      ]);
-    }
-    const bools = defs.filter(x => x.type === 'bool' && x.menu !== false);
-    for (let i = 0; i < bools.length; i += 2) {
-      kb.push(bools.slice(i, i + 2).map(d => ({ text: `${v[d.key] ? '✅' : '▫️'} ${d.short}`, callback_data: `t:${d.key}` })));
-    }
-    return { text, keyboard: kb };
+    const text = `⚙️ <b>Bilgi botu ayarları</b>\n\n${SECTIONS.map(x => `<b>${x.title}</b>\n${esc(x.sum(v))}`).join('\n\n')}\n\n${ADMIN_NOTE}`;
+    return { text, keyboard: pairs(SECTIONS.map(x => ({ text: x.title, callback_data: `g:${x.id}` }))) };
   }
+
+  function sectionMenu(id) {
+    const x = SEC[id];
+    if (!x) return menu();
+    const v = settings.get();
+    const lines = x.keys.map(k => `• ${esc(DEF[k].label)}: <b>${esc(val(DEF[k], v[k]))}</b>`);
+    let extra = '';
+    if (id === 'cht') extra = `\n\nIchimoku: ${v.ichiTenkan}/${v.ichiKijun}/${v.ichiChikou}/${v.ichiSenkouB}/${v.ichiShift} — değiştirmek için <code>/ayar ichiTenkan 9</code> gibi`;
+    const text = `⚙️ <b>${x.title}</b>\n\n${lines.join('\n')}${extra}\n\nDeğiştirmek istediğin ayara dokun.\n${ADMIN_NOTE}`;
+    const btns = x.keys.map(k => {
+      const d = DEF[k];
+      return d.type === 'bool'
+        ? { text: `${v[k] ? '✅' : '▫️'} ${d.short}`, callback_data: `t:${k}` }
+        : { text: `${d.short}: ${v[k]}`, callback_data: `e:${k}` };
+    });
+    return { text, keyboard: [...pairs(btns), [{ text: '↩️ Ayarlar', callback_data: 'g:main' }]] };
+  }
+
+  function editMenu(key) {
+    const d = DEF[key];
+    if (!d || d.type === 'bool') return sectionMenu(secOf(key)?.id);
+    const x = secOf(key);
+    const v = settings.get()[key], def = settings.defaults()[key];
+    const back = [{ text: `↺ Varsayılan (${def})`, callback_data: `d:${key}` }, { text: `↩️ ${x ? x.title : 'Ayarlar'}`, callback_data: x ? `g:${x.id}` : 'g:main' }];
+    if (d.type === 'enum') {
+      const text = `⚙️ ${x ? `${x.title} › ` : ''}<b>${esc(d.label)}</b>\n\nŞu an: <b>${esc(v)}</b> · varsayılan ${esc(def)}\n\n${ADMIN_NOTE}`;
+      return { text, keyboard: [d.options.map(o => ({ text: o === v ? `✓ ${o}` : o, callback_data: `v:${key}:${o}` })), back] };
+    }
+    const text = `⚙️ ${x ? `${x.title} › ` : ''}<b>${esc(d.label)}</b>\n\nŞu an: <b>${v}</b> · varsayılan ${def} · aralık ${d.min}–${d.max}\n\n${ADMIN_NOTE}`;
+    const st = d.step;
+    return { text, keyboard: [[
+      { text: `−${num(5 * st)}`, callback_data: `s:${key}:-5` },
+      { text: `−${num(st)}`, callback_data: `s:${key}:-1` },
+      { text: `+${num(st)}`, callback_data: `s:${key}:1` },
+      { text: `+${num(5 * st)}`, callback_data: `s:${key}:5` },
+    ], back] };
+  }
+
+  const show = async (cq, m) => { await telegram.editMessage(cq.message.chat.id, cq.message.message_id, m.text, m.keyboard); };
 
   const denied = { text: 'Bu işlem için grup yöneticisi olmalısın.', alert: true };
 
@@ -76,6 +132,9 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, getSer
       const sr = getSeries(a);
       return { text: summaryText(a, tracker.log(a), sr ? sr.price() : null), alert: true };
     }
+    // Menüde gezinme herkese açık (yalnız görüntüleme)
+    if (kind === 'g') { await show(cq, a === 'main' ? menu() : sectionMenu(a)); return null; }
+    if (kind === 'e') { await show(cq, editMenu(a)); return null; }
     if (!(await telegram.isAdmin(uid))) return denied;
 
     if (kind === 'm') {
@@ -87,13 +146,15 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, getSer
       const on = settings.toggleFollow(a);
       return { text: on ? `⭐ ${a} takipte — kartları her zaman sesli gelir.` : `☆ ${a} takipten çıkarıldı.` };
     }
-    if (kind === 's' || kind === 't') {
-      const r = kind === 's' ? settings.bump(a, Number(b)) : settings.bump(a, 0);
+    if (kind === 's' || kind === 't' || kind === 'd' || kind === 'v') {
+      const r = kind === 's' ? settings.bump(a, Number(b))
+        : kind === 't' ? settings.bump(a, 0)
+          : kind === 'd' ? settings.set(a, settings.defaults()[a])
+            : settings.set(a, b);
       if (!r.ok) return { text: r.error, alert: true };
       console.log(`[AYAR] ${a} = ${r.value} (kullanıcı ${uid})`);
-      const m = menu();
-      await telegram.editMessage(cq.message.chat.id, cq.message.message_id, m.text, m.keyboard);
-      return { text: `${a} = ${r.value}` };
+      await show(cq, kind === 't' ? sectionMenu(secOf(a)?.id) : editMenu(a));
+      return { text: `${DEF[a]?.short || a}: ${val(DEF[a] || {}, r.value)}` };
     }
     return null;
   }
