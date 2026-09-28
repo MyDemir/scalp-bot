@@ -149,7 +149,7 @@ function checkMove(symbol, c) {
     if (pct != null && Math.abs(pct) >= s.moveAlertPct && !settings.isMuted(symbol)) {
       const avg = L.vols.length >= 5 ? L.vols.reduce((a, b) => a + b, 0) / L.vols.length : null;
       const from = L.prevC > 0 && L.prevT === c.t - MIN ? L.prevC : c.o;
-      emitMove({ symbol, t: c.t + MIN, from, to: c.c, pct, volX: avg > 0 ? c.v / avg : null, taker: c.v > 0 ? c.tb / c.v * 100 : null, vol24: vols24.get(symbol) ?? null });
+      emitMove({ symbol, t: c.t + MIN, from, to: c.c, pct, v: c.v, volX: avg > 0 ? c.v / avg : null, taker: c.v > 0 ? c.tb / c.v * 100 : null, vol24: vols24.get(symbol) ?? null });
     }
   }
   L.prevC = c.c; L.prevT = c.t;
@@ -193,12 +193,36 @@ function emitMove(m) {
   next.then(() => { if (chains.get(m.symbol) === next) chains.delete(m.symbol); });
 }
 
+/**
+ * Hacim katı bellekte yoksa (bot yeni açıldı / parite yeni eklendi): bu 1m mumun hacmi ÷ önceki 1m mumların
+ * (en çok 20, en az 5) ortalaması. Kaynak: izlenen coinde bellekteki 1m mumlar, değilse REST (tek istek).
+ */
+async function fillVolX(m) {
+  if (m.volX != null || !(m.v > 0)) return;
+  const t0 = m.t - MIN;                                    // uyarıyı doğuran mumun açılış zamanı
+  const avgOf = vs => (vs.length >= 5 ? vs.reduce((a, b) => a + b, 0) / vs.length : null);
+  const sr = series.get(m.symbol);
+  if (sr) {
+    const d = sr.d['1m'], vs = [];
+    for (let i = d.t.length - 1; i >= 0 && vs.length < 20; i--) if (d.t[i] < t0) vs.push(d.v[i]);
+    const a = avgOf(vs);
+    if (a > 0) { m.volX = m.v / a; return; }
+  }
+  try {
+    const raw = await Promise.race([binance.fetchKlines(m.symbol, '1m', 22), new Promise(r => setTimeout(() => r(null), 4000))]);
+    const a = avgOf((raw || []).map(k => normKline(k)).filter(c => c.t < t0).slice(-20).map(c => c.v));
+    if (a > 0) m.volX = m.v / a;
+  } catch { /* hacim katı olmadan gönderilir */ }
+}
+
 async function emitMoveNow(m) {
   const s = settings.get();
   const sr = series.get(m.symbol);
   if (sr && sr.ready() && !busy.has(m.symbol)) {
     try { m.snap = eng.evaluate(sr, s, ctx, true); } catch { m.snap = null; }
   }
+  m.loading = Boolean(sr) && !m.snap;                      // izlenen coin ama geçmiş veri henüz yükleniyor
+  await fillVolX(m);
   m.followed = settings.isFollowed(m.symbol);
   m.grade = eng.volGrade(m.pct, m.volX, m.taker, s);
   stats.moves++;

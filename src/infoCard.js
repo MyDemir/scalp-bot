@@ -60,7 +60,7 @@ function levelLines(snap, s) {
   const lv = snap.level;
   if (!lv) return [`<b>Direnç:</b> %${s.levelMaxPct} içinde yok`];
   const where = lv.dist <= 0 ? `<b>Dirence kalan:</b> ${pa(lv.dist)}` : `<b>Direncin üstünde:</b> ${pa(lv.dist)}`;
-  return [`<b>Direnç:</b> ${esc(lv.name)} · <code>${px(lv.value)}</code>`, `${where}${lv.zone === 'dip' ? ' · ⭐ dipte' : ''}`];
+  return [`<b>Direnç:</b> ${esc(lv.name)} · ${px(lv.value)}`, `${where}${lv.zone === 'dip' ? ' · ⭐ dipte' : ''}`];
 }
 
 function tgLinks(sym) {
@@ -98,10 +98,10 @@ function formatCard(card, s, opt = {}) {
   for (const n of card.news) B.push(`🔔 ${esc(n)}`);
 
   B.push('');
-  B.push(`<b>Fiyat:</b> <code>${px(card.price)}</code>`);
+  B.push(`<b>Fiyat:</b> ${px(card.price)}`);
   const lv = snap.level;
   B.push(lv
-    ? `<b>Direnç:</b> ${esc(lv.name)} <code>${px(lv.value)}</code> · ${lv.dist <= 0 ? `${pa(lv.dist)} kala` : `${pa(lv.dist)} üstünde`}${lv.zone === 'dip' ? ' ⭐' : ''}`
+    ? `<b>Direnç:</b> ${esc(lv.name)} ${px(lv.value)} · ${lv.dist <= 0 ? `${pa(lv.dist)} kala` : `${pa(lv.dist)} üstünde`}${lv.zone === 'dip' ? ' ⭐' : ''}`
     : `<b>Direnç:</b> %${s.levelMaxPct} içinde yok`);
 
   B.push('');
@@ -164,24 +164,24 @@ function formatCard(card, s, opt = {}) {
  */
 function formatMove(m, s) {
   const up = m.pct > 0;
-  // Görünen tek satır: ⚡ + daireler (renk = yön, sayı = hacim derecesi) + coin. Gerisi bilgi kutusunda.
+  // Görünen tek satır: ⚡ + daireler (renk = yön, sayı = hacim derecesi) + coin. Gerisi bilgi kutusunda;
+  // kapalı kutuda görünen ilk iki satır: hareket · hacim katı · alış/satış oranı, sonra fiyat.
   const head = `⚡${circles(m.grade || 1, up ? 'green' : 'red')} <b>#${esc(m.symbol)}</b>`;
   const L = [];
-  L.push(`<b>1 dakikada ${ps(m.pct)} ${up ? '▲' : '▼'} · 🕒 ${dayTime(m.t)}</b>`);
-  L.push('');
-  L.push(`<b>Fiyat:</b> <code>${px(m.from)}</code> → <code>${px(m.to)}</code>`);
-  if (m.volX != null) L.push(`<b>Hacim:</b> son 20 dk ortalamasının ${m.volX.toFixed(1)} katı`);
-  if (m.taker != null) L.push(m.taker >= 50 ? `<b>Alış oranı:</b> ${pa(m.taker, 0)}` : `<b>Satış oranı:</b> ${pa(100 - m.taker, 0)}`);
+  L.push([`${up ? '▲' : '▼'} <b>${ps(m.pct)}</b> (1 dk)`,
+    m.volX != null ? `hacim ${m.volX.toFixed(1)} kat` : null,
+    m.taker != null ? (m.taker >= 50 ? `alış ${pa(m.taker, 0)}` : `satış ${pa(100 - m.taker, 0)}`) : null,
+  ].filter(Boolean).join(' · '));
+  L.push(`<b>Fiyat:</b> ${px(m.from)} → ${px(m.to)}`);
   if (m.vol24 != null) L.push(`<b>24 saatlik hacim:</b> ${usd(m.vol24).replace('+', '')} $`);
   const sn = m.snap;
   if (sn) {
-    L.push('');
     for (const tf of ['3m', '5m', '15m']) L.push(`<b>RSI ${tf}:</b> ${r1(sn.rsi[tf].v)}${mark(sn.rsi[tf].v, s)}`);
     L.push(`<b>RSI 1h:</b> ${r1(sn.conf?.h1)}`);
     L.push(`<b>RSI 4h:</b> ${r1(sn.conf?.h4)}`);
     if (sn.level) L.push(...levelLines(sn, s));
   } else {
-    L.push('<i>İzlenen listede değil (24 saatlik hacim eşiğin altında)</i>');
+    L.push(m.loading ? '<i>RSI verisi yükleniyor (bot yeni başladı)</i>' : '<i>İzlenen listede değil (24 saatlik hacim eşiğin altında)</i>');
   }
   L.push(['#HAREKET', `#DERECE${m.grade || 1}`, up ? '#YUKSELIS' : '#DUSUS', m.followed ? '#TAKIP' : null].filter(Boolean).join(' '));
   const keyboard = [
