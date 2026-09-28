@@ -51,9 +51,9 @@ const mark = (v, s) => (v >= s.strongRsi ? ' 🔴🔴' : v >= s.rsiMin ? ' 🔴'
 
 function levelLines(snap, s) {
   const lv = snap.level;
-  if (!lv) return [`Direnç: %${s.levelMaxPct} içinde yok`];
-  const where = lv.dist <= 0 ? `Dirence kalan: ${pa(lv.dist)}` : `Direncin üstünde: ${pa(lv.dist)}`;
-  return [`Direnç: ${esc(lv.name)} · <code>${px(lv.value)}</code>`, `${where}${lv.zone === 'dip' ? ' · ⭐ dipte' : ''}`];
+  if (!lv) return [`<b>Direnç:</b> %${s.levelMaxPct} içinde yok`];
+  const where = lv.dist <= 0 ? `<b>Dirence kalan:</b> ${pa(lv.dist)}` : `<b>Direncin üstünde:</b> ${pa(lv.dist)}`;
+  return [`<b>Direnç:</b> ${esc(lv.name)} · <code>${px(lv.value)}</code>`, `${where}${lv.zone === 'dip' ? ' · ⭐ dipte' : ''}`];
 }
 
 function tgLinks(sym) {
@@ -83,46 +83,46 @@ function formatCard(card, s, opt = {}) {
   for (const n of card.news) L.push(`🔔 ${esc(n)}`);
 
   L.push('');
-  L.push(`Fiyat: <code>${px(card.price)}</code>`);
+  L.push(`<b>Fiyat:</b> <code>${px(card.price)}</code>`);
   L.push(...levelLines(snap, s));
 
   L.push('');
-  for (const tf of ['3m', '5m', '15m']) L.push(`RSI ${tf}: ${r1(snap.rsi[tf].v)}${mark(snap.rsi[tf].v, s)}`);
-  L.push(`RSI 1h: ${r1(snap.conf.h1)}${mark(snap.conf.h1, s)}`);
-  L.push(`RSI 4h: ${r1(snap.conf.h4)}${mark(snap.conf.h4, s)}`);
+  for (const tf of ['3m', '5m', '15m']) L.push(`<b>RSI ${tf}:</b> ${r1(snap.rsi[tf].v)}${mark(snap.rsi[tf].v, s)}`);
+  L.push(`<b>RSI 1h:</b> ${r1(snap.conf.h1)}${mark(snap.conf.h1, s)}`);
+  L.push(`<b>RSI 4h:</b> ${r1(snap.conf.h4)}${mark(snap.conf.h4, s)}`);
 
   const [wl, ws] = snap.windows;
   const cnt = b => (b.buy + b.sell + b.neutral === 0 ? 'yok' : `${b.buy} alış · ${b.sell} satış${b.neutral ? ` · ${b.neutral} nötr` : ''}`);
   L.push('');
-  if (snap.bursts[wl]) L.push(`Hacimli mum (${wl} dk): ${cnt(snap.bursts[wl].p1)}`);
-  if (snap.bursts[ws]) L.push(`Hacimli mum (${ws} dk): ${cnt(snap.bursts[ws].p1)}`);
-  L.push(`Alış − satış (${wl} dk): ${usd(snap.taker[wl])} $`);
+  if (snap.bursts[wl]) L.push(`<b>Hacimli mum (${wl} dk):</b> ${cnt(snap.bursts[wl].p1)}`);
+  if (snap.bursts[ws]) L.push(`<b>Hacimli mum (${ws} dk):</b> ${cnt(snap.bursts[ws].p1)}`);
+  L.push(`<b>Alış − satış (${wl} dk):</b> ${usd(snap.taker[wl])} $`);
 
   L.push('');
   for (const tf of ['3m', '5m']) {
     const e = snap.sep[tf];
-    L.push(e ? `EMA21 ${tf}: <code>${px(e.ema)}</code> (${updown((e.ema - card.price) / card.price * 100)})` : `EMA21 ${tf}: —`);
+    L.push(e ? `<b>EMA21 ${tf}:</b> <code>${px(e.ema)}</code> (${updown((e.ema - card.price) / card.price * 100)})` : `<b>EMA21 ${tf}:</b> —`);
   }
   const n1 = snap.neg?.['1m']?.count ?? 0, n3 = snap.neg?.['3m']?.count ?? 0;
-  L.push(`Negatif tepe: ${n1 || n3 ? [n3 ? `3m'de ${n3}` : null, n1 ? `1m'de ${n1}` : null].filter(Boolean).join(', ') : 'yok'}`);
+  L.push(`<b>Negatif tepe:</b> ${n1 || n3 ? [n3 ? `3m'de ${n3}` : null, n1 ? `1m'de ${n1}` : null].filter(Boolean).join(', ') : 'yok'}`);
 
   // Detaylar — dokununca açılır
   const D = [];
   const m5 = snap.macd['5m'], m15 = snap.macd['15m'];
-  D.push(`MACD 5m: ${m5 ? esc(m5.text) : '—'}`);
-  D.push(`MACD 15m: ${m15 ? esc(m15.text) : '—'}`);
-  if (snap.stoch) D.push(`Stoch RSI 5m: ${snap.stoch.k.toFixed(0)}${snap.stoch.cross ? ` (${snap.stoch.cross === 'down' ? 'aşağı' : 'yukarı'} kesti)` : ''}`);
-  if (snap.vwap) D.push(`Günlük VWAP: ${px(snap.vwap.vwap)} (fiyat ${updown((card.price - snap.vwap.vwap) / snap.vwap.vwap * 100)})`);
+  D.push(`<b>MACD 5m:</b> ${m5 ? esc(m5.text) : '—'}`);
+  D.push(`<b>MACD 15m:</b> ${m15 ? esc(m15.text) : '—'}`);
+  if (snap.stoch) D.push(`<b>Stoch RSI 5m:</b> ${snap.stoch.k.toFixed(0)}${snap.stoch.cross ? ` (${snap.stoch.cross === 'down' ? 'aşağı' : 'yukarı'} kesti)` : ''}`);
+  if (snap.vwap) D.push(`<b>Günlük VWAP:</b> ${px(snap.vwap.vwap)} (fiyat ${updown((card.price - snap.vwap.vwap) / snap.vwap.vwap * 100)})`);
   const others = (snap.levels || []).filter(l => l.value > card.price && l.name !== snap.level?.name && Math.abs(l.dist) <= 10);
-  if (others.length) D.push(`Üstteki diğer dirençler: ${others.map(l => `${esc(l.name)} ${px(l.value)} (${pa(l.dist, 1)})`).join(' · ')}`);
-  if (snap.bursts[wl]) D.push(`Hacimli mum ≥%${s.burstPct2} (${wl} dk): ${cnt(snap.bursts[wl].p2)}`);
+  if (others.length) D.push(`<b>Üstteki diğer dirençler:</b> ${others.map(l => `${esc(l.name)} ${px(l.value)} (${pa(l.dist, 1)})`).join(' · ')}`);
+  if (snap.bursts[wl]) D.push(`<b>Hacimli mum ≥%${s.burstPct2} (${wl} dk):</b> ${cnt(snap.bursts[wl].p2)}`);
   const at = ['3m', '5m'].map(tf => (snap.sep[tf] ? `${tf} ${snap.sep[tf].dist.toFixed(1)}${snap.sep[tf].touched ? ' (son 3 mumda dokundu)' : ''}` : null)).filter(Boolean);
-  if (at.length) D.push(`EMA21'den uzaklık (ATR): ${at.join(' · ')}`);
+  if (at.length) D.push(`<b>EMA21'den uzaklık (ATR):</b> ${at.join(' · ')}`);
   const f = snap.funding;
   const now = opt.now ?? card.t;
-  if (f) D.push(`Funding: ${ps(f.rate * 100, 4)}${f.next ? ` · ${dur(f.next - now)} sonra` : ''}`);
-  if (card.oi && Number.isFinite(card.oi.changePct)) D.push(`Açık pozisyon (1 saat): ${ps(card.oi.changePct, 1)}`);
-  if (Number.isFinite(snap.btc1h)) D.push(`BTC (1 saat): ${ps(snap.btc1h, 2)}`);
+  if (f) D.push(`<b>Funding:</b> ${ps(f.rate * 100, 4)}${f.next ? ` · ${dur(f.next - now)} sonra` : ''}`);
+  if (card.oi && Number.isFinite(card.oi.changePct)) D.push(`<b>Açık pozisyon (1 saat):</b> ${ps(card.oi.changePct, 2)}`);
+  if (Number.isFinite(snap.btc1h)) D.push(`<b>BTC (1 saat):</b> ${ps(snap.btc1h, 2)}`);
   L.push(`<blockquote expandable>${D.join('\n')}</blockquote>`);
   L.push(`🕒 ${dayTime(card.t)}`);
   L.push(card.tags.map(esc).join(' '));
@@ -147,14 +147,14 @@ function formatMove(m, s) {
   const L = [];
   L.push(`⚡ <b>$${esc(m.symbol)}</b> · 1 dakikada <b>${ps(m.pct)}</b> ${up ? '▲' : '▼'}`);
   L.push('');
-  L.push(`Fiyat: <code>${px(m.from)}</code> → <code>${px(m.to)}</code>`);
-  if (m.volX != null) L.push(`Hacim: son 20 dk ortalamasının ${m.volX.toFixed(1)} katı`);
-  if (m.taker != null) L.push(m.taker >= 50 ? `Alış oranı: ${pa(m.taker, 0)}` : `Satış oranı: ${pa(100 - m.taker, 0)}`);
-  if (m.vol24 != null) L.push(`24 saatlik hacim: ${usd(m.vol24).replace('+', '')} $`);
+  L.push(`<b>Fiyat:</b> <code>${px(m.from)}</code> → <code>${px(m.to)}</code>`);
+  if (m.volX != null) L.push(`<b>Hacim:</b> son 20 dk ortalamasının ${m.volX.toFixed(1)} katı`);
+  if (m.taker != null) L.push(m.taker >= 50 ? `<b>Alış oranı:</b> ${pa(m.taker, 0)}` : `<b>Satış oranı:</b> ${pa(100 - m.taker, 0)}`);
+  if (m.vol24 != null) L.push(`<b>24 saatlik hacim:</b> ${usd(m.vol24).replace('+', '')} $`);
   const sn = m.snap;
   if (sn) {
     L.push('');
-    L.push(`RSI 3m / 5m / 15m: ${['3m', '5m', '15m'].map(tf => r1(sn.rsi[tf].v)).join(' / ')}`);
+    L.push(`<b>RSI 3m / 5m / 15m:</b> ${['3m', '5m', '15m'].map(tf => r1(sn.rsi[tf].v)).join(' / ')}`);
     if (sn.level) L.push(...levelLines(sn, s));
   } else {
     L.push('<i>İzlenen listede değil (24 saatlik hacim eşiğin altında)</i>');
