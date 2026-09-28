@@ -39,7 +39,8 @@ const C = {
   up: '#26a69a', down: '#ef5350',
   tenkan: '#ff4d4d', kijun: '#3d8bff', chikou: '#dda0dd', spanA: '#2ecc71', spanB: '#a855f7',
   cloudUp: 'rgba(46,204,113,0.14)', cloudDn: 'rgba(168,85,247,0.16)',
-  level: '#f5a623',
+  level: '#f5a623', levelOther: '#7d8796',
+  ema3: '#f2f4f7', ema5: '#ffd166',
 };
 
 const DEFAULT_ICHI = { tenkan: 10, kijun: 30, chikou: 30, senkouB: 60, shift: 30 };
@@ -90,7 +91,7 @@ function fmtPx(v) {
  * @param {number} [p.show]      gösterilecek mum sayısı
  * @returns {Buffer|null} PNG
  */
-function renderChart({ symbol, candles, level = null, ichi = DEFAULT_ICHI, tf = '5m', subtitle = '', show = 100, tz = process.env.DISPLAY_TZ || 'Europe/Istanbul' }) {
+function renderChart({ symbol, candles, level = null, levels = [], overlays = [], ichi = DEFAULT_ICHI, showIchi = true, tf = '5m', subtitle = '', show = 100, tz = process.env.DISPLAY_TZ || 'Europe/Istanbul' }) {
   const L = lib();
   if (!L || !candles || candles.length < 20) return null;
   try {
@@ -113,15 +114,19 @@ function renderChart({ symbol, candles, level = null, ichi = DEFAULT_ICHI, tf = 
     const vals = [];
     for (let i = start; i < n; i++) vals.push(h[i], l[i]);
     const at = (arr, k) => (k >= 0 && k < arr.length ? arr[k] : null);
-    for (let j = 0; j < slots; j++) {
+    for (let j = 0; j < slots && showIchi; j++) {
       const k = start + j;
       for (const v of [at(I.tenkan, k), at(I.kijun, k), at(I.spanA, k - ichi.shift), at(I.spanB, k - ichi.shift), at(I.chikou, k + ichi.chikou)]) {
         if (v != null && Number.isFinite(v)) vals.push(v);
       }
     }
+    for (const ov of overlays) for (let i = start; i < n; i++) { const v = ov.values[i]; if (v != null && Number.isFinite(v)) vals.push(v); }
     const last = c[n - 1];
-    const showLevel = level && Number.isFinite(level.value) && Math.abs(level.value - last) / last < 0.08;
+    const near = L0 => L0 && Number.isFinite(L0.value) && Math.abs(L0.value - last) / last < 0.06;
+    const showLevel = near(level);
     if (showLevel) vals.push(level.value);
+    const otherLevels = levels.filter(L0 => near(L0) && (!level || L0.name !== level.name));
+    for (const L0 of otherLevels) vals.push(L0.value);
     let lo = Math.min(...vals), hi = Math.max(...vals);
     const pad = (hi - lo) * 0.05 || last * 0.01;
     lo -= pad; hi += pad;
@@ -150,7 +155,7 @@ function renderChart({ symbol, candles, level = null, ichi = DEFAULT_ICHI, tf = 
     }
 
     // Bulut (Senkou A–B arası), yamuklar halinde
-    for (let j = 0; j < slots - 1; j++) {
+    for (let j = 0; j < slots - 1 && showIchi; j++) {
       const k = start + j;
       const a1 = at(I.spanA, k - ichi.shift), b1 = at(I.spanB, k - ichi.shift);
       const a2 = at(I.spanA, k + 1 - ichi.shift), b2 = at(I.spanB, k + 1 - ichi.shift);
@@ -171,11 +176,15 @@ function renderChart({ symbol, candles, level = null, ichi = DEFAULT_ICHI, tf = 
       }
       g.stroke();
     };
-    line(k => at(I.spanA, k - ichi.shift), C.spanA, 1.5);
-    line(k => at(I.spanB, k - ichi.shift), C.spanB, 1.5);
-    line(k => (k < n ? at(I.chikou, k + ichi.chikou) : null), C.chikou, 1.5);
-    line(k => (k < n ? at(I.kijun, k) : null), C.kijun, 2);
-    line(k => (k < n ? at(I.tenkan, k) : null), C.tenkan, 2);
+    if (showIchi) {
+      line(k => at(I.spanA, k - ichi.shift), C.spanA, 1.5);
+      line(k => at(I.spanB, k - ichi.shift), C.spanB, 1.5);
+      line(k => (k < n ? at(I.chikou, k + ichi.chikou) : null), C.chikou, 1.5);
+      line(k => (k < n ? at(I.kijun, k) : null), C.kijun, 2);
+      line(k => (k < n ? at(I.tenkan, k) : null), C.tenkan, 2);
+    }
+    // EMA21 3m / 5m (kalın, kesiksiz) — hedef bölgeleri
+    for (const ov of overlays) line(k => (k < n ? ov.values[k] : null), ov.color, 2.6);
 
     // Mumlar
     const bw = Math.max(2, slotW * 0.62);
@@ -197,7 +206,16 @@ function renderChart({ symbol, candles, level = null, ichi = DEFAULT_ICHI, tf = 
       }
     }
 
-    // Direnç seviyesi
+    // Diğer seviyeler (gri, ince) — etiket sağda
+    for (const L0 of otherLevels) {
+      const y = ys(L0.value);
+      g.strokeStyle = C.levelOther; g.lineWidth = 1; g.setLineDash([4, 6]);
+      g.beginPath(); g.moveTo(padL, y); g.lineTo(padL + plotW, y); g.stroke(); g.setLineDash([]);
+      g.font = '13px ChartSans'; g.textAlign = 'right'; g.fillStyle = C.levelOther;
+      g.fillText(`${L0.name} ${fmtPx(L0.value)}`, padL + plotW - 6, y - 5);
+      g.textAlign = 'left';
+    }
+    // Direnç seviyesi (en yakın, turuncu)
     if (showLevel) {
       const y = ys(level.value);
       g.strokeStyle = C.level; g.lineWidth = 1.5; g.setLineDash([8, 6]);
@@ -230,8 +248,9 @@ function renderChart({ symbol, candles, level = null, ichi = DEFAULT_ICHI, tf = 
     g.textAlign = 'left';
     let lx = padL;
     const legend = [
-      [`Tenkan ${ichi.tenkan}`, C.tenkan], [`Kijun ${ichi.kijun}`, C.kijun], [`Chikou ${ichi.chikou}`, C.chikou],
-      [`Senkou A`, C.spanA], [`Senkou B ${ichi.senkouB}`, C.spanB], [`kaydırma ${ichi.shift}`, C.faint],
+      ...overlays.map(ov => [ov.label, ov.color]),
+      ...(showIchi ? [[`Tenkan ${ichi.tenkan}`, C.tenkan], [`Kijun ${ichi.kijun}`, C.kijun], [`Chikou ${ichi.chikou}`, C.chikou],
+        [`Senkou A`, C.spanA], [`Senkou B ${ichi.senkouB}`, C.spanB]] : []),
     ];
     g.font = '14px ChartSans';
     for (const [t, col] of legend) {
@@ -246,10 +265,35 @@ function renderChart({ symbol, candles, level = null, ichi = DEFAULT_ICHI, tf = 
   }
 }
 
+/**
+ * EMA21 çizgileri, 5m mumlarla hizalı: 5m EMA21 doğrudan; 3m EMA21 her 5m mumun sonunda bilinen son değer.
+ * @returns {{label, color, values:number[]}[]}
+ */
+function emaOverlays(series, candles5) {
+  const ta = require('./ta');
+  const out = [];
+  const c5 = candles5.map(k => k.c);
+  const e5 = ta.emaSeries(c5, 21), off5 = c5.length - e5.length;
+  out.push({ label: '5m EMA21', color: C.ema5, values: c5.map((_, i) => (i >= off5 ? e5[i - off5] : null)) });
+  if (series && series.count('3m') >= 30) {
+    const t3 = series.col('3m', 't'), c3 = series.col('3m', 'c');
+    const e3 = ta.emaSeries(c3, 21), off3 = c3.length - e3.length;
+    const vals = [];
+    let j = 0;
+    for (const k of candles5) {
+      const end = k.t + 5 * 60_000;                 // 5m mumun kapanışı
+      while (j + 1 < t3.length && t3[j + 1] < end) j++;   // o ana kadar başlamış son 3m mum
+      vals.push(j >= off3 && t3[j] < end ? e3[j - off3] : null);
+    }
+    out.unshift({ label: '3m EMA21', color: C.ema3, values: vals });
+  }
+  return out;
+}
+
 /** Series'ten 5m mum listesi (yarım mum dahil) */
 function candlesFromSeries(series, tf = '5m') {
   const t = series.col(tf, 't'), o = series.col(tf, 'o'), h = series.col(tf, 'h'), l = series.col(tf, 'l'), c = series.col(tf, 'c'), v = series.col(tf, 'v');
   return t.map((_, i) => ({ t: t[i], o: o[i], h: h[i], l: l[i], c: c[i], v: v[i] }));
 }
 
-module.exports = { renderChart, candlesFromSeries, ichimoku, DEFAULT_ICHI, available: () => Boolean(lib()) };
+module.exports = { renderChart, candlesFromSeries, emaOverlays, ichimoku, DEFAULT_ICHI, available: () => Boolean(lib()) };

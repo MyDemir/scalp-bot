@@ -7,7 +7,7 @@
  *                 (a) 3m / 5m / 15m mumlarından biri kapandıysa ya da (b) bu 1m mum hacimli bir
  *                 patlamaysa yapılır. Kapanmamış dilimlerin RSI'ı devam eden mumla hesaplanır (canlı, "~").
  *   Şart        : 3m/5m/15m'den en az minTFs tanesinde RSI ≥ rsiMin
- *   Derece      : 🔴 RSI ≥ rsiMin · 🔴🔴 RSI ≥ rsiMin2 + seviye · 🔴🔴🔴 3/3 ≥ rsiMin2 + dipte + ayrışma
+ *   Derece      : kurulum kontrol listesi skoru (8 madde) — 🔴 < grade2Min · 🔴🔴 ≥ grade2Min · 🔴🔴🔴 ≥ grade3Min
  *                 + (levelRequired) fiyatın üstünde en fazla %levelMaxPct uzakta bir seviye
  *                 + isteğe bağlı: ayrışma / destek / MACD şartları
  *   Yeni kart   : şart sağlanıyor VE önceki karttan bu yana yeni veri var (patlama, RSI dilim sayısı,
@@ -126,18 +126,73 @@ function volGrade(move, volX, taker, s) {
   return agree >= s.dirGrade3Pct ? 3 : 2;
 }
 
+const DAILY_LEVELS = ['1d MA200', '1d EMA200', '30 günlük tepe'];
+
 /**
- * RSI kartı derecesi:
- *   1 = en az minTFs dilimde RSI ≥ rsiMin
- *   2 = en az minTFs dilimde RSI ≥ rsiMin2 ve üstte %levelMaxPct içinde seviye
- *   3 = üç dilimde RSI ≥ rsiMin2 + dipte + EMA21 ayrışması
+ * Kurulum kontrol listesi (8 madde, yalnızca bilgi — kart göndermeyi engellemez):
+ *   1 günlük dirence yakın (1d MA200 / 1d EMA200 / 30 günlük tepe, üstte ≤ %levelMaxPct)
+ *   2 çakışan direnç (başka bir seviye %confluencePct içinde)
+ *   3 3m ya da 5m RSI strongRsi–rsiEntryMax aralığında (95–98)
+ *   4 15m RSI ≥ strongRsi (95)
+ *   5 5m ve 15m birlikte ≥ strongRsi
+ *   6 1h ve 4h RSI ≥ confRsi (şişkin)
+ *   7 3m ve 5m EMA21'den ayrışmış (≥ sepATR ATR, son 3 mumda dokunmamış)
+ *   8 1m ya da 3m'de ≥ 2 negatif tepe
+ * Ayrıca uyarı: 3m/5m RSI ≥ 95 ama EMA21'e yakın.
+ */
+function checklist(snap, s) {
+  const r = snap.rsi;
+  const f1 = v => (v == null || !Number.isFinite(v) ? '—' : v.toFixed(1));
+  const levels = snap.levels || [];
+  // 1 — günlük seviye (üstte, ≤ levelMaxPct; fitil payı dipAbovePct)
+  let daily = null;
+  for (const L of levels) {
+    if (!DAILY_LEVELS.includes(L.name)) continue;
+    if (L.dist > s.dipAbovePct || L.dist < -s.levelMaxPct) continue;
+    if (!daily || Math.abs(L.dist) < Math.abs(daily.dist)) daily = L;
+  }
+  const kala = d => (d <= 0 ? `%${Math.abs(d).toFixed(2)} kala` : `%${d.toFixed(2)} üstünde`);
+  // 2 — çakışma: referans seviyeye (günlük, yoksa kartın seviyesi) başka bir seviye yakın
+  const ref = daily || snap.level;
+  let conf = null;
+  if (ref) {
+    for (const L of levels) {
+      if (L.name === ref.name) continue;
+      const gapPct = Math.abs(L.value - ref.value) / ref.value * 100;
+      if (gapPct <= s.confluencePct && (!conf || gapPct < conf.gapPct)) conf = { ...L, gapPct };
+    }
+  }
+  const inBand = v => v >= s.strongRsi && v <= s.rsiEntryMax;
+  const band = ['3m', '5m'].filter(tf => inBand(r[tf].v));
+  const over = ['3m', '5m'].filter(tf => r[tf].v > s.rsiEntryMax);
+  const sep = snap.sep || {};
+  const sepTxt = ['3m', '5m'].map(tf => (sep[tf] ? `${sep[tf].dist.toFixed(1)}${sep[tf].touched ? '*' : ''}` : '—')).join(' · ');
+  const n1 = snap.neg?.['1m']?.count ?? 0, n3 = snap.neg?.['3m']?.count ?? 0;
+  const h1 = snap.conf?.h1, h4 = snap.conf?.h4;
+
+  const items = [
+    { key: 'daily', ok: Boolean(daily), text: daily ? `Günlük direnç ${kala(daily.dist)} (${daily.name})` : `Günlük direnç %${s.levelMaxPct} içinde yok` },
+    { key: 'confluence', ok: Boolean(conf), text: conf ? `Çakışan direnç: ${ref.name} + ${conf.name}` : 'Çakışan direnç yok' },
+    { key: 'band', ok: band.length > 0, text: band.length ? `3m/5m RSI ${s.strongRsi}–${s.rsiEntryMax} (${band.map(tf => `${tf} ${f1(r[tf].v)}`).join(' · ')})` : over.length ? `3m/5m RSI ${s.rsiEntryMax} üstü — aşırı (${over.map(tf => `${tf} ${f1(r[tf].v)}`).join(' · ')})` : `3m/5m RSI ${s.strongRsi}–${s.rsiEntryMax} değil (${f1(r['3m'].v)} · ${f1(r['5m'].v)})` },
+    { key: 'rsi15', ok: r['15m'].v >= s.strongRsi, text: `15m RSI ≥ ${s.strongRsi} (${f1(r['15m'].v)})` },
+    { key: 'rsi5_15', ok: r['5m'].v >= s.strongRsi && r['15m'].v >= s.strongRsi, text: `5m + 15m ≥ ${s.strongRsi} (${f1(r['5m'].v)} · ${f1(r['15m'].v)})` },
+    { key: 'htf', ok: h1 >= s.confRsi && h4 >= s.confRsi, text: `1h/4h RSI ≥ ${s.confRsi} (${f1(h1)} · ${f1(h4)})` },
+    { key: 'sep', ok: Boolean(snap.sepOk), text: `EMA21 ayrışma (${sepTxt} ATR)` },
+    { key: 'neg', ok: Math.max(n1, n3) >= 2, text: `Negatif tepe ≥ 2 (1m ${n1} · 3m ${n3})` },
+  ];
+  const score = items.filter(x => x.ok).length;
+  const warn = ['3m', '5m'].some(tf => r[tf].v >= s.strongRsi) && !snap.sepOk ? `⚠️ RSI ${s.strongRsi} üstü ama EMA21'e yakın` : null;
+  return { items, score, total: items.length, warn, daily, confluence: conf };
+}
+
+/**
+ * Kart derecesi — kontrol listesi skoruna göre (kart şartı sağlanmışsa):
+ *   🔴 skor < grade2Min · 🔴🔴 skor ≥ grade2Min · 🔴🔴🔴 skor ≥ grade3Min (sesli)
  */
 function rsiGrade(snap, s) {
   if (!(snap.hits >= s.minTFs)) return 0;
-  let g = 1;
-  if (snap.hits2 >= s.minTFs && snap.level) g = 2;
-  if (g === 2 && snap.hits2 === 3 && snap.level.zone === 'dip' && snap.sepOk) g = 3;
-  return g;
+  const sc = snap.check ? snap.check.score : 0;
+  return sc >= s.grade3Min ? 3 : sc >= s.grade2Min ? 2 : 1;
 }
 
 /**
@@ -318,6 +373,7 @@ function evaluate(series, s, ctx = {}, force = false) {
   snap.fails = fails;
   if (!snap.rsiOk) fails.unshift('rsi');
   snap.ok = fails.length === 0;
+  snap.check = checklist(snap, s);
   snap.grade = rsiGrade(snap, s);
   return snap;
 }
@@ -335,12 +391,7 @@ function burstText(b) {
   return `${circles(b.grade || 1, dirColor(b.dir))} Hacimli ${kind} mumu: ${ps(b.body, 1)} · hacim ${b.volX.toFixed(1)} kat · ${share}`;
 }
 
-const GRADE_TXT = {
-  0: 'şart dışı',
-  1: 'RSI eşiği',
-  2: 'RSI + seviye',
-  3: 'tüm şartlar',
-};
+const GRADE_TXT = { 0: 'şart dışı', 1: 'kart şartı', 2: 'kontrol listesi', 3: 'kontrol listesi' };
 
 function createTracker() {
   const mem = new Map();   // symbol → { seq, last, log: [{t, price, seq}] }
@@ -384,8 +435,11 @@ function createTracker() {
       for (const tf of RSI_TFS) {
         if (snap.rsi[tf].v >= s.strongRsi && !L.strong.includes(tf)) out.push(`${tf} RSI ${s.strongRsi} üstüne çıktı (${snap.rsi[tf].v.toFixed(1)})`);
       }
+      const sc = snap.check?.score, psc = L.score;
       if (snap.grade !== (L.grade ?? snap.grade)) {
-        out.push(`Derece ${snap.grade > L.grade ? 'yükseldi' : 'düştü'}: ${circles(snap.grade)} (${GRADE_TXT[snap.grade]})`);
+        out.push(`Derece ${snap.grade > L.grade ? 'yükseldi' : 'düştü'}: ${circles(snap.grade)}${sc != null ? ` (kontrol ${sc}/${snap.check.total})` : ` (${GRADE_TXT[snap.grade]})`}`);
+      } else if (sc != null && psc != null && sc !== psc) {
+        out.push(`Kontrol listesi ${psc}/${snap.check.total} → ${sc}/${snap.check.total}`);
       }
       const key = snap.level ? snap.level.name : null;
       if (key !== L.levelKey) {
@@ -423,6 +477,7 @@ function createTracker() {
         above: RSI_TFS.filter(tf => snap.rsi[tf].v >= s.rsiMin),
         above2: RSI_TFS.filter(tf => snap.rsi[tf].v >= s.rsiMin2),
         grade: snap.grade,
+        score: snap.check?.score ?? null,
         strong: RSI_TFS.filter(tf => snap.rsi[tf].v >= s.strongRsi),
         levelKey: snap.level ? snap.level.name : null,
         level: snap.level,
@@ -509,4 +564,4 @@ function movePct(prevClose, prevT, c) {
   return base > 0 ? (c.c - base) / base * 100 : null;
 }
 
-module.exports = { evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, negPeaks, movePct, volGrade, rsiGrade, circles, dirColor, RSI_TFS };
+module.exports = { evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, negPeaks, movePct, volGrade, rsiGrade, checklist, circles, dirColor, RSI_TFS };

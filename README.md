@@ -25,17 +25,21 @@ Kontrol anı: **3m / 5m / 15m mum kapanışları** + **hacimli her 1m mum kapan�
 | Seviye (zorunlu) | fiyatın üstünde en fazla **%2.5** uzakta bir seviye: 4h MA200 · 4h EMA200 · 1d MA200 · 1d EMA200 · 30 günlük tepe (son 30 **kapanmış** günün en yüksek 3 tepesinin ortalaması) |
 | Yeni veri | önceki karttan bu yana: RSI dilim sayısı değişti · bir dilim 95'i geçti · hacimli mum · seviye/bölge değişti (DİPTE'ye girdi, seviye kırıldı) · MACD ya da Stoch RSI kesişimi · 1m/3m negatif tepe arttı. **Yeni veri yoksa kart gitmez.** |
 
-**Derece daireleri** (kart başlığında):
+**Kurulum kontrol listesi ve derece** (kartta ✅/▫️, başlıkta daireler). 8 madde, yalnızca bilgi (kartı engellemez):
 
-| | RSI kartı | Hacimli mum / ⚡ hareket |
-|---|---|---|
-| 🔴 | 2/3 dilimde RSI ≥ 85 | temel şart (hacimli mum · 1 dk ≥ %2) |
-| 🔴🔴 | 2/3 dilimde RSI ≥ 90 **ve** üstte %2.5 içinde seviye | + hacim ≥ 3× (önceki 20 dk ortalaması) |
-| 🔴🔴🔴 | 3/3 dilimde RSI ≥ 90 + fiyat dirence dayalı (dipte) + EMA21 ayrışması — **sesli** | + alış/satış oranı hareket yönünde ≥ %65 |
+1. Günlük direnç yakın (1d MA200 / 1d EMA200 / 30 günlük tepe, üstte ≤ %2.5)
+2. Çakışan direnç (başka bir seviye %0.5 içinde — "genelde majör dirençlerle kesişiyor")
+3. 3m ya da 5m RSI 95–98 aralığında (98 üstü "aşırı" diye ayrı yazılır)
+4. 15m RSI ≥ 95
+5. 5m ve 15m birlikte ≥ 95
+6. 1h ve 4h RSI ≥ 80 (şişkin)
+7. 3m ve 5m EMA21'den ayrışmış (≥ 0.5 ATR, son 3 mumda dokunmamış) — değilse "⚠️ RSI 95 üstü ama EMA21'e yakın"
+8. 1m ya da 3m'de ≥ 2 negatif tepe
 
-Hacim/⚡ dairelerinin **rengi yönü** gösterir: 🟢 alış/yükseliş · 🔴 satış/düşüş · ⚪ nötr (daire sayısı derecedir).
-RSI kartı daireleri kırmızıdır (aşırı alım). RSI satırlarında: 🔴 ≥ 85 · 🔴🔴 ≥ 90 · 🔴🔴🔴 ≥ 95. Derece değişimi yeni veri sayılır
-("Derece yükseldi: 🔴🔴🔴"). Eşikler `/ayarlar`'dan değişir (`rsiMin`, `rsiMin2`, `volGrade2X`, `dirGrade3Pct`, `rsiPeriod`).
+Altında 🎯 hedef bölgeleri: 3m EMA21 ve 5m EMA21 (fiyat ve uzaklık). **Derece:** 🔴 skor < 5 · 🔴🔴 ≥ 5 ·
+🔴🔴🔴 ≥ 7 (sesli). Skor değişince kart gelir ("Kontrol listesi 5/8 → 7/8"). Eşikler `/ayarlar`:
+`strongRsi`, `rsiEntryMax`, `confRsi`, `confluencePct`, `grade2Min`, `grade3Min`.
+Hacim/⚡ daireleri: 1 temel · 2 hacim ≥ 3× · 3 + yön uyumu ≥ %65; renk yönü gösterir (🟢 alış/yükseliş · 🔴 satış/düşüş · ⚪ nötr).
 
 **Seri içi patlama:** bir coinde kart gittikten sonra seri sürerken (kapanmış 5m RSI 75'in altına inmeden)
 gelen hacimli 1m mum **şart aranmadan** kart olur (`#SERI`, kartta "Seri içi · şart dışı (RSI 1/3)" gibi).
@@ -60,7 +64,8 @@ Aynı coinde kartlar **#1, #2 …** diye numaralanır; kapanmış 5m RSI 75'in a
 
 ### Grafik
 Kartlar ve ⚡ uyarılar **grafikli** gelir (fotoğraf + açıklama): son ~8 saatin 5m mumları, hacim, direnç seviyesi
-(kesikli turuncu), son fiyat etiketi ve **Ichimoku** — KivancOzbilgic'in "ICHIMOKU Kinko Hyo by KIVANC" düzeni:
+(en yakını turuncu, diğer yakın seviyeler gri), **3m EMA21 (beyaz) ve 5m EMA21 (sarı)** — ayrışma ve hedef bölgeleri
+grafikte görünür —, son fiyat etiketi ve **Ichimoku** (`/ayarlar` → Ichimoku ile kapatılabilir) — KivancOzbilgic'in "ICHIMOKU Kinko Hyo by KIVANC" düzeni:
 Tenkan (kırmızı), Kijun (mavi), Chikou (erik), Senkou A (yeşil), Senkou B (mor), bulut. Varsayılan periyotlar
 Kıvanç'ın kripto önerisi 10/30/30/60/30 (1-3-3-6-3 oranı); klasik 9/26/26/52/26 için `/ayar ichiTenkan 9` vb.
 Evren dışı pariteler için grafik verisi o an REST'ten çekilir. Açıklama Telegram'ın 1024 karakter sınırını

@@ -93,7 +93,15 @@ const visibleLen = html => {
 async function sendWithPhoto(body, photo) {
   const base = { chat_id: body.chat_id, parse_mode: 'HTML', disable_notification: body.disable_notification };
   let caption = body.text;
-  if (visibleLen(caption) > CAPTION_MAX) caption = caption.replace(/<blockquote expandable>[\s\S]*?<\/blockquote>\n?/, '');
+  // Sığmıyorsa "Detaylar" bloğunu sondan satır satır kırp (önemli satırlar başta)
+  while (visibleLen(caption) > CAPTION_MAX) {
+    const m = caption.match(/<blockquote expandable>([\s\S]*?)<\/blockquote>\n?/);
+    if (!m) break;
+    const lines = m[1].split('\n');
+    lines.pop();
+    const repl = lines.length ? `<blockquote expandable>${lines.join('\n')}</blockquote>\n` : '';
+    caption = caption.replace(m[0], () => repl);   // fonksiyon: metindeki "$" işaretleri özel anlam taşımasın
+  }
   if (visibleLen(caption) <= CAPTION_MAX) {
     return apiMultipart('sendPhoto', { ...base, caption, reply_markup: body.reply_markup }, photo);
   }

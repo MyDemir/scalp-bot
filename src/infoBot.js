@@ -97,7 +97,11 @@ async function emitCard(card) {
   const s = settings.get();
   const { text, keyboard } = formatCard(card, s, { now: Date.now() });
   const sr = series.get(card.symbol);
-  const photo = s.chart && sr ? chart.renderChart({ symbol: card.symbol, candles: chart.candlesFromSeries(sr), level: card.snap.level, ichi: ichiOf(s), subtitle: `Kart ${card.seq}` }) : null;
+  let photo = null;
+  if (s.chart && sr) {
+    const cs = chart.candlesFromSeries(sr);
+    photo = chart.renderChart({ symbol: card.symbol, candles: cs, level: card.snap.level, levels: card.snap.levels || [], overlays: chart.emaOverlays(sr, cs), ichi: ichiOf(s), showIchi: s.chartIchi, subtitle: `Kart ${card.seq}` });
+  }
   telegram.sendCard({ text, keyboard, silent: card.silent, photo });
   store?.add({ id: card.id, kind: 'card', symbol: card.symbol, t: card.t, seq: card.seq, price: card.price, data: { ...compact(card), bursts: undefined, fwd: undefined } });
   const lv = card.snap.level;
@@ -192,7 +196,7 @@ async function emitMoveNow(m) {
   let photo = null;
   if (s.chartMoves) {
     const cs = await moveCandles(m.symbol);
-    if (cs) photo = chart.renderChart({ symbol: m.symbol, candles: cs, level: m.snap?.level ?? null, ichi: ichiOf(s), subtitle: `1 dk ${m.pct > 0 ? '+' : '−'}%${Math.abs(m.pct).toFixed(2)}` });
+    if (cs) photo = chart.renderChart({ symbol: m.symbol, candles: cs, level: m.snap?.level ?? null, levels: m.snap?.levels || [], overlays: chart.emaOverlays(sr && sr.count('5m') >= 60 ? sr : null, cs), ichi: ichiOf(s), showIchi: s.chartIchi, subtitle: `1 dk ${m.pct > 0 ? '+' : '−'}%${Math.abs(m.pct).toFixed(2)}` });
   }
   telegram.sendCard({ text, keyboard, silent: !(s.moveAlertSound || m.followed), photo });
   store?.add({
@@ -401,9 +405,11 @@ async function main() {
 
   store = createCardStore();
   await telegram.start();
-  installInfoTelegram({ telegram, settings, tracker, store, getSeries: sym => series.get(sym), ctx: () => ctx, status: statusText, chartFor: (sym, level) => {
+  installInfoTelegram({ telegram, settings, tracker, store, getSeries: sym => series.get(sym), ctx: () => ctx, status: statusText, chartFor: (sym, level, levels = []) => {
     const sr = series.get(sym), s0 = settings.get();
-    return sr && s0.chart ? chart.renderChart({ symbol: sym, candles: chart.candlesFromSeries(sr), level, ichi: ichiOf(s0), subtitle: 'Anlık' }) : null;
+    if (!sr || !s0.chart) return null;
+    const cs = chart.candlesFromSeries(sr);
+    return chart.renderChart({ symbol: sym, candles: cs, level, levels, overlays: chart.emaOverlays(sr, cs), ichi: ichiOf(s0), showIchi: s0.chartIchi, subtitle: 'Anlık' });
   } });
   console.log(`[GRAFİK] ${chart.available() ? 'açık (5m + Ichimoku)' : 'KAPALI — @napi-rs/canvas yüklenemedi, kartlar grafiksiz gider'}`);
 

@@ -83,47 +83,49 @@ function formatCard(card, s, opt = {}) {
     : `${circles(snap.grade ?? 0)} <b>#${esc(sym)}</b> · Kart ${card.seq}${dip ? ' · ⭐ Dipte' : ''}`);
   for (const n of card.news) L.push(`🔔 ${esc(n)}`);
 
+  // Fiyat + en yakın direnç (tek satır)
   L.push('');
   L.push(`<b>Fiyat:</b> <code>${px(card.price)}</code>`);
-  L.push(...levelLines(snap, s));
+  const lv = snap.level;
+  L.push(lv
+    ? `<b>Direnç:</b> ${esc(lv.name)} <code>${px(lv.value)}</code> · ${lv.dist <= 0 ? `${pa(lv.dist)} kala` : `${pa(lv.dist)} üstünde`}${lv.zone === 'dip' ? ' ⭐' : ''}`
+    : `<b>Direnç:</b> %${s.levelMaxPct} içinde yok`);
 
-  L.push('');
-  for (const tf of ['3m', '5m', '15m']) L.push(`<b>RSI ${tf}:</b> ${r1(snap.rsi[tf].v)}${mark(snap.rsi[tf].v, s)}`);
-  L.push(`<b>RSI 1h:</b> ${r1(snap.conf.h1)}${mark(snap.conf.h1, s)}`);
-  L.push(`<b>RSI 4h:</b> ${r1(snap.conf.h4)}${mark(snap.conf.h4, s)}`);
+  // Kurulum kontrol listesi — derece bu skora göre
+  const ck = snap.check;
+  if (ck) {
+    L.push('');
+    L.push(`<b>Kontrol listesi: ${ck.score}/${ck.total}</b>`);
+    for (const it of ck.items) L.push(`${it.ok ? '✅' : '▫️'} ${esc(it.text)}`);
+    if (ck.warn) L.push(esc(ck.warn));
+  }
+  const e3 = snap.sep['3m'], e5 = snap.sep['5m'];
+  const tgt = [e3 ? `3m EMA21 <code>${px(e3.ema)}</code> (${pa((e3.ema - card.price) / card.price * 100, 1)})` : null,
+    e5 ? `5m EMA21 <code>${px(e5.ema)}</code> (${pa((e5.ema - card.price) / card.price * 100, 1)})` : null].filter(Boolean);
+  if (tgt.length) L.push(`🎯 <b>Hedef bölgeleri:</b> ${tgt.join(' · ')}`);
 
   const [wl, ws] = snap.windows;
   const cnt = b => (b.buy + b.sell + b.neutral === 0 ? 'yok' : `${b.buy} alış · ${b.sell} satış${b.neutral ? ` · ${b.neutral} nötr` : ''}`);
   L.push('');
   if (snap.bursts[wl]) L.push(`<b>Hacimli mum (${wl} dk):</b> ${cnt(snap.bursts[wl].p1)}`);
-  if (snap.bursts[ws]) L.push(`<b>Hacimli mum (${ws} dk):</b> ${cnt(snap.bursts[ws].p1)}`);
   L.push(`<b>Alış − satış (${wl} dk):</b> ${usd(snap.taker[wl])} $`);
 
-  L.push('');
-  for (const tf of ['3m', '5m']) {
-    const e = snap.sep[tf];
-    L.push(e ? `<b>EMA21 ${tf}:</b> <code>${px(e.ema)}</code> (${updown((e.ema - card.price) / card.price * 100)})` : `<b>EMA21 ${tf}:</b> —`);
-  }
-  const n1 = snap.neg?.['1m']?.count ?? 0, n3 = snap.neg?.['3m']?.count ?? 0;
-  L.push(`<b>Negatif tepe:</b> ${n1 || n3 ? [n3 ? `3m'de ${n3}` : null, n1 ? `1m'de ${n1}` : null].filter(Boolean).join(', ') : 'yok'}`);
-
-  // Detaylar — dokununca açılır
+  // Detaylar — dokununca açılır (önem sırasıyla; fotoğraf açıklaması sığmazsa sondan kırpılır)
   const D = [];
+  D.push(`<b>RSI:</b> ${['3m', '5m', '15m'].map(tf => `${tf} ${r1(snap.rsi[tf].v)}${mark(snap.rsi[tf].v, s)}`).join(' · ')} · 1h ${r1(snap.conf.h1)} · 4h ${r1(snap.conf.h4)}`);
   const m5 = snap.macd['5m'], m15 = snap.macd['15m'];
-  D.push(`<b>MACD 5m:</b> ${m5 ? esc(m5.text) : '—'}`);
-  D.push(`<b>MACD 15m:</b> ${m15 ? esc(m15.text) : '—'}`);
+  D.push(`<b>MACD:</b> 5m ${m5 ? esc(m5.text) : '—'} · 15m ${m15 ? esc(m15.text) : '—'}`);
+  if (snap.bursts[ws]) D.push(`<b>Hacimli mum (${ws} dk):</b> ${cnt(snap.bursts[ws].p1)}`);
   if (snap.stoch) D.push(`<b>Stoch RSI 5m:</b> ${snap.stoch.k.toFixed(0)}${snap.stoch.cross ? ` (${snap.stoch.cross === 'down' ? 'aşağı' : 'yukarı'} kesti)` : ''}`);
   if (snap.vwap) D.push(`<b>Günlük VWAP:</b> ${px(snap.vwap.vwap)} (fiyat ${updown((card.price - snap.vwap.vwap) / snap.vwap.vwap * 100)})`);
   const others = (snap.levels || []).filter(l => l.value > card.price && l.name !== snap.level?.name && Math.abs(l.dist) <= 10);
   if (others.length) D.push(`<b>Üstteki diğer dirençler:</b> ${others.map(l => `${esc(l.name)} ${px(l.value)} (${pa(l.dist, 1)})`).join(' · ')}`);
-  if (snap.bursts[wl]) D.push(`<b>Hacimli mum ≥%${s.burstPct2} (${wl} dk):</b> ${cnt(snap.bursts[wl].p2)}`);
-  const at = ['3m', '5m'].map(tf => (snap.sep[tf] ? `${tf} ${snap.sep[tf].dist.toFixed(1)}${snap.sep[tf].touched ? ' (son 3 mumda dokundu)' : ''}` : null)).filter(Boolean);
-  if (at.length) D.push(`<b>EMA21'den uzaklık (ATR):</b> ${at.join(' · ')}`);
   const f = snap.funding;
   const now = opt.now ?? card.t;
   if (f) D.push(`<b>Funding:</b> ${ps(f.rate * 100, 4)}${f.next ? ` · ${dur(f.next - now)} sonra` : ''}`);
   if (card.oi && Number.isFinite(card.oi.changePct)) D.push(`<b>Açık pozisyon (1 saat):</b> ${ps(card.oi.changePct, 2)}`);
   if (Number.isFinite(snap.btc1h)) D.push(`<b>BTC (1 saat):</b> ${ps(snap.btc1h, 2)}`);
+  if (snap.bursts[wl]) D.push(`<b>Hacimli mum ≥%${s.burstPct2} (${wl} dk):</b> ${cnt(snap.bursts[wl].p2)}`);
   L.push(`<blockquote expandable>${D.join('\n')}</blockquote>`);
   L.push(`🕒 ${dayTime(card.t)}`);
   // Coin etiketi başlıkta (tıklanınca o coinin tüm kartları) — altta tekrar edilmez

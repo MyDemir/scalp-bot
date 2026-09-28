@@ -106,7 +106,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, getSer
 /benkimim — Telegram kullanıcı ID'n
 
 <b>Derece daireleri</b>
-RSI kartı: 🔴 RSI ≥ ${settings.get().rsiMin} · 🔴🔴 RSI ≥ ${settings.get().rsiMin2} + seviye · 🔴🔴🔴 üç dilimde ≥ ${settings.get().rsiMin2} + dipte + EMA21 ayrışması (sesli)
+Kart: kurulum kontrol listesi skoru (8 madde: günlük direnç, çakışan direnç, 3m/5m RSI ${settings.get().strongRsi}–${settings.get().rsiEntryMax}, 15m ≥ ${settings.get().strongRsi}, 5m+15m ≥ ${settings.get().strongRsi}, 1h/4h ≥ ${settings.get().confRsi}, EMA21 ayrışma, ≥2 negatif tepe) — 🔴 &lt; ${settings.get().grade2Min} · 🔴🔴 ≥ ${settings.get().grade2Min} · 🔴🔴🔴 ≥ ${settings.get().grade3Min} (sesli)
 Hacimli mum / ⚡: 1 daire temel · 2 daire hacim ≥ ${settings.get().volGrade2X}× · 3 daire + yön uyumu ≥ %${settings.get().dirGrade3Pct} — 🟢 alış/yükseliş · 🔴 satış/düşüş · ⚪ nötr
 RSI periyodu: ${settings.get().rsiPeriod}
 
@@ -141,7 +141,7 @@ Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesin
         tags: [`#${sym}`], followed: settings.isFollowed(sym),
       };
       const out = formatCard(card, s, { now: Date.now() });
-      const photo = chartFor ? chartFor(sym, snap.level) : null;
+      const photo = chartFor ? chartFor(sym, snap.level, snap.levels || []) : null;
       return photo ? { ...out, photo } : out;
     },
 
