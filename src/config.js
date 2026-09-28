@@ -47,6 +47,7 @@ module.exports = {
     moveAlertPct:  2,      // 0 = kapalı
     moveAlertAll:  true,   // true: TÜM USDT perpetual'lar (hacim filtresi yok) · false: yalnızca izlenen evren
     moveAlertSound: true,  // hareket uyarıları sesli
+    cardSound:     true,   // her yeni kart bildirimli (sesli). Kapalıysa yalnız 🔴🔴🔴 ve takipteki coinler sesli
     // Grafik (5m mumlar + Ichimoku + hacim + seviye) — kartlara ve ⚡ uyarılara fotoğraf olarak eklenir
     chart:         true,
     chartMoves:    true,

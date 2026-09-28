@@ -47,6 +47,7 @@ const DEFS = [
   { key: 'macdRequired', short: 'MACD şartı',  label: 'MACD 5m zayıflama şartı', type: 'bool' },
   { key: 'moveAlertPct', short: 'Hareket %', label: 'Hareket uyarısı: 1 dk ≥ % (0 = kapalı)', type: 'num', min: 0, max: 20, step: 0.5 },
   { key: 'moveAlertAll', short: 'Hrk. tüm pariteler', label: 'Hareket uyarısı: tüm pariteler', type: 'bool' },
+  { key: 'cardSound', short: 'Kart sesli', label: 'Her kart bildirimli (sesli)', type: 'bool' },
   { key: 'moveAlertSound', short: 'Hrk. sesli', label: 'Hareket uyarısı sesli', type: 'bool' },
   { key: 'chart', short: 'Grafik', label: 'Kartlarda grafik', type: 'bool' },
   { key: 'chartIchi', short: 'Ichimoku', label: 'Grafikte Ichimoku', type: 'bool' },

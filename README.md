@@ -60,7 +60,7 @@ Aynı coinde kartlar **#1, #2 …** diye numaralanır; kapanmış 5m RSI 75'in a
   yakındaki tüm seviyeler, funding + sonraki funding zamanı, OI 1h değişimi, BTC 1h değişimi
 - Hashtag'ler (dokununca o sınıftaki tüm kartlar listelenir): `#COIN #DERECE1/2/3 #DIPTE/#YAKLASIYOR #HACIM #SERI #NEGTEPE #AYRISMA #TAKIP`
 - Butonlar: 📈 TradingView · 🟡 Binance · ℹ️ Özet (açılır pencere: bu serideki kart sayısı, ilk karttan beri fiyat) · 🔕 1s sustur · ⭐ Takip
-- **Sesli bildirim** yalnızca 🔴🔴🔴 kartlar ve takipteki coinler; diğerleri sessiz gelir.
+- **Bildirim:** her yeni kart sesli gelir (`/ayarlar` → "Kart sesli" kapatılırsa yalnız 🔴🔴🔴 ve takipteki coinler sesli).
 
 ### Grafik
 Kartlar ve ⚡ uyarılar **grafikli** gelir (fotoğraf + açıklama): son ~8 saatin 5m mumları, hacim, direnç seviyesi

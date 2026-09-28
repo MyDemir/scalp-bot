@@ -551,7 +551,8 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
     id: `${sym}-${snap.t}`, symbol: sym, seq, t: snap.t, price: snap.price,
     snap, news, trig, tags, followed, inSeries,
     grade: snap.grade,
-    silent: !(snap.grade === 3 || followed),
+    // Bildirim: cardSound açıksa her kart sesli; kapalıysa yalnız 🔴🔴🔴 ve takipteki coinler
+    silent: !(s.cardSound !== false || snap.grade === 3 || followed),
   };
 }
 
