@@ -208,7 +208,7 @@ async function emitMoveNow(m) {
   if (s.chartMoves) {
     const tf = s.chartTf || '1h';
     const cs = await moveCandles(m.symbol, tf);
-    if (cs) photo = chart.renderChart({ symbol: m.symbol, candles: cs, tf, level: m.snap?.level ?? null, levels: m.snap?.levels || [], overlays: tf === '5m' && sr && sr.count('5m') >= 60 ? chart.emaOverlays(sr, cs) : [], ichi: ichiOf(s), showIchi: s.chartIchi, fib: s.chartFib, subtitle: `1 dk ${m.pct > 0 ? '+' : '−'}%${Math.abs(m.pct).toFixed(2)}` });
+    if (cs) photo = chart.renderChart({ symbol: m.symbol, candles: cs, tf, level: m.snap?.level ?? null, levels: m.snap?.levels || [], overlays: tf === '5m' && sr && sr.count('5m') >= 60 ? chart.emaOverlays(sr, cs) : [], ichi: ichiOf(s), showIchi: s.chartIchi, fib: s.chartFib, fibDir: m.pct < 0 ? 'down' : 'up', subtitle: `1 dk ${m.pct > 0 ? '+' : '−'}%${Math.abs(m.pct).toFixed(2)}` });
   }
   telegram.sendCard({ text, keyboard, silent: !(s.moveAlertSound || m.followed), photo });
   store?.add({

@@ -100,7 +100,7 @@ function fmtPx(v) {
  * @param {number} [p.show]      gösterilecek mum sayısı
  * @returns {Buffer|null} PNG
  */
-function renderChart({ symbol, candles, level = null, levels = [], overlays = [], ichi = DEFAULT_ICHI, showIchi = true, fib = true, tf = '5m', subtitle = '', show = 100, tz = process.env.DISPLAY_TZ || 'Europe/Istanbul' }) {
+function renderChart({ symbol, candles, level = null, levels = [], overlays = [], ichi = DEFAULT_ICHI, showIchi = true, fib = true, fibDir = 'up', tf = '5m', subtitle = '', show = 100, tz = process.env.DISPLAY_TZ || 'Europe/Istanbul' }) {
   const L = lib();
   if (!L || !candles || candles.length < 20) return null;
   try {
@@ -190,13 +190,23 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
     // EMA21 3m / 5m (kalın, kesiksiz) — hedef bölgeleri
     for (const ov of overlays) line(k => (k < n ? ov.values[k] : null), ov.color, 2.6);
 
-    // Fibonacci düzeltme seviyeleri — görünen penceredeki en düşük ve en yüksek noktaya göre.
-    // Dip tepeden önceyse (yükseliş) 0 = tepe, 1 = dip; tersi (düşüş) 0 = dip, 1 = tepe.
+    // Fibonacci düzeltme seviyeleri — SON İTKİ BACAĞINA göre (TradingView'deki gibi fitiller, 0 = bacağın bittiği uç):
+    //   yükseliş (varsayılan; kartlar ve yükseliş uyarıları): penceredeki en düşük dip + ONDAN SONRAKİ en yüksek tepe
+    //     → 0 = tepe, 1 = dip (0.382 / 0.5 / 0.618 geri çekilme seviyeleri)
+    //   düşüş (düşüş uyarıları): penceredeki en yüksek tepe + ondan sonraki en düşük dip → 0 = dip, 1 = tepe
+    // Bacak çok kısa kalırsa (pencerenin en ucunda) tüm pencerenin dip–tepesi kullanılır.
     let fibInfo = null;
     if (fib) {
-      let hiI = start, loI = start;
-      for (let i = start; i < n; i++) { if (h[i] > h[hiI]) hiI = i; if (l[i] < l[loI]) loI = i; }
-      const HI = h[hiI], Lw = l[loI], up = loI < hiI;
+      const argmax = (a, b) => { let k = a; for (let i = a; i <= b; i++) if (h[i] > h[k]) k = i; return k; };
+      const argmin = (a, b) => { let k = a; for (let i = a; i <= b; i++) if (l[i] < l[k]) k = i; return k; };
+      let hiI, loI, up;
+      if (fibDir === 'down') { hiI = argmax(start, n - 1); loI = argmin(hiI, n - 1); up = false; }   // tepe → sonraki en düşük
+      else { loI = argmin(start, n - 1); hiI = argmax(loI, n - 1); up = true; }                       // dip → sonraki en yüksek
+      const fullHi = h[argmax(start, n - 1)], fullLo = l[argmin(start, n - 1)];
+      if ((h[hiI] - l[loI]) < (fullHi - fullLo) * 0.3) {       // bacak anlamsız kısa → tüm pencere
+        hiI = argmax(start, n - 1); loI = argmin(start, n - 1); up = loI < hiI;
+      }
+      const HI = h[hiI], Lw = l[loI];
       if (HI > Lw) {
         fibInfo = { up };
         const R = [[0, '#7d8796'], [0.236, '#8e9aaf'], [0.382, '#5dade2'], [0.5, '#f4d03f'], [0.618, '#f39c12'], [0.786, '#e67e22'], [1, '#7d8796']];
@@ -284,7 +294,7 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
     const legend = [
       ...overlays.map(ov => [ov.label, ov.color]),
       ...(showIchi ? [[`Ichimoku bulutu (${ichi.tenkan}/${ichi.kijun}/${ichi.senkouB}, +${ichi.shift})`, C.spanA]] : []),
-      ...(fibInfo ? [[`Fibonacci (${fibInfo.up ? 'dip → tepe' : 'tepe → dip'}, ${N} mum)`, '#f39c12']] : []),
+      ...(fibInfo ? [[`Fibonacci (son ${fibInfo.up ? 'yükseliş' : 'düşüş'} bacağı: ${fibInfo.up ? 'dip → tepe' : 'tepe → dip'})`, '#f39c12']] : []),
     ];
     g.font = '14px ChartSans';
     for (const [t, col] of legend) {

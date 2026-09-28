@@ -64,8 +64,8 @@ Aynı coinde kartlar **#1, #2 …** diye numaralanır; kapanmış 5m RSI 75'in a
 
 ### Grafik
 Kartlar ve ⚡ uyarılar **grafikli** gelir (fotoğraf + açıklama). Varsayılan **1 saatlik** grafik (son 100 mum ≈ 4 gün):
-- **Fibonacci düzeltme seviyeleri** (0 · 0.236 · 0.382 · 0.5 · 0.618 · 0.786 · 1) — görünen penceredeki en düşük ve en
-  yüksek noktaya göre; dip tepeden önceyse (yükseliş) 0 = tepe, tersi (düşüş) 0 = dip. 0.618 kalın çizilir.
+- **Fibonacci düzeltme seviyeleri** (0 · 0.236 · 0.382 · 0.5 · 0.618 · 0.786 · 1) — SON İTKİ BACAĞINA göre: penceredeki en düşük
+  dipten sonraki en yüksek tepeye (TradingView gibi 0 = tepe, 1 = dip); düşüş uyarılarında tepe → sonraki dip. 0.618 kalın.
 - **Ichimoku bulutu** (KivancOzbilgic parametreleri, varsayılan 10/30/30/60/30; Senkou A ≥ B yeşil, A < B kırmızı)
 - Yakındaki direnç seviyeleri (en yakını turuncu, diğerleri gri), hacim, son fiyat etiketi
 - 5m grafik seçilirse 3m EMA21 (beyaz) ve 5m EMA21 (sarı) çizgileri de çizilir
