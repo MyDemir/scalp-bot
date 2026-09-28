@@ -389,10 +389,14 @@ const pa = (v, d = 2) => `%${Math.abs(v).toFixed(d)}`;
 const ps = (v, d = 2) => `${v > 0 ? '+' : v < 0 ? '−' : ''}%${Math.abs(v).toFixed(d)}`;
 const distTxt = dist => (dist <= 0 ? `${pa(dist)} kala` : `${pa(dist)} üstünde`);
 
+/** Hacimli mum yeniliği. Yön ve renk FİYATTAN (🟢 yükselen · 🔴 düşen mum); alış/satış oranı ayrıca yazılır,
+ *  fiyatın tersine ağırsa belirtilir (ör. yükselen mumda satış %78). */
 function burstText(b) {
-  const kind = b.dir === 'sell' ? 'satış' : b.dir === 'buy' ? 'alış' : 'nötr';
-  const share = b.dir === 'sell' ? `satış ${pa(100 - b.taker, 0)}` : `alış ${pa(b.taker, 0)}`;
-  return `${circles(b.grade || 1, dirColor(b.dir))} Hacimli ${kind} mumu: ${ps(b.body, 1)} · hacim ${b.volX.toFixed(1)} kat · ${share}`;
+  const up = b.body >= 0;
+  const buyHeavy = b.taker >= 50;
+  const share = buyHeavy ? `alış ${pa(b.taker, 0)}` : `satış ${pa(100 - b.taker, 0)}`;
+  const against = up !== buyHeavy && b.dir !== 'neutral' ? ' (fiyatın tersine)' : '';
+  return `${circles(b.grade || 1, up ? 'green' : 'red')} Hacimli ${up ? 'yükselen' : 'düşen'} mum: ${ps(b.body, 1)} · hacim ${b.volX.toFixed(1)} kat · ${share}${against}`;
 }
 
 const GRADE_TXT = { 0: 'şart dışı', 1: 'kart şartı', 2: 'kontrol listesi', 3: 'kontrol listesi' };

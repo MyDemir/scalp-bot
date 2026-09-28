@@ -164,8 +164,10 @@ function formatCard(card, s, opt = {}) {
  */
 function formatMove(m, s) {
   const up = m.pct > 0;
+  // Görünen tek satır: ⚡ + daireler (renk = yön, sayı = hacim derecesi) + coin. Gerisi bilgi kutusunda.
+  const head = `⚡${circles(m.grade || 1, up ? 'green' : 'red')} <b>#${esc(m.symbol)}</b>`;
   const L = [];
-  L.push(`⚡${circles(m.grade || 1, up ? 'green' : 'red')} <b>#${esc(m.symbol)}</b> · 1 dakikada <b>${ps(m.pct)}</b> ${up ? '▲' : '▼'}`);
+  L.push(`<b>1 dakikada ${ps(m.pct)} ${up ? '▲' : '▼'} · 🕒 ${dayTime(m.t)}</b>`);
   L.push('');
   L.push(`<b>Fiyat:</b> <code>${px(m.from)}</code> → <code>${px(m.to)}</code>`);
   if (m.volX != null) L.push(`<b>Hacim:</b> son 20 dk ortalamasının ${m.volX.toFixed(1)} katı`);
@@ -181,7 +183,6 @@ function formatMove(m, s) {
   } else {
     L.push('<i>İzlenen listede değil (24 saatlik hacim eşiğin altında)</i>');
   }
-  L.push(`🕒 ${dayTime(m.t)}`);
   L.push(['#HAREKET', `#DERECE${m.grade || 1}`, up ? '#YUKSELIS' : '#DUSUS', m.followed ? '#TAKIP' : null].filter(Boolean).join(' '));
   const keyboard = [
     tgLinks(m.symbol),
@@ -190,7 +191,7 @@ function formatMove(m, s) {
       { text: m.followed ? '⭐ Takipte' : '☆ Takip', callback_data: `f:${m.symbol}` },
     ],
   ];
-  return { text: L.join('\n'), keyboard };
+  return { text: `${head}\n<blockquote expandable>${L.join('\n')}</blockquote>`, keyboard };
 }
 
 let dmFmt = null;
