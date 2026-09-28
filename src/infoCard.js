@@ -159,7 +159,9 @@ function formatMove(m, s) {
   const sn = m.snap;
   if (sn) {
     L.push('');
-    L.push(`<b>RSI 3m / 5m / 15m:</b> ${['3m', '5m', '15m'].map(tf => r1(sn.rsi[tf].v)).join(' / ')}`);
+    for (const tf of ['3m', '5m', '15m']) L.push(`<b>RSI ${tf}:</b> ${r1(sn.rsi[tf].v)}${mark(sn.rsi[tf].v, s)}`);
+    L.push(`<b>RSI 1h:</b> ${r1(sn.conf?.h1)}`);
+    L.push(`<b>RSI 4h:</b> ${r1(sn.conf?.h4)}`);
     if (sn.level) L.push(...levelLines(sn, s));
   } else {
     L.push('<i>İzlenen listede değil (24 saatlik hacim eşiğin altında)</i>');
