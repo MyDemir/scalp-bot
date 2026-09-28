@@ -26,6 +26,14 @@ async function main() {
   console.log('╚══════════════════════════════════════╝');
   console.log(`\nMod: ${cfg.mode.toUpperCase()}`);
 
+  // Duraklatma: makine açık kalır (fly ssh ile backtest çalıştırmak için), bot hiçbir bağlantı açmaz.
+  //   Aç:  fly secrets set BOT_PAUSED=1      Kapat: fly secrets unset BOT_PAUSED
+  if (process.env.BOT_PAUSED === '1') {
+    console.log('[BOT] BOT_PAUSED=1 — canlı bot DURAKLATILDI (WebSocket/Telegram/sinyal yok). Devam için: fly secrets unset BOT_PAUSED');
+    setInterval(() => console.log('[BOT] duraklatıldı (BOT_PAUSED=1)'), 60 * 60 * 1000);
+    return;
+  }
+
   // ── 1. Telegram (env doğrulama dahil — eksikse burada açık hatayla durur) ──
   await telegram.start();
 

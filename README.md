@@ -236,6 +236,16 @@ RSI eşiklerini kodu değiştirmeden denemek için (yalnızca o çalışmada ge�
 node src/backtest.js --all --days 90 --rsi5m 90 --rsi15m 85 --rsi1h 80 --rsi4h 70 --telegram
 ```
 
+### Uzun backtest için canlı botu duraklatmak
+
+Canlı bot makinenin ana işlemi olduğu için `kill` edilemez (makine kapanır). Bunun yerine:
+
+```bash
+fly secrets set BOT_PAUSED=1     # makine yeniden başlar, bot hiçbir bağlantı açmadan boşta bekler
+fly ssh console                  # backtest'i çalıştır
+fly secrets unset BOT_PAUSED     # iş bitince: bot normal çalışmaya döner (çalışan backtest'i durdurur!)
+```
+
 ### RSI olay çalışması (her çalışmada otomatik)
 
 Canlı kuralın **RSI şartı** (5m ≥ 90 · 15m ≥ 85 · 1h ≥ 80 · 4h ≥ 70 · üst sınır 98 — `--rsi*` bayraklarıyla
