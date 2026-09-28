@@ -65,7 +65,7 @@ Aynı coinde kartlar **#1, #2 …** diye numaralanır; kapanmış 5m RSI 75'in a
 ### Grafik
 Kartlar ve ⚡ uyarılar **grafikli** gelir (fotoğraf + açıklama): son ~8 saatin 5m mumları, hacim, direnç seviyesi
 (en yakını turuncu, diğer yakın seviyeler gri), **3m EMA21 (beyaz) ve 5m EMA21 (sarı)** — ayrışma ve hedef bölgeleri
-grafikte görünür —, son fiyat etiketi ve **Ichimoku** (`/ayarlar` → Ichimoku ile kapatılabilir) — KivancOzbilgic'in "ICHIMOKU Kinko Hyo by KIVANC" düzeni:
+grafikte görünür —, son fiyat etiketi ve **Ichimoku bulutu** (sade görünüm için yalnızca bulut: Senkou A ≥ B yeşil, A < B kırmızı; `/ayarlar` → Ichimoku ile kapatılabilir) — KivancOzbilgic'in "ICHIMOKU Kinko Hyo by KIVANC" düzeni:
 Tenkan (kırmızı), Kijun (mavi), Chikou (erik), Senkou A (yeşil), Senkou B (mor), bulut. Varsayılan periyotlar
 Kıvanç'ın kripto önerisi 10/30/30/60/30 (1-3-3-6-3 oranı); klasik 9/26/26/52/26 için `/ayar ichiTenkan 9` vb.
 Evren dışı pariteler için grafik verisi o an REST'ten çekilir. Açıklama Telegram'ın 1024 karakter sınırını

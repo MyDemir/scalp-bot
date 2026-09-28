@@ -1,7 +1,8 @@
 'use strict';
 
 /**
- * Kart grafiği (PNG) — 5m mumlar + Ichimoku (KivancOzbilgic "ICHIMOKU Kinko Hyo by KIVANC" düzeni)
+ * Kart grafiği (PNG) — 5m mumlar + Ichimoku BULUTU (KivancOzbilgic "ICHIMOKU Kinko Hyo by KIVANC" parametreleri;
+ * sade görünüm için yalnızca Senkou A–B arası bulut çizilir: A ≥ B yeşil, A < B kırmızı)
  * + hacim + direnç seviyesi + son fiyat etiketi.
  *
  *   Ichimoku (Kıvanç'ın 5 parametreli sürümü): Tenkan (kırmızı), Kijun (mavi), Chikou (erik),
@@ -38,7 +39,7 @@ const C = {
   bg: '#0f141b', grid: '#1c2430', axis: '#8b96a5', text: '#d7dde6', faint: '#5d6878',
   up: '#26a69a', down: '#ef5350',
   tenkan: '#ff4d4d', kijun: '#3d8bff', chikou: '#dda0dd', spanA: '#2ecc71', spanB: '#a855f7',
-  cloudUp: 'rgba(46,204,113,0.14)', cloudDn: 'rgba(168,85,247,0.16)',
+  cloudUp: 'rgba(46,204,113,0.20)', cloudDn: 'rgba(239,83,80,0.18)',
   level: '#f5a623', levelOther: '#7d8796',
   ema3: '#f2f4f7', ema5: '#ffd166',
 };
@@ -116,7 +117,7 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
     const at = (arr, k) => (k >= 0 && k < arr.length ? arr[k] : null);
     for (let j = 0; j < slots && showIchi; j++) {
       const k = start + j;
-      for (const v of [at(I.tenkan, k), at(I.kijun, k), at(I.spanA, k - ichi.shift), at(I.spanB, k - ichi.shift), at(I.chikou, k + ichi.chikou)]) {
+      for (const v of [at(I.spanA, k - ichi.shift), at(I.spanB, k - ichi.shift)]) {
         if (v != null && Number.isFinite(v)) vals.push(v);
       }
     }
@@ -176,13 +177,7 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
       }
       g.stroke();
     };
-    if (showIchi) {
-      line(k => at(I.spanA, k - ichi.shift), C.spanA, 1.5);
-      line(k => at(I.spanB, k - ichi.shift), C.spanB, 1.5);
-      line(k => (k < n ? at(I.chikou, k + ichi.chikou) : null), C.chikou, 1.5);
-      line(k => (k < n ? at(I.kijun, k) : null), C.kijun, 2);
-      line(k => (k < n ? at(I.tenkan, k) : null), C.tenkan, 2);
-    }
+    // Ichimoku: yalnızca bulut (Tenkan/Kijun/Chikou çizgileri grafiği kalabalıklaştırdığı için çizilmez)
     // EMA21 3m / 5m (kalın, kesiksiz) — hedef bölgeleri
     for (const ov of overlays) line(k => (k < n ? ov.values[k] : null), ov.color, 2.6);
 
@@ -249,8 +244,7 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
     let lx = padL;
     const legend = [
       ...overlays.map(ov => [ov.label, ov.color]),
-      ...(showIchi ? [[`Tenkan ${ichi.tenkan}`, C.tenkan], [`Kijun ${ichi.kijun}`, C.kijun], [`Chikou ${ichi.chikou}`, C.chikou],
-        [`Senkou A`, C.spanA], [`Senkou B ${ichi.senkouB}`, C.spanB]] : []),
+      ...(showIchi ? [[`Ichimoku bulutu (${ichi.tenkan}/${ichi.kijun}/${ichi.senkouB}, +${ichi.shift})`, C.spanA]] : []),
     ];
     g.font = '14px ChartSans';
     for (const [t, col] of legend) {
