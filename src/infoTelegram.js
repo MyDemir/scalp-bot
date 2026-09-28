@@ -317,6 +317,23 @@ ${mv.join('\n')}`.slice(0, 4000);
   };
 
   telegram.setCommands(commands);
+  // "/" menüsü (Telegram'a kayıtlı liste) — sıra önem sırasıdır
+  const MENU = [
+    ['ayarlar', 'Ayar menüsü (bölümler → ayar → −/+)'],
+    ['coin', 'Coinin anlık durumu + grafik · örn. /coin ETH'],
+    ['yardim', 'Komutlar ve derece dairelerinin anlamı'],
+    ['durum', 'Bot durumu: izlenen coin, bağlantı, kart sayısı'],
+    ['gecmis', 'Coinin son kartları ve sonrasında fiyat · örn. /gecmis ETH'],
+    ['istatistik', 'Kart sınıfları ve kart sonrası fiyat · örn. /istatistik 7'],
+    ['takip', 'Takip listesi / ekle-çıkar (kartları hep sesli) · örn. /takip ETH'],
+    ['sustur', 'Coini sustur (varsayılan 60 dk) · örn. /sustur ETH 30'],
+    ['ac', 'Susturmayı aç · örn. /ac ETH'],
+    ['sessiz', 'Susturulan coinler'],
+    ['ayar', 'Tek ayarı yazarak değiştir · örn. /ayar rsiMin 90'],
+    ['konu', 'Konulu grupta yönlendirme · konunun içinde /konu kart'],
+    ['benkimim', 'Telegram kullanıcı ID\'n'],
+  ].filter(([c]) => commands[c]).map(([command, description]) => ({ command, description }));
+  if (telegram.publishCommands) telegram.publishCommands(MENU).catch(() => {});
   telegram.onCallback(onCallback);
   return { menu, onCallback, commands, normSym };
 }

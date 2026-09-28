@@ -251,6 +251,21 @@ function takeStats() {
 let commands = {};
 function setCommands(table) { commands = { ...table }; }
 
+/**
+ * Komut menüsünü Telegram'a kaydeder: sohbette "/" yazınca ya da Menü butonuna basınca açıklamalarıyla listelenir.
+ * Hem hedef grup (chat kapsamı) hem özel sohbet (varsayılan kapsam) için. Hata botu durdurmaz.
+ * @param {{command:string, description:string}[]} list
+ */
+async function publishCommands(list) {
+  const commandsList = list.map(c => ({ command: c.command, description: c.description.slice(0, 256) }));
+  for (const scope of [{ type: 'chat', chat_id: CHAT_ID }, { type: 'default' }]) {
+    try { await api('setMyCommands', { commands: commandsList, scope }); }
+    catch (err) { console.warn(`[TELEGRAM] komut menüsü kaydedilemedi (${scope.type}): ${err.message}`); return false; }
+  }
+  console.log(`[TELEGRAM] komut menüsü kaydedildi (${commandsList.length} komut)`);
+  return true;
+}
+
 // Buton tıklamaları (callback_query) — bilgi botu onCallback() ile işleyici verir
 let callbackHandler = null;
 function onCallback(fn) { callbackHandler = fn; }
@@ -391,6 +406,6 @@ function stop() {
 
 module.exports = {
   start, stop, sendText, sendCard, flush, takeStats, queueLength, esc,
-  setCommands, onCallback, isAdmin, editMessage,
+  setCommands, publishCommands, onCallback, isAdmin, editMessage,
   _internal: { handleUpdate, get commands() { return commands; }, queue },
 };
