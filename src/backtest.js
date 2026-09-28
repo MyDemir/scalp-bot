@@ -380,6 +380,13 @@ async function main() {
 
   if (!Number.isFinite(DAYS) || DAYS < 1) throw new Error(`Geçersiz --days: ${args.days}`);
 
+  // --telegram: bitince tek bir özet rapor mesajı (canlı gönderim yolunu da test eder)
+  const SEND_TG = Boolean(args.telegram);
+  if (SEND_TG) {
+    const missing = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID'].filter(k => !process.env[k]);
+    if (missing.length) throw new Error(`--telegram için eksik ortam değişkeni: ${missing.join(', ')}`);
+  }
+
   // Son kapanmış 5m sınırına hizala
   const endTime   = Math.floor(Date.now() / TF_MS['5m']) * TF_MS['5m'];
   const startTime = endTime - DAYS * TF_MS['1d'];
@@ -423,9 +430,87 @@ async function main() {
   const outFile   = path.join(OUT_DIR, `backtest-${timestamp}.json`);
   fs.writeFileSync(outFile, JSON.stringify({ params: { SYMBOLS, DAYS, MIN_SCORE, startTime, endTime }, stats: allStats, signals: allResults }, null, 2));
   console.log(`\n📁 Detaylı sonuçlar: ${outFile}\n`);
+
+  if (SEND_TG) {
+    // telegram.js yalnızca burada yüklenir; komut dinleme (polling) BAŞLATILMAZ → canlı botla çakışmaz
+    const telegram = require('./telegram');
+    const text = buildTelegramReport({ SYMBOLS, DAYS, MIN_SCORE, startTime, endTime }, allStats, allResults, telegram.esc);
+    telegram.sendText(text);
+    const flushed = await telegram.flush(90_000);
+    const st = telegram.takeStats();
+    if (flushed && st.sent > 0 && st.failed === 0) {
+      console.log(`📨 Telegram: özet rapor gönderildi (chat ${process.env.TELEGRAM_CHAT_ID}, ${text.length} karakter)`);
+    } else {
+      console.error(`❌ Telegram: rapor GÖNDERİLEMEDİ (gönderilen ${st.sent}, başarısız ${st.failed}, kuyrukta ${st.queued}) — yukarıdaki [TELEGRAM] loglarına bak`);
+      process.exitCode = 2;
+    }
+  }
 }
 
 // ── Raporlama ────────────────────────────────────────────────────────────────
+
+/**
+ * Telegram özet raporu (tek mesaj, ≤ 4096 karakter). Başında açıkça "canlı sinyal değil" yazar.
+ */
+function buildTelegramReport(p, allStats, signals, esc) {
+  const sum  = key => Object.values(allStats).reduce((s, st) => s + (st[key] || 0), 0);
+  const pct  = (a, b) => b ? `${(a / b * 100).toFixed(1)}%` : '—';
+  const n    = signals.length;
+  const cnt  = o => signals.filter(s => s.outcome === o).length;
+  const avgR = n ? avg(signals.map(s => s.rMultiple)).toFixed(2) : '—';
+  const tpB  = signals.filter(s => s.tpBHitAt != null).length;
+
+  const gradeLines = ['A+', 'A', 'B', 'C'].map(g => {
+    const grp = signals.filter(s => s.grade === g);
+    if (!grp.length) return null;
+    return `  ${g}: ${grp.length} sinyal | win ${pct(grp.filter(s => s.outcome === 'WIN').length, grp.length)} | ort R ${avg(grp.map(s => s.rMultiple)).toFixed(2)}`;
+  }).filter(Boolean);
+
+  const bySym = {};
+  for (const s of signals) {
+    bySym[s.symbol] ??= { n: 0, w: 0 };
+    bySym[s.symbol].n++;
+    if (s.outcome === 'WIN') bySym[s.symbol].w++;
+  }
+  const topSyms = Object.entries(bySym).sort((a, b) => b[1].n - a[1].n).slice(0, 5)
+    .map(([sym, v]) => `${esc(sym)} ${v.n} (win ${pct(v.w, v.n)})`).join(', ');
+
+  const lines = [
+    '🧪 <b>BACKTEST RAPORU</b>',
+    '<i>Geçmiş veri simülasyonu — canlı sinyal DEĞİLDİR</i>',
+    '',
+    `📅 ${fmtDate(p.startTime)} → ${fmtDate(p.endTime)} UTC (${p.DAYS} gün)`,
+    `🪙 ${p.SYMBOLS.length} sembol | min skor ${p.MIN_SCORE}`,
+    '',
+    '<b>Eleme hunisi</b>',
+    `  Değerlendirilen 5m kapanış: ${sum('decisions')}`,
+    `  Günlük seviyeye yakın: ${sum('nearLevel')}`,
+    `  + 1h RSI ≥ ${cfg.rsi1hMin}: ${sum('rsi1hOk')}`,
+    `  + 4h RSI ≥ ${cfg.rsi4hMin}: ${sum('rsi4hOk')}`,
+    `  Tüm kapılar: ${sum('gatePass')}`,
+    `  − TP-A geçersiz: ${sum('planInvalid')} | − skor altı: ${sum('belowScore')}`,
+    `  = <b>Sinyal: ${n}</b>`,
+  ];
+
+  if (n) {
+    lines.push(
+      '',
+      '<b>Sonuçlar</b>',
+      `  ✅ Win ${cnt('WIN')} | ❌ Loss ${cnt('LOSS')} | ↩️ ${cnt('LOSS_THEN_RECOVER')} | ➖ ${cnt('NEUTRAL')}`,
+      `  Win rate: <b>${pct(cnt('WIN'), n)}</b> | Ort R: <b>${avgR}</b> | TP-B: ${pct(tpB, n)}`,
+      '',
+      '<b>Dereceye göre</b>',
+      ...gradeLines,
+      '',
+      `<b>En çok sinyal</b>: ${topSyms}`,
+    );
+  } else {
+    lines.push('', 'Bu dönemde tüm kapıları geçen sinyal yok — hangi aşamada elendiğini huniden görebilirsin.');
+  }
+
+  const text = lines.join('\n');
+  return text.length <= 4000 ? text : text.slice(0, 3990) + '\n…';
+}
 
 function fmtDate(ts) {
   return new Date(ts).toISOString().slice(0, 16).replace('T', ' ');
@@ -589,6 +674,7 @@ module.exports = {
   makeHtfView,
   dailyLevelsAt,
   simulateOutcome,
+  buildTelegramReport,
   setKlineSource,
   TF_MS,
 };

@@ -124,6 +124,27 @@ async function pump() {
   }
 }
 
+/** Düz metin mesajı kuyruğa al (HTML) — ör. backtest özet raporu */
+function sendText(text) {
+  enqueue('reply', CHAT_ID, text);
+}
+
+/**
+ * Kuyruk boşalana kadar bekle (kısa ömürlü süreçler — backtest — çıkmadan önce).
+ * @returns {Promise<boolean>} kuyruk boşaldıysa true, zaman aşımına uğradıysa false
+ */
+function flush(timeoutMs = 60_000) {
+  const t0 = Date.now();
+  return new Promise(resolve => {
+    const tick = () => {
+      if (!pumping && queue.length === 0) return resolve(true);
+      if (Date.now() - t0 > timeoutMs) return resolve(false);
+      setTimeout(tick, 100);
+    };
+    tick();
+  });
+}
+
 /** Heartbeat için */
 function takeStats() {
   const s = { ...stats, queued: queue.length };
@@ -365,4 +386,4 @@ function stop() {
   polling = false;
 }
 
-module.exports = { start, stop, sendSignalAlert, takeStats, _internal: { handleUpdate, commands, queue } };
+module.exports = { start, stop, sendSignalAlert, sendText, flush, takeStats, esc, _internal: { handleUpdate, commands, queue } };

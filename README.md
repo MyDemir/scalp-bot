@@ -203,7 +203,13 @@ Binance'e erişimi olan bir yerde çalıştır (`fly ssh console` içinde `cd /a
 node src/backtest.js                                   # config.testSymbols, 90 gün
 node src/backtest.js --symbol BTCUSDT,ETHUSDT --days 30
 node src/backtest.js --days 90 --min-score 55
+node src/backtest.js --days 30 --telegram               # bitince gruba tek özet rapor mesajı
 ```
+
+`--telegram`: backtest bitince `TELEGRAM_CHAT_ID` sohbetine **tek** bir özet mesaj gönderir
+("canlı sinyal değildir" etiketli). Canlı botun gönderim kodunu kullanır, komut dinlemeyi
+başlatmaz (çalışan botla çakışmaz). Grubu görmesin istersen başka bir sohbete yönlendir:
+`TELEGRAM_CHAT_ID=<kendi_id> node src/backtest.js --telegram`.
 
 - Veri sayfalanarak çekilir; `--days` gerçekten o kadar günü kapsar (+200 mum ısınma).
 - Look-ahead yok: her 5m kararında 15m/1h/4h için yalnızca o ana kadar kapanmış mumlar +
