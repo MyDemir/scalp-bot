@@ -108,7 +108,13 @@ async function runSymbol(symbol, { start, end, s, btcClose, keepCards }) {
     if (s.moveAlertPct > 0) {                                 // canlıdaki ⚡ hareket uyarısıyla aynı ölçü
       const pv = m1[i - 1];
       const mp = eng.movePct(pv ? pv.c : null, pv ? pv.t : null, m1[i]);
-      if (mp != null && Math.abs(mp) >= s.moveAlertPct) moves.push({ symbol, t: m1[i].t + MIN, movePct: +mp.toFixed(3), price: m1[i].c, fwd: forward(m1, i, m1[i].c) });
+      if (mp != null && Math.abs(mp) >= s.moveAlertPct) {
+        let sum = 0, n = 0;
+        for (let j = Math.max(0, i - 20); j < i; j++) { sum += m1[j].v; n++; }
+        const volX = n >= 5 && sum > 0 ? m1[i].v / (sum / n) : null;
+        const taker = m1[i].v > 0 ? m1[i].tb / m1[i].v * 100 : null;
+        moves.push({ symbol, t: m1[i].t + MIN, movePct: +mp.toFixed(3), grade: eng.volGrade(mp, volX, taker, s), price: m1[i].c, fwd: forward(m1, i, m1[i].c) });
+      }
     }
     const closed = sr.apply1m(m1[i]);
     const card = eng.step(sr, closed, s, tracker, ctx);
@@ -158,6 +164,7 @@ function printMoves(p, moves, s) {
   const days = (p.end - p.start) / DAY;
   console.log(`\n⚡ 1 dk hareket ≥ %${s.moveAlertPct} (yalnızca backtest listesindeki coinler): ${moves.length} (günde ~${(moves.length / days).toFixed(1)})`);
   for (const r of moveRows(moves)) console.log(`  ${r.k.padEnd(12)} ${String(r.n).padStart(5)} · 60dk sonra medyan ${pctS(r.close60)} (en düşük ${pctS(r.low60)} / en yüksek ${pctS(r.high60)})`);
+  console.log(`  Derece: ${[1, 2, 3].map(g => `${'●'.repeat(g)} ${moves.filter(m => m.grade === g).length}`).join(' · ')}`);
   const L = load(moves);
   console.log(`  Yük: en yoğun dakika ${L.maxMin} · en yoğun saat ${L.maxHour} uyarı`);
 }
@@ -169,7 +176,7 @@ function telegramSummary(p, cards, perSym, s, moves = []) {
   const top = perSym.filter(x => x.n).sort((a, b) => b.n - a.n).slice(0, 8).map(x => `${esc(x.symbol)} ${x.n}`).join(' · ');
   return `🧪 <b>Bilgi botu backtest</b>
 ${fmtDate(p.start)} → ${fmtDate(p.end)} UTC (${days.toFixed(0)} gün) · ${p.symbols.length} coin
-Şart: RSI ≥ ${s.rsiMin} (${s.minTFs}/3)${s.levelRequired ? ` + seviye ≤ %${s.levelMaxPct}` : ''}
+Şart: RSI ≥ ${s.rsiMin} (${s.minTFs}/3)${s.levelRequired ? ` + seviye ≤ %${s.levelMaxPct}` : ''} · 🔴🔴 RSI ≥ ${s.rsiMin2} · RSI(${s.rsiPeriod})
 
 Kart: <b>${cards.length}</b> (günde ~${(cards.length / days).toFixed(1)}) · ${cards.filter(c => c.seq === 1).length} seri · ${cards.filter(c => !c.silent).length} sesli
 Yük: en yoğun dakika ${L.maxMin} · en yoğun saat ${L.maxHour} kart
@@ -235,6 +242,7 @@ async function main() {
   console.log(`  Bilgi Botu — Backtest${a.kanit ? '  [KANIT MODU: RSI ≥ 70, sıfırlama 60]' : ''}`);
   console.log(`  Semboller : ${symbols.length} (${universe}) — ${symbols.slice(0, 10).join(', ')}${symbols.length > 10 ? ' …' : ''}`);
   console.log(`  Dönem     : ${fmtDate(start)} → ${fmtDate(end)} UTC`);
+  console.log(`  Derece    : 🔴 RSI ≥ ${s.rsiMin} · 🔴🔴 RSI ≥ ${s.rsiMin2} + seviye · 🔴🔴🔴 3/3 ≥ ${s.rsiMin2} + dipte + ayrışma · RSI(${s.rsiPeriod})`);
   console.log(`  Şart      : 3m/5m/15m RSI ≥ ${s.rsiMin} (${s.minTFs}/3)${s.levelRequired ? ` + üstte ≤ %${s.levelMaxPct} seviye` : ''}${s.sepRequired ? ' + ayrışma' : ''}${s.confRequired ? ' + destek' : ''}${s.macdRequired ? ' + MACD' : ''}`);
   console.log(`  Hareket   : 1 dk ≥ %${s.moveAlertPct}${s.moveAlertPct > 0 ? '' : ' (kapalı)'}`);
   console.log(`  Patlama   : gövde ≥ %${s.burstPct1}/%${s.burstPct2} · hacim ≥ ${s.volMult}× (${s.volAvgN} mum) · taker >%${s.takerBuyPct} alım / <%${s.takerSellPct} satış`);

@@ -6,9 +6,15 @@ module.exports = {
   // Buradakiler VARSAYILAN değerler. Telegram'dan /ayarlar ile değiştirilenler /data/info-settings.json'a
   // yazılır ve bunların önüne geçer (deploy sonrası korunur). Anlamları: src/infoSettings.js
   info: {
-    rsiMin:        90,     // 3m/5m/15m RSI eşiği
+    // RSI derecesi (kart başlığındaki daireler):
+    //   🔴     : 3m/5m/15m'den en az minTFs tanesinde RSI ≥ rsiMin (kart eşiği)
+    //   🔴🔴   : en az minTFs tanesinde RSI ≥ rsiMin2 VE üstte %levelMaxPct içinde seviye (2 şart)
+    //   🔴🔴🔴 : üç dilimde de RSI ≥ rsiMin2 + fiyat dirence dayalı (dipte) + EMA21 ayrışması (tüm şartlar)
+    rsiMin:        85,     // kart eşiği (🔴)
+    rsiMin2:       90,     // 🔴🔴 / 🔴🔴🔴 eşiği
     minTFs:        2,      // eşiği geçmesi gereken dilim sayısı (3 üzerinden)
-    strongRsi:     95,     // "RSI 95↑" yeniliği ve kartta vurgu
+    strongRsi:     95,     // RSI satırında 🔴🔴🔴 ve "95 üstüne çıktı" yeniliği
+    rsiPeriod:     14,     // RSI periyodu (Binance/TradingView varsayılanı 14; Binance uygulamasındaki RSI(6) daha oynaktır)
     levelMaxPct:   2.5,    // ZORUNLU: fiyatın üstünde en fazla bu kadar uzakta bir seviye
     dipBelowPct:   0.5,    // DİPTE sınıfı: seviyenin en fazla %0.5 altında …
     dipAbovePct:   0.3,    // … ya da en fazla %0.3 üstünde (fitil payı). Daha yukarısı = seviye kırıldı
@@ -19,6 +25,11 @@ module.exports = {
     volAvgN:       20,
     takerBuyPct:   55,     // taker alış oranı > %55 → alım
     takerSellPct:  45,     // < %45 → satış (arası nötr)
+    // Hacim derecesi (hacimli mum ve ⚡ hareket uyarısı):
+    //   🔴 temel şart (hacimli mum / 1 dk ≥ %2) · 🔴🔴 + hacim ≥ volGrade2X × ortalama
+    //   🔴🔴🔴 + alış/satış oranı hareket yönünde ≥ %dirGrade3Pct
+    volGrade2X:    3,
+    dirGrade3Pct:  65,
     windowMin:     60,     // sayaç penceresi (dk)
     shortWindowMin: 15,    // kısa sayaç penceresi (dk)
     resetRsi:      75,     // 5m RSI bunun altında kapanınca kart numarası sıfırlanır (#1'den başlar)

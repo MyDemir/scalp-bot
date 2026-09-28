@@ -7,6 +7,7 @@
  *                 (a) 3m / 5m / 15m mumlarından biri kapandıysa ya da (b) bu 1m mum hacimli bir
  *                 patlamaysa yapılır. Kapanmamış dilimlerin RSI'ı devam eden mumla hesaplanır (canlı, "~").
  *   Şart        : 3m/5m/15m'den en az minTFs tanesinde RSI ≥ rsiMin
+ *   Derece      : 🔴 RSI ≥ rsiMin · 🔴🔴 RSI ≥ rsiMin2 + seviye · 🔴🔴🔴 3/3 ≥ rsiMin2 + dipte + ayrışma
  *                 + (levelRequired) fiyatın üstünde en fazla %levelMaxPct uzakta bir seviye
  *                 + isteğe bağlı: ayrışma / destek / MACD şartları
  *   Yeni kart   : şart sağlanıyor VE önceki karttan bu yana yeni veri var (patlama, RSI dilim sayısı,
@@ -107,10 +108,39 @@ function takerNet(series, w) {
 
 // ── Göstergeler ────────────────────────────────────────────────────────────
 
-function rsiOf(series, tf) {
+function rsiOf(series, tf, period = 14) {
   const live = !series.isClosedNow(tf);
-  return { v: ta.rsiLast(series.col(tf, 'c', true)), live };
+  return { v: ta.rsiLast(series.col(tf, 'c', true), period), live };
 }
+
+/**
+ * Hacim derecesi (hacimli mum ve ⚡ hareket için ortak):
+ *   1 = temel şart · 2 = + hacim ≥ volGrade2X × ortalama · 3 = + alış/satış oranı hareket yönünde ≥ dirGrade3Pct
+ * @param {number} move   hareket/gövde yüzdesi (işaret yönü verir)
+ * @param {number|null} volX  hacim / ortalama
+ * @param {number|null} taker taker alış oranı (%)
+ */
+function volGrade(move, volX, taker, s) {
+  if (!(volX >= s.volGrade2X)) return 1;
+  const agree = taker == null ? 0 : move >= 0 ? taker : 100 - taker;
+  return agree >= s.dirGrade3Pct ? 3 : 2;
+}
+
+/**
+ * RSI kartı derecesi:
+ *   1 = en az minTFs dilimde RSI ≥ rsiMin
+ *   2 = en az minTFs dilimde RSI ≥ rsiMin2 ve üstte %levelMaxPct içinde seviye
+ *   3 = üç dilimde RSI ≥ rsiMin2 + dipte + EMA21 ayrışması
+ */
+function rsiGrade(snap, s) {
+  if (!(snap.hits >= s.minTFs)) return 0;
+  let g = 1;
+  if (snap.hits2 >= s.minTFs && snap.level) g = 2;
+  if (g === 2 && snap.hits2 === 3 && snap.level.zone === 'dip' && snap.sepOk) g = 3;
+  return g;
+}
+
+const circles = n => (n > 0 ? '🔴'.repeat(n) : '⚪');
 
 function separation(series, tf, price) {
   const c = series.col(tf, 'c'), h = series.col(tf, 'h'), l = series.col(tf, 'l');
@@ -166,11 +196,11 @@ function stochState(series, tf) {
  *   Son tepe 6 mumdan eskiyse sayı 0 (bayat uyumsuzluk gösterilmez).
  * @returns {{count:number, key:string|null, lastAgo:number|null}|null}
  */
-function negPeaks(series, tf, lookback = 40) {
+function negPeaks(series, tf, lookback = 40, period = 14) {
   const h = series.col(tf, 'h', false), c = series.col(tf, 'c', false), t = series.col(tf, 't', false);
   const n = c.length;
   if (n < 30) return null;
-  const r = ta.rsiSeries(c, 14);
+  const r = ta.rsiSeries(c, period);
   const off = n - r.length;                               // r[j] ↔ c[j + off]
   const piv = [];
   for (let i = Math.max(off + 1, n - lookback); i < n - 1; i++) {
@@ -238,13 +268,14 @@ function evaluate(series, s, ctx = {}, force = false) {
   const price = series.price();
   const t = series.lastT('1m') + MIN;                    // son 1m mumun kapanış anı
   const rsi = {};
-  let hits = 0, strong = 0;
+  let hits = 0, hits2 = 0, strong = 0;
   for (const tf of RSI_TFS) {
-    rsi[tf] = rsiOf(series, tf);
+    rsi[tf] = rsiOf(series, tf, s.rsiPeriod);
     if (rsi[tf].v >= s.rsiMin) hits++;
+    if (rsi[tf].v >= s.rsiMin2) hits2++;
     if (rsi[tf].v >= s.strongRsi) strong++;
   }
-  const snap = { symbol: series.symbol, t, price, rsi, hits, strong, rsiOk: hits >= s.minTFs, ok: false };
+  const snap = { symbol: series.symbol, t, price, rsi, hits, hits2, strong, rsiOk: hits >= s.minTFs, ok: false, grade: 0 };
   if (!snap.rsiOk && !force) return snap;
 
   const { level, all } = pickLevel(price, levelsOf(series), s);
@@ -253,10 +284,10 @@ function evaluate(series, s, ctx = {}, force = false) {
   snap.levelOk = !!level;
 
   snap.sep = { '3m': separation(series, '3m', price), '5m': separation(series, '5m', price) };
-  snap.neg = { '1m': negPeaks(series, '1m'), '3m': negPeaks(series, '3m') };
+  snap.neg = { '1m': negPeaks(series, '1m', 40, s.rsiPeriod), '3m': negPeaks(series, '3m', 40, s.rsiPeriod) };
   snap.sepOk = ['3m', '5m'].every(tf => snap.sep[tf] && snap.sep[tf].dist >= s.sepATR && !snap.sep[tf].touched);
 
-  const r1h = ta.rsiLast(series.col('1h', 'c')), r4h = ta.rsiLast(series.col('4h', 'c'));
+  const r1h = ta.rsiLast(series.col('1h', 'c'), s.rsiPeriod), r4h = ta.rsiLast(series.col('4h', 'c'), s.rsiPeriod);
   snap.conf = { h1: r1h, h4: r4h, score: (r1h >= s.confRsi ? 1 : 0) + (r4h >= s.confRsi ? 1 : 0) };
 
   snap.macd = { '5m': macdState(series, '5m'), '15m': macdState(series, '15m') };
@@ -279,6 +310,7 @@ function evaluate(series, s, ctx = {}, force = false) {
   snap.fails = fails;
   if (!snap.rsiOk) fails.unshift('rsi');
   snap.ok = fails.length === 0;
+  snap.grade = rsiGrade(snap, s);
   return snap;
 }
 
@@ -292,8 +324,15 @@ const distTxt = dist => (dist <= 0 ? `${pa(dist)} kala` : `${pa(dist)} üstünde
 function burstText(b) {
   const kind = b.dir === 'sell' ? 'satış' : b.dir === 'buy' ? 'alış' : 'nötr';
   const share = b.dir === 'sell' ? `satış ${pa(100 - b.taker, 0)}` : `alış ${pa(b.taker, 0)}`;
-  return `Hacimli ${kind} mumu: ${ps(b.body, 1)} · hacim ${b.volX.toFixed(1)} kat · ${share}`;
+  return `${circles(b.grade || 1)} Hacimli ${kind} mumu: ${ps(b.body, 1)} · hacim ${b.volX.toFixed(1)} kat · ${share}`;
 }
+
+const GRADE_TXT = {
+  0: 'şart dışı',
+  1: 'RSI eşiği',
+  2: 'RSI + seviye',
+  3: 'tüm şartlar',
+};
 
 function createTracker() {
   const mem = new Map();   // symbol → { seq, last, log: [{t, price, seq}] }
@@ -329,8 +368,16 @@ function createTracker() {
         if (above.includes(tf) && !prevAbove.includes(tf)) out.push(`${tf} RSI ${s.rsiMin} üstüne çıktı (${snap.rsi[tf].v.toFixed(1)})`);
         else if (!above.includes(tf) && prevAbove.includes(tf)) out.push(`${tf} RSI ${s.rsiMin} altına indi (${snap.rsi[tf].v.toFixed(1)})`);
       }
+      if (s.rsiMin2 > s.rsiMin) {
+        for (const tf of RSI_TFS) {
+          if (snap.rsi[tf].v >= s.rsiMin2 && !(L.above2 || []).includes(tf)) out.push(`${tf} RSI ${s.rsiMin2} üstüne çıktı (${snap.rsi[tf].v.toFixed(1)})`);
+        }
+      }
       for (const tf of RSI_TFS) {
         if (snap.rsi[tf].v >= s.strongRsi && !L.strong.includes(tf)) out.push(`${tf} RSI ${s.strongRsi} üstüne çıktı (${snap.rsi[tf].v.toFixed(1)})`);
+      }
+      if (snap.grade !== (L.grade ?? snap.grade)) {
+        out.push(`Derece ${snap.grade > L.grade ? 'yükseldi' : 'düştü'}: ${circles(snap.grade)} (${GRADE_TXT[snap.grade]})`);
       }
       const key = snap.level ? snap.level.name : null;
       if (key !== L.levelKey) {
@@ -366,6 +413,8 @@ function createTracker() {
       m.last = {
         hits: snap.hits,
         above: RSI_TFS.filter(tf => snap.rsi[tf].v >= s.rsiMin),
+        above2: RSI_TFS.filter(tf => snap.rsi[tf].v >= s.rsiMin2),
+        grade: snap.grade,
         strong: RSI_TFS.filter(tf => snap.rsi[tf].v >= s.strongRsi),
         levelKey: snap.level ? snap.level.name : null,
         level: snap.level,
@@ -396,10 +445,11 @@ function createTracker() {
 function step(series, closedTfs, s, tracker, ctx = {}) {
   if (!series.ready()) return null;
   const sym = series.symbol;
-  if (closedTfs.has('5m')) tracker.observe5m(sym, ta.rsiLast(series.col('5m', 'c', false)), s);
+  if (closedTfs.has('5m')) tracker.observe5m(sym, ta.rsiLast(series.col('5m', 'c', false), s.rsiPeriod), s);
 
   const tfs = RSI_TFS.filter(tf => closedTfs.has(tf));
   const burst = detectBurst(series, s);
+  if (burst) burst.grade = volGrade(burst.body, burst.volX, burst.taker, s);
   if (!tfs.length && !burst) return null;
 
   let snap = evaluate(series, s, ctx);
@@ -425,7 +475,7 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
   const followed = ctx.isFollowed ? ctx.isFollowed(sym) : false;
   const dip = snap.level?.zone === 'dip';
   const tags = [
-    `#${sym}`, `#RSI${snap.hits}`,
+    `#${sym}`, `#DERECE${snap.grade}`,
     snap.level ? (dip ? '#DIPTE' : '#YAKLASIYOR') : null,
     burst ? '#HACIM' : null,
     inSeries ? '#SERI' : null,
@@ -437,7 +487,8 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
   return {
     id: `${sym}-${snap.t}`, symbol: sym, seq, t: snap.t, price: snap.price,
     snap, news, trig, tags, followed, inSeries,
-    silent: !((snap.hits === 3 && dip) || followed),
+    grade: snap.grade,
+    silent: !(snap.grade === 3 || followed),
   };
 }
 
@@ -450,4 +501,4 @@ function movePct(prevClose, prevT, c) {
   return base > 0 ? (c.c - base) / base * 100 : null;
 }
 
-module.exports = { evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, negPeaks, movePct, RSI_TFS };
+module.exports = { evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, negPeaks, movePct, volGrade, rsiGrade, circles, RSI_TFS };

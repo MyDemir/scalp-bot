@@ -21,9 +21,20 @@ Kontrol anı: **3m / 5m / 15m mum kapanışları** + **hacimli her 1m mum kapan�
 
 | Şart | Varsayılan |
 |---|---|
-| 3m/5m/15m RSI | en az **2/3** dilimde **≥ 90** (kapanmamış dilimde devam eden mumla hesaplanır) |
+| 3m/5m/15m RSI | en az **2/3** dilimde **≥ 85** (kapanmamış dilimde devam eden mumla hesaplanır; RSI periyodu 14) |
 | Seviye (zorunlu) | fiyatın üstünde en fazla **%2.5** uzakta bir seviye: 4h MA200 · 4h EMA200 · 1d MA200 · 1d EMA200 · 30 günlük tepe (son 30 **kapanmış** günün en yüksek 3 tepesinin ortalaması) |
 | Yeni veri | önceki karttan bu yana: RSI dilim sayısı değişti · bir dilim 95'i geçti · hacimli mum · seviye/bölge değişti (DİPTE'ye girdi, seviye kırıldı) · MACD ya da Stoch RSI kesişimi · 1m/3m negatif tepe arttı. **Yeni veri yoksa kart gitmez.** |
+
+**Derece daireleri** (kart başlığında):
+
+| | RSI kartı | Hacimli mum / ⚡ hareket |
+|---|---|---|
+| 🔴 | 2/3 dilimde RSI ≥ 85 | temel şart (hacimli mum · 1 dk ≥ %2) |
+| 🔴🔴 | 2/3 dilimde RSI ≥ 90 **ve** üstte %2.5 içinde seviye | + hacim ≥ 3× (önceki 20 dk ortalaması) |
+| 🔴🔴🔴 | 3/3 dilimde RSI ≥ 90 + fiyat dirence dayalı (dipte) + EMA21 ayrışması — **sesli** | + alış/satış oranı hareket yönünde ≥ %65 |
+
+RSI satırlarında da aynı işaret: 🔴 ≥ 85 · 🔴🔴 ≥ 90 · 🔴🔴🔴 ≥ 95. Derece değişimi yeni veri sayılır
+("Derece yükseldi: 🔴🔴🔴"). Eşikler `/ayarlar`'dan değişir (`rsiMin`, `rsiMin2`, `volGrade2X`, `dirGrade3Pct`, `rsiPeriod`).
 
 **Seri içi patlama:** bir coinde kart gittikten sonra seri sürerken (kapanmış 5m RSI 75'in altına inmeden)
 gelen hacimli 1m mum **şart aranmadan** kart olur (`#SERI`, kartta "Seri içi · şart dışı (RSI 1/3)" gibi).
@@ -42,9 +53,9 @@ Aynı coinde kartlar **#1, #2 …** diye numaralanır; kapanmış 5m RSI 75'in a
   taker alış > %55 → ▲ alım, < %45 → ▼ satış, arası ◆ nötr. Art arda gelen patlama mumları tek patlama sayılır.
 - Taker net akış (USDT) · **Detaylar** (dokununca açılır): MACD 5m/15m, Stoch RSI 5m, günlük VWAP ±σ,
   yakındaki tüm seviyeler, funding + sonraki funding zamanı, OI 1h değişimi, BTC 1h değişimi
-- Hashtag'ler (dokununca o sınıftaki tüm kartlar listelenir): `#COIN #RSI2/#RSI3 #DIPTE/#YAKLASIYOR #HACIM #SERI #NEGTEPE #AYRISMA #TAKIP`
+- Hashtag'ler (dokununca o sınıftaki tüm kartlar listelenir): `#COIN #DERECE1/2/3 #DIPTE/#YAKLASIYOR #HACIM #SERI #NEGTEPE #AYRISMA #TAKIP`
 - Butonlar: 📈 TradingView · 🟡 Binance · ℹ️ Özet (açılır pencere: bu serideki kart sayısı, ilk karttan beri fiyat) · 🔕 1s sustur · ⭐ Takip
-- **Sesli bildirim** yalnızca RSI 3/3 + DİPTE ya da takipteki coin; diğerleri sessiz gelir.
+- **Sesli bildirim** yalnızca 🔴🔴🔴 kartlar ve takipteki coinler; diğerleri sessiz gelir.
 
 ### ⚡ 1 dakikalık hareket uyarısı
 **Tüm** USDT perpetual paritelerde (hacim filtresi yok, stabil coinler hariç) 1m mum kapanışı, bir önceki

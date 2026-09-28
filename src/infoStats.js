@@ -15,11 +15,11 @@ const fmtDate = t => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
 function compact(c) {
   const sn = c.snap;
   return {
-    symbol: c.symbol, t: c.t, time: fmtDate(c.t), seq: c.seq, price: c.price, silent: c.silent, inSeries: Boolean(c.inSeries),
+    symbol: c.symbol, t: c.t, time: fmtDate(c.t), seq: c.seq, grade: c.grade ?? sn.grade ?? null, price: c.price, silent: c.silent, inSeries: Boolean(c.inSeries),
     news: c.news, tags: c.tags,
     rsi: Object.fromEntries(RSI_TFS.map(tf => [tf, +sn.rsi[tf].v.toFixed(2)])), hits: sn.hits,
     level: sn.level ? { name: sn.level.name, value: sn.level.value, dist: +sn.level.dist.toFixed(3), zone: sn.level.zone } : null,
-    burst: c.trig.burst ? { dir: c.trig.burst.dir, body: +c.trig.burst.body.toFixed(2), volX: +c.trig.burst.volX.toFixed(1), taker: Math.round(c.trig.burst.taker) } : null,
+    burst: c.trig.burst ? { grade: c.trig.burst.grade ?? null, dir: c.trig.burst.dir, body: +c.trig.burst.body.toFixed(2), volX: +c.trig.burst.volX.toFixed(1), taker: Math.round(c.trig.burst.taker) } : null,
     trigTFs: c.trig.tfs,
     sepOk: sn.sepOk, conf: sn.conf.score,
     neg1m: sn.neg?.['1m']?.count ?? 0, neg3m: sn.neg?.['3m']?.count ?? 0, rsi1h: sn.conf.h1 != null ? +sn.conf.h1.toFixed(1) : null, rsi4h: sn.conf.h4 != null ? +sn.conf.h4.toFixed(1) : null,
@@ -34,6 +34,9 @@ function compact(c) {
 const CLASSES = [
   ['Tüm kartlar',          () => true],
   ['İlk kart (#1)',        c => c.seq === 1],
+  ['Derece 🔴',            c => c.grade === 1],
+  ['Derece 🔴🔴',          c => c.grade === 2],
+  ['Derece 🔴🔴🔴 (sesli)', c => c.grade === 3],
   ['RSI 2/3',              c => c.hits === 2],
   ['RSI 3/3',              c => c.hits === 3],
   ['DİPTE',                c => c.level?.zone === 'dip'],
@@ -46,7 +49,7 @@ const CLASSES = [
   ['Ayrışma ✓',            c => c.sepOk],
   ['Destek 2/2',           c => c.conf === 2],
   ['Negatif tepe ≥2',      c => Math.max(c.neg1m || 0, c.neg3m || 0) >= 2],
-  ['3/3 + DİPTE (sesli)',  c => c.hits === 3 && c.level?.zone === 'dip'],
+  ['3/3 + DİPTE',          c => c.hits === 3 && c.level?.zone === 'dip'],
 ];
 
 function classTable(cards) {

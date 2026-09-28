@@ -97,7 +97,7 @@ async function emitCard(card) {
   telegram.sendCard({ text, keyboard, silent: card.silent });
   store?.add({ id: card.id, kind: 'card', symbol: card.symbol, t: card.t, seq: card.seq, price: card.price, data: { ...compact(card), bursts: undefined, fwd: undefined } });
   const lv = card.snap.level;
-  console.log(`[KART] ${card.symbol} #${card.seq} RSI ${card.snap.hits}/3 · ${lv ? `${lv.name} ${lv.dist.toFixed(2)}% ${lv.zone}` : 'seviye yok'} · ${card.silent ? 'sessiz' : 'SESLİ'} · ${card.news.join(' | ')}`);
+  console.log(`[KART] ${card.symbol} #${card.seq} derece ${card.grade} · RSI ${card.snap.hits}/3 · ${lv ? `${lv.name} ${lv.dist.toFixed(2)}% ${lv.zone}` : 'seviye yok'} · ${card.silent ? 'sessiz' : 'SESLİ'} · ${card.news.join(' | ')}`);
 }
 
 // ── Mum işleme ────────────────────────────────────────────────────────────
@@ -158,6 +158,7 @@ function emitMove(m) {
     try { m.snap = eng.evaluate(sr, s, ctx, true); } catch { m.snap = null; }
   }
   m.followed = settings.isFollowed(m.symbol);
+  m.grade = eng.volGrade(m.pct, m.volX, m.taker, s);
   stats.moves++;
   rollDay();
   stats.movesToday++;
@@ -165,9 +166,9 @@ function emitMove(m) {
   telegram.sendCard({ text, keyboard, silent: !(s.moveAlertSound || m.followed) });
   store?.add({
     id: `${m.symbol}-${m.t}-move`, kind: 'move', symbol: m.symbol, t: m.t, price: m.to,
-    data: { movePct: +m.pct.toFixed(3), volX: m.volX != null ? +m.volX.toFixed(2) : null, taker: m.taker != null ? Math.round(m.taker) : null, vol24: m.vol24, hits: m.snap?.hits ?? null },
+    data: { grade: m.grade, movePct: +m.pct.toFixed(3), volX: m.volX != null ? +m.volX.toFixed(2) : null, taker: m.taker != null ? Math.round(m.taker) : null, vol24: m.vol24, hits: m.snap?.hits ?? null },
   });
-  console.log(`[HAREKET] ${m.symbol} 1dk ${m.pct > 0 ? '+' : ''}${m.pct.toFixed(2)}% (${m.from} → ${m.to})${m.volX != null ? ` · hacim ${m.volX.toFixed(1)}×` : ''}`);
+  console.log(`[HAREKET] ${'●'.repeat(m.grade)} ${m.symbol} 1dk ${m.pct > 0 ? '+' : ''}${m.pct.toFixed(2)}% (${m.from} → ${m.to})${m.volX != null ? ` · hacim ${m.volX.toFixed(1)}×` : ''}`);
 }
 
 function onKline(symbol, tf, k, isFinal) {

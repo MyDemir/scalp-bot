@@ -46,8 +46,9 @@ const pa = (v, d = 2) => (v == null || !Number.isFinite(v) ? '—' : `%${Math.ab
 const ps = (v, d = 2) => (v == null || !Number.isFinite(v) ? '—' : `${v > 0 ? '+' : v < 0 ? '−' : ''}%${Math.abs(v).toFixed(d)}`);
 const updown = (v, d = 1) => (v == null || !Number.isFinite(v) ? '—' : `${pa(v, d)} ${v >= 0 ? 'yukarıda' : 'aşağıda'}`);
 
-/** Eşik işareti: 🔴 eşik üstü, 🔴🔴 güçlü (≥ strongRsi) */
-const mark = (v, s) => (v >= s.strongRsi ? ' 🔴🔴' : v >= s.rsiMin ? ' 🔴' : '');
+/** RSI satırı işareti: 🔴 ≥ rsiMin (85) · 🔴🔴 ≥ rsiMin2 (90) · 🔴🔴🔴 ≥ strongRsi (95) */
+const mark = (v, s) => (v >= s.strongRsi ? ' 🔴🔴🔴' : v >= s.rsiMin2 ? ' 🔴🔴' : v >= s.rsiMin ? ' 🔴' : '');
+const circles = n => (n > 0 ? '🔴'.repeat(n) : '⚪');
 
 function levelLines(snap, s) {
   const lv = snap.level;
@@ -79,7 +80,7 @@ function formatCard(card, s, opt = {}) {
   if (opt.header) L.push(opt.header);
   L.push(card.seq === '–'
     ? `📋 <b>$${esc(sym)}</b> · Anlık durum`
-    : `🔴 <b>$${esc(sym)}</b> · Kart ${card.seq}${dip ? ' · ⭐ Dipte' : ''}`);
+    : `${circles(snap.grade ?? 0)} <b>$${esc(sym)}</b> · Kart ${card.seq}${dip ? ' · ⭐ Dipte' : ''}`);
   for (const n of card.news) L.push(`🔔 ${esc(n)}`);
 
   L.push('');
@@ -145,7 +146,7 @@ function formatCard(card, s, opt = {}) {
 function formatMove(m, s) {
   const up = m.pct > 0;
   const L = [];
-  L.push(`⚡ <b>$${esc(m.symbol)}</b> · 1 dakikada <b>${ps(m.pct)}</b> ${up ? '▲' : '▼'}`);
+  L.push(`⚡${circles(m.grade || 1)} <b>$${esc(m.symbol)}</b> · 1 dakikada <b>${ps(m.pct)}</b> ${up ? '▲' : '▼'}`);
   L.push('');
   L.push(`<b>Fiyat:</b> <code>${px(m.from)}</code> → <code>${px(m.to)}</code>`);
   if (m.volX != null) L.push(`<b>Hacim:</b> son 20 dk ortalamasının ${m.volX.toFixed(1)} katı`);
@@ -160,7 +161,7 @@ function formatMove(m, s) {
     L.push('<i>İzlenen listede değil (24 saatlik hacim eşiğin altında)</i>');
   }
   L.push(`🕒 ${dayTime(m.t)}`);
-  L.push([`#${esc(m.symbol)}`, '#HAREKET', up ? '#YUKSELIS' : '#DUSUS', m.followed ? '#TAKIP' : null].filter(Boolean).join(' '));
+  L.push([`#${esc(m.symbol)}`, '#HAREKET', `#DERECE${m.grade || 1}`, up ? '#YUKSELIS' : '#DUSUS', m.followed ? '#TAKIP' : null].filter(Boolean).join(' '));
   const keyboard = [
     tgLinks(m.symbol),
     [

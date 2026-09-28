@@ -15,9 +15,11 @@ const cfg  = require('./config');
 
 // type: 'num' | 'int' | 'bool'
 const DEFS = [
-  { key: 'rsiMin', short: 'RSI',        label: 'RSI eşiği',               type: 'int', min: 50, max: 100, step: 1 },
+  { key: 'rsiMin', short: 'RSI 🔴', label: 'Kart eşiği RSI (🔴)', type: 'int', min: 50, max: 100, step: 1 },
+  { key: 'rsiMin2', short: 'RSI 🔴🔴', label: 'RSI 🔴🔴 / 🔴🔴🔴 eşiği', type: 'int', min: 50, max: 100, step: 1 },
+  { key: 'rsiPeriod', short: 'RSI periyot', label: 'RSI periyodu', type: 'int', min: 2, max: 30, step: 1 },
   { key: 'minTFs', short: 'Dilim',        label: 'Eşiği geçen dilim (3m/5m/15m)', type: 'int', min: 1, max: 3, step: 1 },
-  { key: 'strongRsi', short: 'Güçlü RSI',     label: 'Güçlü RSI (95↑)',         type: 'int', min: 60, max: 100, step: 1 },
+  { key: 'strongRsi', short: 'RSI 🔴🔴🔴',     label: 'RSI 🔴🔴🔴 (satırda) eşiği',         type: 'int', min: 60, max: 100, step: 1 },
   { key: 'levelMaxPct', short: 'Seviye %',   label: 'Seviyeye yakınlık %',     type: 'num', min: 0.5, max: 10, step: 0.5 },
   { key: 'levelRequired', short: 'Seviye şartı', label: 'Seviye şartı',            type: 'bool' },
   { key: 'dipBelowPct', short: 'Dip alt %',   label: 'DİPTE: altında en fazla %', type: 'num', min: 0.1, max: 3, step: 0.1 },
@@ -28,6 +30,8 @@ const DEFS = [
   { key: 'volAvgN', short: 'Ort. mum',       label: 'Hacim ortalaması (mum)',  type: 'int', min: 5, max: 100, step: 5 },
   { key: 'takerBuyPct', short: 'Alım >%',   label: 'Alım: taker > %',         type: 'int', min: 50, max: 90, step: 1 },
   { key: 'takerSellPct', short: 'Satış <%',  label: 'Satış: taker < %',        type: 'int', min: 10, max: 50, step: 1 },
+  { key: 'volGrade2X', short: 'Hacim 🔴🔴 ×', label: 'Hacim 🔴🔴: ortalamanın en az … katı', type: 'num', min: 1, max: 20, step: 0.5 },
+  { key: 'dirGrade3Pct', short: 'Yön 🔴🔴🔴 %', label: 'Hacim 🔴🔴🔴: yön uyumu (alış/satış) ≥ %', type: 'int', min: 50, max: 95, step: 1 },
   { key: 'windowMin', short: 'Pencere dk',     label: 'Sayaç penceresi (dk)',    type: 'int', min: 15, max: 200, step: 15 },
   { key: 'shortWindowMin', short: 'Kısa dk', label: 'Kısa pencere (dk)',      type: 'int', min: 5, max: 60, step: 5 },
   { key: 'resetRsi', short: 'Sıfırla <',      label: 'Kart no. sıfırlama (5m RSI <)', type: 'int', min: 40, max: 95, step: 1 },
