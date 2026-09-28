@@ -63,14 +63,16 @@ Aynı coinde kartlar **#1, #2 …** diye numaralanır; kapanmış 5m RSI 75'in a
 - **Bildirim:** her yeni kart sesli gelir (`/ayarlar` → "Kart sesli" kapatılırsa yalnız 🔴🔴🔴 ve takipteki coinler sesli).
 
 ### Grafik
-Kartlar ve ⚡ uyarılar **grafikli** gelir (fotoğraf + açıklama): son ~8 saatin 5m mumları, hacim, direnç seviyesi
-(en yakını turuncu, diğer yakın seviyeler gri), **3m EMA21 (beyaz) ve 5m EMA21 (sarı)** — ayrışma ve hedef bölgeleri
-grafikte görünür —, son fiyat etiketi ve **Ichimoku bulutu** (sade görünüm için yalnızca bulut: Senkou A ≥ B yeşil, A < B kırmızı; `/ayarlar` → Ichimoku ile kapatılabilir) — KivancOzbilgic'in "ICHIMOKU Kinko Hyo by KIVANC" düzeni:
-Tenkan (kırmızı), Kijun (mavi), Chikou (erik), Senkou A (yeşil), Senkou B (mor), bulut. Varsayılan periyotlar
-Kıvanç'ın kripto önerisi 10/30/30/60/30 (1-3-3-6-3 oranı); klasik 9/26/26/52/26 için `/ayar ichiTenkan 9` vb.
-Evren dışı pariteler için grafik verisi o an REST'ten çekilir. Açıklama Telegram'ın 1024 karakter sınırını
-aşarsa açılır "Detaylar" bloğu çıkarılır. Kapatmak: `/ayarlar` → Grafik / Grafik ⚡. Çizim `@napi-rs/canvas`
-ile yapılır, yazı tipi repo içinde (`src/assets/fonts`, DejaVu); kütüphane yüklenemezse kartlar grafiksiz gider.
+Kartlar ve ⚡ uyarılar **grafikli** gelir (fotoğraf + açıklama). Varsayılan **1 saatlik** grafik (son 100 mum ≈ 4 gün):
+- **Fibonacci düzeltme seviyeleri** (0 · 0.236 · 0.382 · 0.5 · 0.618 · 0.786 · 1) — görünen penceredeki en düşük ve en
+  yüksek noktaya göre; dip tepeden önceyse (yükseliş) 0 = tepe, tersi (düşüş) 0 = dip. 0.618 kalın çizilir.
+- **Ichimoku bulutu** (KivancOzbilgic parametreleri, varsayılan 10/30/30/60/30; Senkou A ≥ B yeşil, A < B kırmızı)
+- Yakındaki direnç seviyeleri (en yakını turuncu, diğerleri gri), hacim, son fiyat etiketi
+- 5m grafik seçilirse 3m EMA21 (beyaz) ve 5m EMA21 (sarı) çizgileri de çizilir
+
+`/ayarlar`: **Grafik TF** (5m / 15m / 1h / 4h, −/+ ile), Fibonacci, Ichimoku, Grafik (kartlar), Grafik ⚡ (uyarılar).
+Evren dışı pariteler için grafik verisi o an REST'ten çekilir. Açıklama 1024 karakteri aşarsa "Detaylar" sondan kırpılır.
+Çizim `@napi-rs/canvas` ile, yazı tipi repo içinde (`src/assets/fonts`, DejaVu); grafikler diske yazılmaz.
 
 ### ⚡ 1 dakikalık hareket uyarısı
 **Tüm** USDT perpetual paritelerde (hacim filtresi yok, stabil coinler hariç) 1m mum kapanışı, bir önceki

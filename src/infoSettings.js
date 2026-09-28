@@ -13,7 +13,7 @@ const fs   = require('fs');
 const path = require('path');
 const cfg  = require('./config');
 
-// type: 'num' | 'int' | 'bool'
+// type: 'num' | 'int' | 'bool' | 'enum' (options listesinden biri; −/+ ile sırayla değişir)
 const DEFS = [
   { key: 'rsiMin', short: 'RSI 🔴', label: 'Kart eşiği RSI (🔴)', type: 'int', min: 50, max: 100, step: 1 },
   { key: 'rsiMin2', short: 'RSI 🔴🔴', label: 'RSI 🔴🔴 işareti', type: 'int', min: 50, max: 100, step: 1 },
@@ -50,6 +50,8 @@ const DEFS = [
   { key: 'cardSound', short: 'Kart sesli', label: 'Her kart bildirimli (sesli)', type: 'bool' },
   { key: 'moveAlertSound', short: 'Hrk. sesli', label: 'Hareket uyarısı sesli', type: 'bool' },
   { key: 'chart', short: 'Grafik', label: 'Kartlarda grafik', type: 'bool' },
+  { key: 'chartTf', short: 'Grafik TF', label: 'Grafik zaman dilimi', type: 'enum', options: ['5m', '15m', '1h', '4h'] },
+  { key: 'chartFib', short: 'Fibonacci', label: 'Grafikte Fibonacci', type: 'bool' },
   { key: 'chartIchi', short: 'Ichimoku', label: 'Grafikte Ichimoku', type: 'bool' },
   { key: 'chartMoves', short: 'Grafik ⚡', label: '⚡ uyarılarda grafik', type: 'bool' },
   { key: 'ichiTenkan', short: 'Tenkan', label: 'Ichimoku Tenkan', type: 'int', min: 2, max: 100, step: 1, menu: false },
@@ -105,7 +107,11 @@ function createSettings({ file = defaultFile(), defaults = cfg.info, persist = t
     const d = DEF_BY_KEY[key];
     if (!d) return { ok: false, error: `bilinmeyen ayar: ${key}` };
     let v;
-    if (d.type === 'bool') {
+    if (d.type === 'enum') {
+      const v0 = String(raw).trim().toLowerCase();
+      if (!d.options.includes(v0)) return { ok: false, error: `${key} şunlardan biri olmalı: ${d.options.join(', ')}` };
+      v = v0;
+    } else if (d.type === 'bool') {
       const s = String(raw).toLowerCase();
       if (['1', 'true', 'ac', 'aç', 'acik', 'açık', 'on', 'evet'].includes(s)) v = true;
       else if (['0', 'false', 'kapat', 'kapali', 'kapalı', 'off', 'hayir', 'hayır'].includes(s)) v = false;
@@ -128,6 +134,11 @@ function createSettings({ file = defaultFile(), defaults = cfg.info, persist = t
     const d = DEF_BY_KEY[key];
     if (!d) return { ok: false, error: 'bilinmeyen ayar' };
     if (d.type === 'bool') return set(key, !values[key]);
+    if (d.type === 'enum') {
+      const i = d.options.indexOf(values[key]);
+      const n = d.options.length;
+      return set(key, d.options[((i < 0 ? 0 : i) + (dir >= 0 ? 1 : -1) + n) % n]);
+    }
     const v = Math.min(d.max, Math.max(d.min, round(values[key] + dir * d.step, d.step)));
     return set(key, v);
   }

@@ -98,10 +98,7 @@ async function emitCard(card) {
   const { text, keyboard } = formatCard(card, s, { now: Date.now() });
   const sr = series.get(card.symbol);
   let photo = null;
-  if (s.chart && sr) {
-    const cs = chart.candlesFromSeries(sr);
-    photo = chart.renderChart({ symbol: card.symbol, candles: cs, level: card.snap.level, levels: card.snap.levels || [], overlays: chart.emaOverlays(sr, cs), ichi: ichiOf(s), showIchi: s.chartIchi, subtitle: `Kart ${card.seq}` });
-  }
+  if (s.chart && sr) photo = chartOf(sr, s, card.snap.level, card.snap.levels || [], `Kart ${card.seq}`);
   telegram.sendCard({ text, keyboard, silent: card.silent, photo });
   store?.add({ id: card.id, kind: 'card', symbol: card.symbol, t: card.t, seq: card.seq, price: card.price, data: { ...compact(card), bursts: undefined, fwd: undefined } });
   const lv = card.snap.level;
@@ -164,12 +161,26 @@ function ichiOf(s) {
   return { tenkan: s.ichiTenkan, kijun: s.ichiKijun, chikou: s.ichiChikou, senkouB: s.ichiSenkouB, shift: s.ichiShift };
 }
 
-/** ⚡ uyarı grafiği için 5m mumlar: izlenen coinde bellekten, değilse REST'ten (tek istek) */
-async function moveCandles(sym) {
+/**
+ * Grafik (ayarlardaki zaman dilimi; varsayılan 1h). EMA21 3m/5m çizgileri yalnız 5m grafikte anlamlı.
+ * @param {object[]} [candles] verilmezse series'ten alınır
+ */
+function chartOf(sr, s, level, levels, subtitle, candles = null) {
+  const tf = s.chartTf || '1h';
+  const cs = candles || chart.candlesFromSeries(sr, tf);
+  return chart.renderChart({
+    symbol: sr.symbol, candles: cs, tf, level, levels,
+    overlays: tf === '5m' && sr ? chart.emaOverlays(sr, cs) : [],
+    ichi: ichiOf(s), showIchi: s.chartIchi, fib: s.chartFib, subtitle,
+  });
+}
+
+/** ⚡ uyarı grafiği için mumlar: izlenen coinde bellekten, değilse REST'ten (tek istek) */
+async function moveCandles(sym, tf) {
   const sr = series.get(sym);
-  if (sr && sr.count('5m') >= 60) return chart.candlesFromSeries(sr);
+  if (sr && sr.count(tf) >= 60) return chart.candlesFromSeries(sr, tf);
   try {
-    const raw = await Promise.race([binance.fetchKlines(sym, '5m', 250), new Promise(r => setTimeout(() => r(null), 5000))]);
+    const raw = await Promise.race([binance.fetchKlines(sym, tf, 250), new Promise(r => setTimeout(() => r(null), 5000))]);
     return raw ? raw.map(k => normKline(k)) : null;
   } catch { return null; }
 }
@@ -195,8 +206,9 @@ async function emitMoveNow(m) {
   const { text, keyboard } = formatMove(m, s);
   let photo = null;
   if (s.chartMoves) {
-    const cs = await moveCandles(m.symbol);
-    if (cs) photo = chart.renderChart({ symbol: m.symbol, candles: cs, level: m.snap?.level ?? null, levels: m.snap?.levels || [], overlays: chart.emaOverlays(sr && sr.count('5m') >= 60 ? sr : null, cs), ichi: ichiOf(s), showIchi: s.chartIchi, subtitle: `1 dk ${m.pct > 0 ? '+' : '−'}%${Math.abs(m.pct).toFixed(2)}` });
+    const tf = s.chartTf || '1h';
+    const cs = await moveCandles(m.symbol, tf);
+    if (cs) photo = chart.renderChart({ symbol: m.symbol, candles: cs, tf, level: m.snap?.level ?? null, levels: m.snap?.levels || [], overlays: tf === '5m' && sr && sr.count('5m') >= 60 ? chart.emaOverlays(sr, cs) : [], ichi: ichiOf(s), showIchi: s.chartIchi, fib: s.chartFib, subtitle: `1 dk ${m.pct > 0 ? '+' : '−'}%${Math.abs(m.pct).toFixed(2)}` });
   }
   telegram.sendCard({ text, keyboard, silent: !(s.moveAlertSound || m.followed), photo });
   store?.add({
@@ -408,10 +420,9 @@ async function main() {
   installInfoTelegram({ telegram, settings, tracker, store, getSeries: sym => series.get(sym), ctx: () => ctx, status: statusText, chartFor: (sym, level, levels = []) => {
     const sr = series.get(sym), s0 = settings.get();
     if (!sr || !s0.chart) return null;
-    const cs = chart.candlesFromSeries(sr);
-    return chart.renderChart({ symbol: sym, candles: cs, level, levels, overlays: chart.emaOverlays(sr, cs), ichi: ichiOf(s0), showIchi: s0.chartIchi, subtitle: 'Anlık' });
+    return chartOf(sr, s0, level, levels, 'Anlık');
   } });
-  console.log(`[GRAFİK] ${chart.available() ? 'açık (5m + Ichimoku)' : 'KAPALI — @napi-rs/canvas yüklenemedi, kartlar grafiksiz gider'}`);
+  console.log(`[GRAFİK] ${chart.available() ? `açık (${settings.get().chartTf} · Ichimoku bulutu · Fibonacci)` : 'KAPALI — @napi-rs/canvas yüklenemedi, kartlar grafiksiz gider'}`);
 
   console.log('Evren belirleniyor...');
   const { list } = await refreshUniverse(true);

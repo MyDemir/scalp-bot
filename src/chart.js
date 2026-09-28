@@ -74,6 +74,14 @@ function hm(t, tz) {
   } catch { return new Date(t).toISOString().slice(11, 16); }
 }
 
+let dmhFmt = null;
+function dmh(t, tz) {
+  try {
+    dmhFmt = dmhFmt || new Intl.DateTimeFormat('tr-TR', { timeZone: tz, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+    return dmhFmt.format(new Date(t)).replace(',', '').replace(/\//g, '.');
+  } catch { return new Date(t).toISOString().slice(5, 16).replace('T', ' '); }
+}
+
 function fmtPx(v) {
   if (!Number.isFinite(v)) return '';
   const a = Math.abs(v);
@@ -92,7 +100,7 @@ function fmtPx(v) {
  * @param {number} [p.show]      gösterilecek mum sayısı
  * @returns {Buffer|null} PNG
  */
-function renderChart({ symbol, candles, level = null, levels = [], overlays = [], ichi = DEFAULT_ICHI, showIchi = true, tf = '5m', subtitle = '', show = 100, tz = process.env.DISPLAY_TZ || 'Europe/Istanbul' }) {
+function renderChart({ symbol, candles, level = null, levels = [], overlays = [], ichi = DEFAULT_ICHI, showIchi = true, fib = true, tf = '5m', subtitle = '', show = 100, tz = process.env.DISPLAY_TZ || 'Europe/Istanbul' }) {
   const L = lib();
   if (!L || !candles || candles.length < 20) return null;
   try {
@@ -123,7 +131,8 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
     }
     for (const ov of overlays) for (let i = start; i < n; i++) { const v = ov.values[i]; if (v != null && Number.isFinite(v)) vals.push(v); }
     const last = c[n - 1];
-    const near = L0 => L0 && Number.isFinite(L0.value) && Math.abs(L0.value - last) / last < 0.06;
+    const nearPct = tf === '1h' || tf === '4h' ? 0.12 : 0.06;
+    const near = L0 => L0 && Number.isFinite(L0.value) && Math.abs(L0.value - last) / last < nearPct;
     const showLevel = near(level);
     if (showLevel) vals.push(level.value);
     const otherLevels = levels.filter(L0 => near(L0) && (!level || L0.name !== level.name));
@@ -152,7 +161,7 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
     for (let j = Math.round(every / 2); j < N; j += every) {
       const x = xs(j);
       g.strokeStyle = C.grid; g.beginPath(); g.moveTo(x, top); g.lineTo(x, volTop + volH); g.stroke();
-      g.fillStyle = C.axis; g.fillText(hm(candles[start + j].t, tz), x, H - 9);
+      g.fillStyle = C.axis; g.fillText(tf === '1h' || tf === '4h' ? dmh(candles[start + j].t, tz) : hm(candles[start + j].t, tz), x, H - 9);
     }
 
     // Bulut (Senkou A–B arası), yamuklar halinde
@@ -180,6 +189,35 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
     // Ichimoku: yalnızca bulut (Tenkan/Kijun/Chikou çizgileri grafiği kalabalıklaştırdığı için çizilmez)
     // EMA21 3m / 5m (kalın, kesiksiz) — hedef bölgeleri
     for (const ov of overlays) line(k => (k < n ? ov.values[k] : null), ov.color, 2.6);
+
+    // Fibonacci düzeltme seviyeleri — görünen penceredeki en düşük ve en yüksek noktaya göre.
+    // Dip tepeden önceyse (yükseliş) 0 = tepe, 1 = dip; tersi (düşüş) 0 = dip, 1 = tepe.
+    let fibInfo = null;
+    if (fib) {
+      let hiI = start, loI = start;
+      for (let i = start; i < n; i++) { if (h[i] > h[hiI]) hiI = i; if (l[i] < l[loI]) loI = i; }
+      const HI = h[hiI], Lw = l[loI], up = loI < hiI;
+      if (HI > Lw) {
+        fibInfo = { up };
+        const R = [[0, '#7d8796'], [0.236, '#8e9aaf'], [0.382, '#5dade2'], [0.5, '#f4d03f'], [0.618, '#f39c12'], [0.786, '#e67e22'], [1, '#7d8796']];
+        g.font = '13px ChartSans'; g.textAlign = 'left';
+        for (const [r, col] of R) {
+          const v = up ? HI - (HI - Lw) * r : Lw + (HI - Lw) * r;
+          const y = ys(v);
+          g.strokeStyle = col; g.globalAlpha = r === 0.618 || r === 0.5 ? 0.9 : 0.6; g.lineWidth = r === 0.618 ? 1.6 : 1;
+          g.beginPath(); g.moveTo(padL, y); g.lineTo(padL + plotW, y); g.stroke();
+          g.globalAlpha = 1;
+          const lab = `${r} · ${fmtPx(v)}`;
+          const tw = g.measureText(lab).width;
+          g.fillStyle = 'rgba(15,20,27,0.8)'; g.fillRect(padL + 2, y - 15, tw + 8, 16);
+          g.fillStyle = col; g.fillText(lab, padL + 6, y - 3);
+        }
+        // tepe ve dip noktaları
+        g.fillStyle = '#7d8796';
+        g.beginPath(); g.arc(xs(hiI - start), ys(HI), 3.5, 0, 7); g.fill();
+        g.beginPath(); g.arc(xs(loI - start), ys(Lw), 3.5, 0, 7); g.fill();
+      }
+    }
 
     // Mumlar
     const bw = Math.max(2, slotW * 0.62);
@@ -218,8 +256,9 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
       g.font = '15px ChartSansBold'; g.textAlign = 'left';
       const lab = `${level.name}  ${fmtPx(level.value)}`;
       const tw = g.measureText(lab).width;
-      g.fillStyle = 'rgba(15,20,27,0.85)'; g.fillRect(padL + 6, y - 24, tw + 12, 20);
-      g.fillStyle = C.level; g.fillText(lab, padL + 12, y - 9);
+      const lx0 = padL + plotW * 0.42;
+      g.fillStyle = 'rgba(15,20,27,0.85)'; g.fillRect(lx0, y - 24, tw + 12, 20);
+      g.fillStyle = C.level; g.fillText(lab, lx0 + 6, y - 9);
     }
 
     // Son fiyat etiketi
@@ -245,6 +284,7 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
     const legend = [
       ...overlays.map(ov => [ov.label, ov.color]),
       ...(showIchi ? [[`Ichimoku bulutu (${ichi.tenkan}/${ichi.kijun}/${ichi.senkouB}, +${ichi.shift})`, C.spanA]] : []),
+      ...(fibInfo ? [[`Fibonacci (${fibInfo.up ? 'dip → tepe' : 'tepe → dip'}, ${N} mum)`, '#f39c12']] : []),
     ];
     g.font = '14px ChartSans';
     for (const [t, col] of legend) {

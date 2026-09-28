@@ -51,6 +51,8 @@ module.exports = {
     // Grafik (5m mumlar + Ichimoku + hacim + seviye) — kartlara ve ⚡ uyarılara fotoğraf olarak eklenir
     chart:         true,
     chartMoves:    true,
+    chartTf:       '1h',   // grafik zaman dilimi: 5m / 15m / 1h / 4h
+    chartFib:      true,   // grafikte Fibonacci düzeltme seviyeleri (görünen penceredeki dip–tepe)
     chartIchi:     true,   // grafikte Ichimoku (kapatınca yalnız mum + EMA21 3m/5m + seviyeler)
     // Ichimoku — KivancOzbilgic "ICHIMOKU Kinko Hyo by KIVANC" düzeni (5 parametre). Kripto önerisi 1-3-3-6-3
     // oranında 10/30/30/60/30 (klasik: 9/26/26/52/26). /ayar ichiTenkan 9 … ile değişir.
