@@ -48,7 +48,13 @@ const updown = (v, d = 1) => (v == null || !Number.isFinite(v) ? '—' : `${pa(v
 
 /** RSI satırı işareti: 🔴 ≥ rsiMin (85) · 🔴🔴 ≥ rsiMin2 (90) · 🔴🔴🔴 ≥ strongRsi (95) */
 const mark = (v, s) => (v >= s.strongRsi ? ' 🔴🔴🔴' : v >= s.rsiMin2 ? ' 🔴🔴' : v >= s.rsiMin ? ' 🔴' : '');
-const { circles } = require('./infoEngine');
+const { circles, dirColor } = require('./infoEngine');
+
+/** Kontrol listesinde eksik maddelerin kısa adları (değerleri RSI satırlarında zaten var) */
+const checkShort = s => ({
+  daily: 'günlük direnç', confluence: 'çakışan direnç', band: `3m/5m RSI ${s.strongRsi}–${s.rsiEntryMax}`, rsi15: `15m ≥ ${s.strongRsi}`,
+  rsi5_15: `5m + 15m ≥ ${s.strongRsi}`, htf: `1h/4h ≥ ${s.confRsi}`, sep: 'EMA21 ayrışma', neg: 'negatif tepe ≥ 2',
+});
 
 function levelLines(snap, s) {
   const lv = snap.level;
@@ -78,59 +84,68 @@ function formatCard(card, s, opt = {}) {
   const dip = snap.level?.zone === 'dip';
   const L = [];
   if (opt.header) L.push(opt.header);
+  // Görünen tek satır: daire RENGİ = son 15 dk fiyat yönü (🟢 yükseliş · 🔴 düşüş), daire SAYISI = derece (kontrol listesi skoru).
+  // Diğer her şey dokununca açılan bilgi kutusunda.
   L.push(card.seq === '–'
     ? `📋 <b>#${esc(sym)}</b> · Anlık durum`
-    : `${circles(snap.grade ?? 0)} <b>#${esc(sym)}</b> · Kart ${card.seq}${dip ? ' · ⭐ Dipte' : ''}`);
-  for (const n of card.news) L.push(`🔔 ${esc(n)}`);
+    : `${circles(snap.grade ?? 0, dirColor(snap.chg))} <b>#${esc(sym)}</b>`);
 
-  // Fiyat + en yakın direnç (tek satır)
-  L.push('');
-  L.push(`<b>Fiyat:</b> <code>${px(card.price)}</code>`);
+  // Bilgi kutusu — önem sırasıyla (fotoğraf açıklaması 1024 karaktere sığmazsa sondan kırpılır; etiketler korunur)
+  const B = [];
+  const head = [card.seq === '–' ? null : `Kart ${card.seq}`, dip ? '⭐ Dipte' : null,
+    Number.isFinite(snap.chg) ? `${snap.chgMin} dk ${ps(snap.chg, 2)}` : null, `🕒 ${dayTime(card.t)}`].filter(Boolean);
+  B.push(`<b>${head.join(' · ')}</b>`);
+  for (const n of card.news) B.push(`🔔 ${esc(n)}`);
+
+  B.push('');
+  B.push(`<b>Fiyat:</b> <code>${px(card.price)}</code>`);
   const lv = snap.level;
-  L.push(lv
+  B.push(lv
     ? `<b>Direnç:</b> ${esc(lv.name)} <code>${px(lv.value)}</code> · ${lv.dist <= 0 ? `${pa(lv.dist)} kala` : `${pa(lv.dist)} üstünde`}${lv.zone === 'dip' ? ' ⭐' : ''}`
     : `<b>Direnç:</b> %${s.levelMaxPct} içinde yok`);
 
-  // Kurulum kontrol listesi — derece bu skora göre
+  B.push('');
+  for (const tf of ['3m', '5m', '15m']) B.push(`<b>RSI ${tf}:</b> ${r1(snap.rsi[tf].v)}${mark(snap.rsi[tf].v, s)}`);
+  B.push(`<b>RSI 1h:</b> ${r1(snap.conf?.h1)}`);
+  B.push(`<b>RSI 4h:</b> ${r1(snap.conf?.h4)}`);
+
+  // Kontrol listesi (derece bu skora göre): sağlananlar ayrı satır, eksikler tek satır
   const ck = snap.check;
   if (ck) {
-    L.push('');
-    L.push(`<b>Kontrol listesi: ${ck.score}/${ck.total}</b>`);
-    for (const it of ck.items) L.push(`${it.ok ? '✅' : '▫️'} ${esc(it.text)}`);
-    if (ck.warn) L.push(esc(ck.warn));
+    B.push('');
+    B.push(`<b>Kontrol: ${ck.score}/${ck.total}</b>`);
+    for (const it of ck.items) if (it.ok) B.push(`✅ ${esc(it.text)}`);
+    const short = checkShort(s), miss = ck.items.filter(it => !it.ok).map(it => short[it.key] || it.key);
+    if (miss.length) B.push(`▫️ Eksik: ${esc(miss.join(' · '))}`);
+    if (ck.warn) B.push(esc(ck.warn));
   }
   const e3 = snap.sep['3m'], e5 = snap.sep['5m'];
-  const tgt = [e3 ? `3m EMA21 <code>${px(e3.ema)}</code> (${pa((e3.ema - card.price) / card.price * 100, 1)})` : null,
-    e5 ? `5m EMA21 <code>${px(e5.ema)}</code> (${pa((e5.ema - card.price) / card.price * 100, 1)})` : null].filter(Boolean);
-  if (tgt.length) L.push(`🎯 <b>Hedef bölgeleri:</b> ${tgt.join(' · ')}`);
+  const tgt = [e3 ? `3m EMA21 ${pa((e3.ema - card.price) / card.price * 100, 1)}` : null,
+    e5 ? `5m EMA21 ${pa((e5.ema - card.price) / card.price * 100, 1)}` : null].filter(Boolean);
+  if (tgt.length) B.push(`🎯 <b>Hedef:</b> ${tgt.join(' · ')}`);
 
   const [wl, ws] = snap.windows;
   const cnt = b => (b.buy + b.sell + b.neutral === 0 ? 'yok' : `${b.buy} alış · ${b.sell} satış${b.neutral ? ` · ${b.neutral} nötr` : ''}`);
-  L.push('');
-  if (snap.bursts[wl]) L.push(`<b>Hacimli mum (${wl} dk):</b> ${cnt(snap.bursts[wl].p1)}`);
-  L.push(`<b>Alış − satış (${wl} dk):</b> ${usd(snap.taker[wl])} $`);
-
-  // Detaylar — dokununca açılır (önem sırasıyla; fotoğraf açıklaması sığmazsa sondan kırpılır)
-  const D = [];
-  D.push(`<b>RSI:</b> ${['3m', '5m', '15m'].map(tf => `${tf} ${r1(snap.rsi[tf].v)}${mark(snap.rsi[tf].v, s)}`).join(' · ')} · 1h ${r1(snap.conf.h1)} · 4h ${r1(snap.conf.h4)}`);
+  B.push('');
+  if (snap.bursts[wl]) B.push(`<b>Hacimli mum (${wl} dk):</b> ${cnt(snap.bursts[wl].p1)}`);
+  B.push(`<b>Alış − satış (${wl} dk):</b> ${usd(snap.taker[wl])} $`);
+  if (snap.bursts[ws]) B.push(`<b>Hacimli mum (${ws} dk):</b> ${cnt(snap.bursts[ws].p1)}`);
   const m5 = snap.macd['5m'], m15 = snap.macd['15m'];
-  D.push(`<b>MACD:</b> 5m ${m5 ? esc(m5.text) : '—'} · 15m ${m15 ? esc(m15.text) : '—'}`);
-  if (snap.bursts[ws]) D.push(`<b>Hacimli mum (${ws} dk):</b> ${cnt(snap.bursts[ws].p1)}`);
-  if (snap.stoch) D.push(`<b>Stoch RSI 5m:</b> ${snap.stoch.k.toFixed(0)}${snap.stoch.cross ? ` (${snap.stoch.cross === 'down' ? 'aşağı' : 'yukarı'} kesti)` : ''}`);
-  if (snap.vwap) D.push(`<b>Günlük VWAP:</b> ${px(snap.vwap.vwap)} (fiyat ${updown((card.price - snap.vwap.vwap) / snap.vwap.vwap * 100)})`);
+  B.push(`<b>MACD:</b> 5m ${m5 ? esc(m5.text) : '—'} · 15m ${m15 ? esc(m15.text) : '—'}`);
+  if (snap.stoch) B.push(`<b>Stoch RSI 5m:</b> ${snap.stoch.k.toFixed(0)}${snap.stoch.cross ? ` (${snap.stoch.cross === 'down' ? 'aşağı' : 'yukarı'} kesti)` : ''}`);
+  if (snap.vwap) B.push(`<b>Günlük VWAP:</b> ${px(snap.vwap.vwap)} (fiyat ${updown((card.price - snap.vwap.vwap) / snap.vwap.vwap * 100)})`);
   const others = (snap.levels || []).filter(l => l.value > card.price && l.name !== snap.level?.name && Math.abs(l.dist) <= 10);
-  if (others.length) D.push(`<b>Üstteki diğer dirençler:</b> ${others.map(l => `${esc(l.name)} ${px(l.value)} (${pa(l.dist, 1)})`).join(' · ')}`);
+  if (others.length) B.push(`<b>Üstteki diğer dirençler:</b> ${others.map(l => `${esc(l.name)} ${px(l.value)} (${pa(l.dist, 1)})`).join(' · ')}`);
   const f = snap.funding;
   const now = opt.now ?? card.t;
-  if (f) D.push(`<b>Funding:</b> ${ps(f.rate * 100, 4)}${f.next ? ` · ${dur(f.next - now)} sonra` : ''}`);
-  if (card.oi && Number.isFinite(card.oi.changePct)) D.push(`<b>Açık pozisyon (1 saat):</b> ${ps(card.oi.changePct, 2)}`);
-  if (Number.isFinite(snap.btc1h)) D.push(`<b>BTC (1 saat):</b> ${ps(snap.btc1h, 2)}`);
-  if (snap.bursts[wl]) D.push(`<b>Hacimli mum ≥%${s.burstPct2} (${wl} dk):</b> ${cnt(snap.bursts[wl].p2)}`);
-  L.push(`<blockquote expandable>${D.join('\n')}</blockquote>`);
-  L.push(`🕒 ${dayTime(card.t)}`);
-  // Coin etiketi başlıkta (tıklanınca o coinin tüm kartları) — altta tekrar edilmez
+  if (f) B.push(`<b>Funding:</b> ${ps(f.rate * 100, 4)}${f.next ? ` · ${dur(f.next - now)} sonra` : ''}`);
+  if (card.oi && Number.isFinite(card.oi.changePct)) B.push(`<b>Açık pozisyon (1 saat):</b> ${ps(card.oi.changePct, 2)}`);
+  if (Number.isFinite(snap.btc1h)) B.push(`<b>BTC (1 saat):</b> ${ps(snap.btc1h, 2)}`);
+  if (snap.bursts[wl]) B.push(`<b>Hacimli mum ≥%${s.burstPct2} (${wl} dk):</b> ${cnt(snap.bursts[wl].p2)}`);
+  // Etiketler kutunun sonunda (coin etiketi başlıkta — tekrar edilmez)
   const rest = card.tags.filter(t => t !== `#${sym}`);
-  if (rest.length) L.push(rest.map(esc).join(' '));
+  if (rest.length) B.push(rest.map(esc).join(' '));
+  L.push(`<blockquote expandable>${B.join('\n')}</blockquote>`);
 
   const keyboard = [
     tgLinks(sym),

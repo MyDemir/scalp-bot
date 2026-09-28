@@ -98,7 +98,10 @@ async function sendWithPhoto(body, photo) {
     const m = caption.match(/<blockquote expandable>([\s\S]*?)<\/blockquote>\n?/);
     if (!m) break;
     const lines = m[1].split('\n');
-    lines.pop();
+    // Sondan kırp, ama kutunun sonundaki etiket satırını (#…) koru
+    let i = lines.length - 1;
+    while (i >= 0 && /^#/.test(lines[i])) i--;
+    if (i < 0) lines.length = 0; else lines.splice(i, 1);
     const repl = lines.length ? `<blockquote expandable>${lines.join('\n')}</blockquote>\n` : '';
     caption = caption.replace(m[0], () => repl);   // fonksiyon: metindeki "$" işaretleri özel anlam taşımasın
   }

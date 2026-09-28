@@ -364,6 +364,10 @@ function evaluate(series, s, ctx = {}, force = false) {
 
   snap.funding = ctx.funding ? ctx.funding(series.symbol) : null;
   snap.btc1h = ctx.btc1h ? ctx.btc1h(t) : null;
+  // Kart başlığındaki dairelerin rengi: son shortWindowMin (15) dk fiyat yönü (🟢 yükseliş · 🔴 düşüş)
+  const c1 = series.d['1m'].c, k = c1.length - 1 - s.shortWindowMin;
+  snap.chg = k >= 0 && c1[k] > 0 ? (price - c1[k]) / c1[k] * 100 : null;
+  snap.chgMin = s.shortWindowMin;
 
   const fails = [];
   if (s.levelRequired && !snap.levelOk) fails.push('seviye');
