@@ -26,7 +26,7 @@ Kontrol anı: **3m / 5m / 15m mum kapanışları** + **hacimli her 1m mum kapan�
 | Şart | Varsayılan |
 |---|---|
 | 3m/5m/15m RSI | en az **2/3** dilimde **≥ 90** (şu an test için 70; kapanmamış dilimde devam eden mumla — kartta `~`) |
-| Seviye (zorunlu) | fiyatın üstünde en fazla **%2.5** uzakta bir seviye: 4h MA200 · 4h EMA200 · 1d MA200 · 1d EMA200 · günlük direnç (son 30 **kapanmış** günün en yüksek 3 tepesi) |
+| Seviye (zorunlu) | fiyatın üstünde en fazla **%2.5** uzakta bir seviye: 4h MA200 · 4h EMA200 · 1d MA200 · 1d EMA200 · 30 günlük tepe (son 30 **kapanmış** günün en yüksek 3 tepesinin ortalaması) |
 | Yeni veri | önceki karttan bu yana: RSI dilim sayısı değişti · bir dilim 95'i geçti · hacimli mum · seviye/bölge değişti (DİPTE'ye girdi, seviye kırıldı) · MACD ya da Stoch RSI kesişimi · 1m/3m negatif tepe arttı. **Yeni veri yoksa kart gitmez.** |
 
 **Seri içi patlama:** bir coinde kart gittikten sonra seri sürerken (kapanmış 5m RSI 75'in altına inmeden)
@@ -117,7 +117,7 @@ src/
 ├── infoStats.js      # Kart sınıfları + "sonrası" medyanları (backtest ve /istatistik ortak)
 ├── cardStore.js      # Kart geçmişi (SQLite /data/cards.db) + 15/60/240 dk takip
 ├── infoBacktest.js   # Bilgi botu backtest'i
-├── levels.js         # 4h/1d MA200 · EMA200 · günlük direnç
+├── levels.js         # 4h/1d MA200 · EMA200 · 30 günlük tepe
 ├── ta.js             # RSI/EMA/ATR/MACD/Stoch RSI/VWAP
 ├── binanceClient.js  # REST (weight bütçeli kuyruk) + sembol/hacim listesi + funding/OI
 ├── streamClient.js   # Combined stream WS (≤800 stream/bağlantı, watchdog, dinamik abonelik)

@@ -284,11 +284,15 @@ function evaluate(series, s, ctx = {}, force = false) {
 
 // ── Kart takibi (yeni veri tespiti + numaralandırma) ─────────────────────────
 
-const pct = (v, d = 2) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(d)}%`;
+// Yüzde metinleri (Türkçe: %1.25) — kart okunaklı olsun diye işaret yerine kelime kullanılır
+const pa = (v, d = 2) => `%${Math.abs(v).toFixed(d)}`;
+const ps = (v, d = 2) => `${v > 0 ? '+' : v < 0 ? '−' : ''}%${Math.abs(v).toFixed(d)}`;
+const distTxt = dist => (dist <= 0 ? `${pa(dist)} kala` : `${pa(dist)} üstünde`);
 
 function burstText(b) {
-  const lab = b.dir === 'sell' ? '▼ satış' : b.dir === 'buy' ? '▲ alım' : '◆ nötr';
-  return `${lab} patlaması ${pct(b.body, 1)} · hacim ${b.volX.toFixed(1)}× · taker %${Math.round(b.taker)}`;
+  const kind = b.dir === 'sell' ? 'satış' : b.dir === 'buy' ? 'alış' : 'nötr';
+  const share = b.dir === 'sell' ? `satış ${pa(100 - b.taker, 0)}` : `alış ${pa(b.taker, 0)}`;
+  return `Hacimli ${kind} mumu: ${ps(b.body, 1)} · hacim ${b.volX.toFixed(1)} kat · ${share}`;
 }
 
 function createTracker() {
@@ -308,40 +312,48 @@ function createTracker() {
       if (m && m.seq) { m.seq = 0; m.last = null; }
     },
 
-    /** Yeni veri listesi (boşsa kart gönderilmez) */
+    /** Yeni veri listesi (boşsa kart gönderilmez) — düz Türkçe, her biri kartta ayrı satır */
     news(sym, snap, trig, s) {
       const m = get(sym);
       const L = m.last;
       const out = [];
-      if (trig.burst) out.push(burstText(trig.burst));
+      const above = RSI_TFS.filter(tf => snap.rsi[tf].v >= s.rsiMin);
       if (!L) {
-        out.unshift(`İlk kart · RSI ${snap.hits}/3 ≥ ${s.rsiMin}${snap.level ? ` · ${snap.level.name} ${pct(snap.level.dist)}` : ''}`);
+        out.push(`İlk kart: RSI ${above.join(', ') || '—'} dilimlerinde ${s.rsiMin} üstü${snap.level ? ` · ${snap.level.name} seviyesine ${distTxt(snap.level.dist)}` : ''}`);
+        if (trig.burst) out.push(burstText(trig.burst));
         return out;
       }
-      if (snap.hits !== L.hits) out.push(`RSI ${snap.hits}/3 ${snap.hits > L.hits ? '↑' : '↓'}`);
+      if (trig.burst) out.push(burstText(trig.burst));
+      const prevAbove = L.above || [];
       for (const tf of RSI_TFS) {
-        if (snap.rsi[tf].v >= s.strongRsi && !L.strong.includes(tf)) out.push(`${tf} RSI ${s.strongRsi}↑`);
+        if (above.includes(tf) && !prevAbove.includes(tf)) out.push(`${tf} RSI ${s.rsiMin} üstüne çıktı (${snap.rsi[tf].v.toFixed(1)})`);
+        else if (!above.includes(tf) && prevAbove.includes(tf)) out.push(`${tf} RSI ${s.rsiMin} altına indi (${snap.rsi[tf].v.toFixed(1)})`);
+      }
+      for (const tf of RSI_TFS) {
+        if (snap.rsi[tf].v >= s.strongRsi && !L.strong.includes(tf)) out.push(`${tf} RSI ${s.strongRsi} üstüne çıktı (${snap.rsi[tf].v.toFixed(1)})`);
       }
       const key = snap.level ? snap.level.name : null;
       if (key !== L.levelKey) {
         if (L.level && snap.price > L.level.value * (1 + s.dipAbovePct / 100)) {
-          out.push(`⚠️ ${L.level.name} kırıldı${snap.level ? ` → ${snap.level.name} ${pct(snap.level.dist)}` : ''}`);
+          out.push(`⚠️ ${L.level.name} seviyesi kırıldı${snap.level ? ` · sıradaki: ${snap.level.name} (${distTxt(snap.level.dist)})` : ' · yakında başka direnç yok'}`);
         } else if (snap.level) {
-          out.push(`Seviye: ${snap.level.name} ${pct(snap.level.dist)}`);
+          out.push(`Yeni direnç: ${snap.level.name} (${distTxt(snap.level.dist)})`);
         }
       } else if (snap.level && snap.level.zone !== L.zone) {
-        out.push(snap.level.zone === 'dip' ? `⭐ DİPTE: ${snap.level.name} ${pct(snap.level.dist)}` : `${snap.level.name}: dipten uzaklaştı ${pct(snap.level.dist)}`);
+        out.push(snap.level.zone === 'dip'
+          ? `⭐ Fiyat dirence dayandı: ${snap.level.name} (${distTxt(snap.level.dist)})`
+          : `Fiyat dirençten geri çekildi: ${snap.level.name} (${distTxt(snap.level.dist)})`);
       }
       for (const tf of ['5m', '15m']) {
         const k = snap.macd[tf]?.crossKey;
-        if (k && k !== L.macdKeys[tf]) out.push(`MACD ${tf} ${snap.macd[tf].cross === 'down' ? '↓' : '↑'} kesişim`);
+        if (k && k !== L.macdKeys[tf]) out.push(`${tf} MACD ${snap.macd[tf].cross === 'down' ? 'aşağı' : 'yukarı'} kesti`);
       }
       const sk = snap.stoch?.crossKey;
-      if (sk && sk !== L.stochKey) out.push(`Stoch RSI 5m ${snap.stoch.cross === 'down' ? '↓' : '↑'} kesişim`);
+      if (sk && sk !== L.stochKey) out.push(`5m Stoch RSI ${snap.stoch.cross === 'down' ? 'aşağı' : 'yukarı'} kesti`);
       for (const tf of ['1m', '3m']) {
         const ng = snap.neg?.[tf];
         if (ng && ng.count >= 1 && (ng.count > (L.neg?.[tf] ?? 0) || (ng.count === (L.neg?.[tf] ?? 0) && ng.key !== L.negKey?.[tf]))) {
-          out.push(`〽️ ${tf} negatif tepe ${ng.count}`);
+          out.push(`${tf}'de ${ng.count}. negatif tepe (fiyat yükseldi, RSI düştü)`);
         }
       }
       return out;
@@ -353,6 +365,7 @@ function createTracker() {
       m.seq++;
       m.last = {
         hits: snap.hits,
+        above: RSI_TFS.filter(tf => snap.rsi[tf].v >= s.rsiMin),
         strong: RSI_TFS.filter(tf => snap.rsi[tf].v >= s.strongRsi),
         levelKey: snap.level ? snap.level.name : null,
         level: snap.level,
@@ -403,8 +416,8 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
   const trig = { tfs, burst, inSeries };
   const news = tracker.news(sym, snap, trig, s);
   if (inSeries) {
-    const why = snap.fails.map(f => (f === 'rsi' ? `RSI ${snap.hits}/3` : f === 'seviye' ? 'seviye yok' : f)).join(', ');
-    news.push(`Seri içi · şart dışı (${why})`);
+    const why = snap.fails.map(f => (f === 'rsi' ? `RSI ${s.rsiMin} üstü ${snap.hits}/3` : f === 'seviye' ? 'yakında direnç yok' : f)).join(', ');
+    news.push(`Seri sürüyor, şart artık sağlanmıyor (${why})`);
   }
   if (!news.length) return null;
   const seq = tracker.commit(sym, snap, s);

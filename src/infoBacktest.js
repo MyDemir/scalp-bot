@@ -277,7 +277,7 @@ async function main() {
         { text: '📈 TradingView', url: `https://www.tradingview.com/chart/?symbol=BINANCE:${encodeURIComponent(c.symbol)}.P` },
         { text: '🟡 Binance', url: `https://www.binance.com/tr/futures/${encodeURIComponent(c.symbol)}` },
       ]];
-      telegram.sendText(`🧪 <b>BACKTEST ÖRNEĞİ</b> — ${fmtDate(c.t)} UTC\n${c.text}`, kb);
+      telegram.sendText(`🧪 <b>BACKTEST ÖRNEĞİ</b> (geçmiş veri)\n${c.text}`, kb);
     }
     const ok = await telegram.flush(90_000);
     const st = telegram.takeStats();

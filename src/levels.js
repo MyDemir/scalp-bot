@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Direnç seviyeleri: 4h MA200/EMA200, 1d MA200/EMA200, günlük majör direnç.
+ * Direnç seviyeleri: 4h MA200/EMA200, 1d MA200/EMA200, 30 günlük tepe (majör yatay direnç).
  * Canlı bilgi botu ve backtest AYNI fonksiyonları kullanır. Yan etkisi yok.
  */
 
@@ -42,7 +42,7 @@ function calcLevelSet(h4Closes, dayCandles) {
     ['4h EMA200', ema200(h4Closes)],
     ['1d MA200',  sma200(dCloses)],
     ['1d EMA200', ema200(dCloses)],
-    ['Günlük direnç', calcMajorResistance(dayCandles.slice(-30))],
+    ['30 günlük tepe', calcMajorResistance(dayCandles.slice(-30))],   // son 30 günün en yüksek 3 tepesinin ortalaması
   ];
   return raw.filter(([, v]) => Number.isFinite(v) && v > 0).map(([name, v]) => ({ name, value: roundPx(v) }));
 }
