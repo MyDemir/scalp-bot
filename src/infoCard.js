@@ -79,8 +79,8 @@ function formatCard(card, s, opt = {}) {
   const L = [];
   if (opt.header) L.push(opt.header);
   L.push(card.seq === '–'
-    ? `📋 <b>$${esc(sym)}</b> · Anlık durum`
-    : `${circles(snap.grade ?? 0)} <b>$${esc(sym)}</b> · Kart ${card.seq}${dip ? ' · ⭐ Dipte' : ''}`);
+    ? `📋 <b>#${esc(sym)}</b> · Anlık durum`
+    : `${circles(snap.grade ?? 0)} <b>#${esc(sym)}</b> · Kart ${card.seq}${dip ? ' · ⭐ Dipte' : ''}`);
   for (const n of card.news) L.push(`🔔 ${esc(n)}`);
 
   L.push('');
@@ -126,7 +126,9 @@ function formatCard(card, s, opt = {}) {
   if (Number.isFinite(snap.btc1h)) D.push(`<b>BTC (1 saat):</b> ${ps(snap.btc1h, 2)}`);
   L.push(`<blockquote expandable>${D.join('\n')}</blockquote>`);
   L.push(`🕒 ${dayTime(card.t)}`);
-  L.push(card.tags.map(esc).join(' '));
+  // Coin etiketi başlıkta (tıklanınca o coinin tüm kartları) — altta tekrar edilmez
+  const rest = card.tags.filter(t => t !== `#${sym}`);
+  if (rest.length) L.push(rest.map(esc).join(' '));
 
   const keyboard = [
     tgLinks(sym),
@@ -146,7 +148,7 @@ function formatCard(card, s, opt = {}) {
 function formatMove(m, s) {
   const up = m.pct > 0;
   const L = [];
-  L.push(`⚡${circles(m.grade || 1, up ? 'green' : 'red')} <b>$${esc(m.symbol)}</b> · 1 dakikada <b>${ps(m.pct)}</b> ${up ? '▲' : '▼'}`);
+  L.push(`⚡${circles(m.grade || 1, up ? 'green' : 'red')} <b>#${esc(m.symbol)}</b> · 1 dakikada <b>${ps(m.pct)}</b> ${up ? '▲' : '▼'}`);
   L.push('');
   L.push(`<b>Fiyat:</b> <code>${px(m.from)}</code> → <code>${px(m.to)}</code>`);
   if (m.volX != null) L.push(`<b>Hacim:</b> son 20 dk ortalamasının ${m.volX.toFixed(1)} katı`);
@@ -161,7 +163,7 @@ function formatMove(m, s) {
     L.push('<i>İzlenen listede değil (24 saatlik hacim eşiğin altında)</i>');
   }
   L.push(`🕒 ${dayTime(m.t)}`);
-  L.push([`#${esc(m.symbol)}`, '#HAREKET', `#DERECE${m.grade || 1}`, up ? '#YUKSELIS' : '#DUSUS', m.followed ? '#TAKIP' : null].filter(Boolean).join(' '));
+  L.push(['#HAREKET', `#DERECE${m.grade || 1}`, up ? '#YUKSELIS' : '#DUSUS', m.followed ? '#TAKIP' : null].filter(Boolean).join(' '));
   const keyboard = [
     tgLinks(m.symbol),
     [

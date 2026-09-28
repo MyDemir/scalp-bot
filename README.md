@@ -45,7 +45,7 @@ Seviye kırılırsa (fiyat seviyenin %0.3'ten fazla üstünde) o seviye sayılma
 Aynı coinde kartlar **#1, #2 …** diye numaralanır; kapanmış 5m RSI 75'in altına inince numara sıfırlanır.
 
 ### Kartın içeriği
-- Başlık: coin, kart no, fiyat, RSI x/3, saat · **🆕** bu kartı doğuran yeni veri
+- Başlık: derece daireleri, coin (tıklanabilir `#COINUSDT` etiketi — dokununca o coinin tüm kartları), kart no · 🔔 bu kartı doğuran yeni veri
 - RSI 3m/5m/15m · seviye + mesafe (**⭐ DİPTE**: seviyenin %0.5 altı–%0.3 üstü, ya da **↗ yaklaşıyor**)
 - **EMA21** 3m/5m: fiyatı, fiyata uzaklığı (%) ve ATR cinsinden ayrışma (geri çekilme hedefleri) · destek RSI (1h/4h ≥ 70)
 - **〽️ Negatif tepe** (1m/3m): fiyat eşit ya da daha yüksek tepe yaparken RSI daha düşük tepe — ardışık sayı
