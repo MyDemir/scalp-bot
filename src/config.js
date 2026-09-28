@@ -28,6 +28,7 @@ module.exports = {
     windowMin:     60,     // sayaç penceresi (dk)
     shortWindowMin: 15,    // kısa sayaç penceresi (dk)
     resetRsi:      75,     // 5m RSI bunun altında kapanınca kart numarası sıfırlanır (#1'den başlar)
+    seriesBursts:  true,   // seri sürerken (numara sıfırlanmadan) gelen hacimli mum şart aranmadan kart olur
     sepATR:        0.5,    // EMA21 ayrışması (3m & 5m, ATR cinsinden)
     sepRequired:   false,
     confRsi:       70,     // destek: 1h / 4h RSI ≥ bu

@@ -121,7 +121,7 @@ const fmtDate = t => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
 function compact(c) {
   const sn = c.snap;
   return {
-    symbol: c.symbol, t: c.t, time: fmtDate(c.t), seq: c.seq, price: c.price, silent: c.silent,
+    symbol: c.symbol, t: c.t, time: fmtDate(c.t), seq: c.seq, price: c.price, silent: c.silent, inSeries: Boolean(c.inSeries),
     news: c.news, tags: c.tags,
     rsi: Object.fromEntries(eng.RSI_TFS.map(tf => [tf, +sn.rsi[tf].v.toFixed(2)])), hits: sn.hits,
     level: sn.level ? { name: sn.level.name, value: sn.level.value, dist: +sn.level.dist.toFixed(3), zone: sn.level.zone } : null,
@@ -146,6 +146,8 @@ const CLASSES = [
   ['Hacim tetikli',        c => c.burst != null],
   ['  ↳ satış patlaması',  c => c.burst?.dir === 'sell'],
   ['  ↳ alım patlaması',   c => c.burst?.dir === 'buy'],
+  ['  ↳ seri içi (şartsız)', c => c.inSeries],
+  ['    ↳ satış',          c => c.inSeries && c.burst?.dir === 'sell'],
   ['Ayrışma ✓',            c => c.sepOk],
   ['Destek 2/2',           c => c.conf === 2],
   ['3/3 + DİPTE (sesli)',  c => c.hits === 3 && c.level?.zone === 'dip'],

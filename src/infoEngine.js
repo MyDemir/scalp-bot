@@ -11,6 +11,7 @@
  *                 + isteğe bağlı: ayrışma / destek / MACD şartları
  *   Yeni kart   : şart sağlanıyor VE önceki karttan bu yana yeni veri var (patlama, RSI dilim sayısı,
  *                 güçlü RSI, seviye/bölge, MACD ya da Stoch RSI kesişimi). Yeni veri yoksa kart yok.
+ *   Seri içi    : (seriesBursts) seri sürerken gelen hacimli mum ŞART ARANMADAN kart olur (#SERI).
  *   Numara      : aynı coinde kartlar #1, #2 … diye artar; kapanmış 5m RSI < resetRsi olunca sıfırlanır.
  *
  * Bu modülün yan etkisi yok (ağ/Telegram açmaz).
@@ -326,6 +327,9 @@ function createTracker() {
       return m.seq;
     },
 
+    /** Seri devam ediyor mu? (bu coinde kart gitmiş ve 5m RSI henüz resetRsi'nin altında kapanmamış) */
+    active: sym => (mem.get(sym)?.seq ?? 0) > 0,
+
     log: sym => mem.get(sym)?.log ?? [],
     forget: sym => mem.delete(sym),
   };
@@ -345,12 +349,23 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
   const burst = detectBurst(series, s);
   if (!tfs.length && !burst) return null;
 
-  const snap = evaluate(series, s, ctx);
-  if (!snap.ok) return null;
+  let snap = evaluate(series, s, ctx);
+  let inSeries = false;
+  if (!snap.ok) {
+    // Seri içi patlama: bu coinde seri sürerken gelen hacimli mum, şart aranmadan kart olur
+    // (ör. tepedeki sert satış mumu RSI'ı 90'ın altına indirse de bildirilir)
+    if (!(burst && s.seriesBursts && tracker.active(sym))) return null;
+    snap = evaluate(series, s, ctx, true);
+    inSeries = true;
+  }
   if (ctx.isMuted && ctx.isMuted(sym, snap.t)) return null;
 
-  const trig = { tfs, burst };
+  const trig = { tfs, burst, inSeries };
   const news = tracker.news(sym, snap, trig, s);
+  if (inSeries) {
+    const why = snap.fails.map(f => (f === 'rsi' ? `RSI ${snap.hits}/3` : f === 'seviye' ? 'seviye yok' : f)).join(', ');
+    news.push(`Seri içi · şart dışı (${why})`);
+  }
   if (!news.length) return null;
   const seq = tracker.commit(sym, snap, s);
 
@@ -360,13 +375,14 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
     `#${sym}`, `#RSI${snap.hits}`,
     snap.level ? (dip ? '#DIPTE' : '#YAKLASIYOR') : null,
     burst ? '#HACIM' : null,
+    inSeries ? '#SERI' : null,
     snap.sepOk ? '#AYRISMA' : null,
     followed ? '#TAKIP' : null,
   ].filter(Boolean);
 
   return {
     id: `${sym}-${snap.t}`, symbol: sym, seq, t: snap.t, price: snap.price,
-    snap, news, trig, tags, followed,
+    snap, news, trig, tags, followed, inSeries,
     silent: !((snap.hits === 3 && dip) || followed),
   };
 }

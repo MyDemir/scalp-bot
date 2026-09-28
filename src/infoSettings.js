@@ -31,6 +31,7 @@ const DEFS = [
   { key: 'windowMin', short: 'Pencere dk',     label: 'Sayaç penceresi (dk)',    type: 'int', min: 15, max: 200, step: 15 },
   { key: 'shortWindowMin', short: 'Kısa dk', label: 'Kısa pencere (dk)',      type: 'int', min: 5, max: 60, step: 5 },
   { key: 'resetRsi', short: 'Sıfırla <',      label: 'Kart no. sıfırlama (5m RSI <)', type: 'int', min: 40, max: 95, step: 1 },
+  { key: 'seriesBursts', short: 'Seri patlama', label: 'Seri içi patlama → şartsız kart', type: 'bool' },
   { key: 'sepATR', short: 'Ayrışma ATR',        label: 'EMA21 ayrışma (ATR)',     type: 'num', min: 0, max: 5, step: 0.1 },
   { key: 'sepRequired', short: 'Ayrışma şartı',   label: 'Ayrışma şartı',           type: 'bool' },
   { key: 'confRsi', short: 'Destek RSI',       label: 'Destek RSI (1h/4h ≥)',    type: 'int', min: 50, max: 95, step: 1 },
