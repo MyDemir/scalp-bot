@@ -91,7 +91,7 @@ const visibleLen = html => {
  * tam metin + butonlar ayrı mesajla gider.
  */
 async function sendWithPhoto(body, photo) {
-  const base = { chat_id: body.chat_id, parse_mode: 'HTML', disable_notification: body.disable_notification };
+  const base = { chat_id: body.chat_id, message_thread_id: body.message_thread_id, parse_mode: 'HTML', disable_notification: body.disable_notification };
   let caption = body.text;
   // Sığmıyorsa "Detaylar" bloğunu sondan satır satır kırp (önemli satırlar başta)
   while (visibleLen(caption) > CAPTION_MAX) {
@@ -144,6 +144,7 @@ async function pump() {
 
       try {
         const body = { chat_id: item.chatId, text: item.text, parse_mode: 'HTML', disable_web_page_preview: true };
+        if (item.thread) body.message_thread_id = item.thread;       // konulu (forum) grupta hedef konu
         if (item.kind === 'card') {
           const waited = Date.now() - item.createdAt;
           if (waited > LATE_MS) {
@@ -166,6 +167,13 @@ async function pump() {
           console.warn(`[TELEGRAM] 429 hız sınırı — ${sec} sn sonra tekrar denenecek (kuyrukta ${queue.length + 1})`);
           queue.unshift(item);
           await sleep(sec * 1000);
+          continue;
+        }
+        if (item.thread && err.code === 400 && /thread|topic/i.test(err.message)) {
+          // Konu silinmiş/kapatılmış → mesajı kaybetme, genel akışa gönder
+          console.warn(`[TELEGRAM] Konu ${item.thread} bulunamadı (${err.message}) — mesaj genel akışa gönderiliyor. /konu ile yeniden bağla.`);
+          item.thread = null;
+          queue.unshift(item);
           continue;
         }
         if (item.photo && err.code >= 400 && err.code < 500) {
@@ -197,16 +205,16 @@ async function pump() {
 }
 
 /** Düz metin mesajı kuyruğa al (HTML) — ör. backtest özet raporu */
-function sendText(text, keyboard = null) {
-  enqueue('reply', CHAT_ID, text, keyboard ? { keyboard } : {});
+function sendText(text, keyboard = null, thread = null) {
+  enqueue('reply', CHAT_ID, text, { ...(keyboard ? { keyboard } : {}), ...(thread ? { thread } : {}) });
 }
 
 /**
  * Bilgi kartı: kendi mesajı olarak gider (birleştirilmez), butonlu, istenirse sessiz.
  * 2 dakikadan uzun kuyrukta kalırsa başına "gecikmeli" satırı eklenir.
  */
-function sendCard({ text, keyboard, silent = false, photo = null }) {
-  enqueue('card', CHAT_ID, text, { keyboard, silent, photo });
+function sendCard({ text, keyboard, silent = false, photo = null, thread = null }) {
+  enqueue('card', CHAT_ID, text, { keyboard, silent, photo, thread });
 }
 
 function queueLength() { return queue.length; }
@@ -279,9 +287,18 @@ let botUsername = null;
 let polling     = false;
 let startedAt   = 0;
 let ignoredChats = 0;
+const loggedChats = new Set();
+/** Yetkisiz sohbetten gelen komutu bir kez logla — yeni grubun ID'sini bulmak için (fly logs) */
+function noteForeign(chat) {
+  ignoredChats++;
+  const id = String(chat?.id ?? '');
+  if (!id || loggedChats.has(id)) return;
+  loggedChats.add(id);
+  console.log(`[TELEGRAM] Tanımsız sohbetten mesaj yok sayıldı: ${chat.title ? `"${chat.title}" ` : ''}ID ${id}${chat.is_forum ? ' (konulu grup)' : ''} — bu sohbeti kullanmak için: fly secrets set TELEGRAM_CHAT_ID=${id}`);
+}
 
 async function handleCallback(cq) {
-  if (String(cq.message?.chat?.id) !== String(CHAT_ID)) { ignoredChats++; return; }
+  if (String(cq.message?.chat?.id) !== String(CHAT_ID)) { noteForeign(cq.message?.chat); return; }
   let res = null;
   try { res = callbackHandler ? await callbackHandler(cq) : null; }
   catch (err) { console.error('[TELEGRAM] buton işlenemedi:', err.message); res = { text: 'Hata oluştu.' }; }
@@ -296,7 +313,7 @@ async function handleUpdate(u) {
   if (!msg?.text || !msg.text.startsWith('/')) return;
 
   // Yetki: yalnızca yapılandırılmış sohbet
-  if (String(msg.chat?.id) !== String(CHAT_ID)) { ignoredChats++; return; }
+  if (String(msg.chat?.id) !== String(CHAT_ID)) { noteForeign(msg.chat); return; }
 
   // Bot başlamadan önce yazılmış eski komutları yanıtlama
   if (msg.date * 1000 < startedAt - 60_000) return;
@@ -313,8 +330,9 @@ async function handleUpdate(u) {
   try { reply = await handler((rest || '').trim(), msg); }
   catch (err) { console.error(`[TELEGRAM] /${cmd} hatası:`, err.message); reply = 'Komut çalıştırılırken hata oluştu.'; }
   if (reply == null) return;
-  if (typeof reply === 'object') enqueue('reply', msg.chat.id, reply.text, { ...(reply.keyboard ? { keyboard: reply.keyboard } : {}), ...(reply.photo ? { photo: reply.photo } : {}) });
-  else enqueue('reply', msg.chat.id, reply);
+  const thread = msg.is_topic_message ? msg.message_thread_id : null;   // yanıt, komutun yazıldığı konuya
+  if (typeof reply === 'object') enqueue('reply', msg.chat.id, reply.text, { ...(reply.keyboard ? { keyboard: reply.keyboard } : {}), ...(reply.photo ? { photo: reply.photo } : {}), ...(thread ? { thread } : {}) });
+  else enqueue('reply', msg.chat.id, reply, thread ? { thread } : {});
 }
 
 async function pollLoop() {

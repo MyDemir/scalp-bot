@@ -77,6 +77,7 @@ function createSettings({ file = defaultFile(), defaults = cfg.info, persist = t
   let values  = { ...defaults };
   let mutes   = {};
   let follows = new Set();
+  let topics  = {};   // konu adı → message_thread_id (konulu grup)
   const listeners = [];
 
   function load() {
@@ -86,6 +87,7 @@ function createSettings({ file = defaultFile(), defaults = cfg.info, persist = t
       for (const [k, v] of Object.entries(j.values || {})) if (k in DEF_BY_KEY) values[k] = v;
       mutes = j.mutes || {};
       follows = new Set(j.follows || []);
+      topics = j.topics || {};
     } catch (e) {
       if (e.code !== 'ENOENT') console.warn(`[AYAR] ${file} okunamadı (${e.message}) — varsayılanlar kullanılıyor`);
     }
@@ -96,7 +98,7 @@ function createSettings({ file = defaultFile(), defaults = cfg.info, persist = t
     try {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       const changed = Object.fromEntries(Object.entries(values).filter(([k, v]) => defaults[k] !== v));
-      fs.writeFileSync(file, JSON.stringify({ values: changed, mutes, follows: [...follows] }, null, 2));
+      fs.writeFileSync(file, JSON.stringify({ values: changed, mutes, follows: [...follows], topics }, null, 2));
     } catch (e) {
       console.error(`[AYAR] ${file} yazılamadı: ${e.message}`);
     }
@@ -159,6 +161,11 @@ function createSettings({ file = defaultFile(), defaults = cfg.info, persist = t
     mute(sym, ms, now = Date.now()) { mutes[sym] = now + ms; save(); },
     unmute(sym) { delete mutes[sym]; save(); },
     mutedList(now = Date.now()) { return Object.entries(mutes).filter(([, u]) => u > now); },
+
+    topic: name => topics[name] ?? null,
+    topics: () => ({ ...topics }),
+    setTopic(name, id) { topics[name] = id; save(); },
+    clearTopic(name) { delete topics[name]; save(); },
 
     isFollowed: sym => follows.has(sym),
     toggleFollow(sym) { if (follows.has(sym)) follows.delete(sym); else follows.add(sym); save(); return follows.has(sym); },

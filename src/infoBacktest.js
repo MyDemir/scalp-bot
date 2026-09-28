@@ -289,13 +289,15 @@ async function main() {
 
   if (a.telegram) {
     const telegram = require('./telegram');       // komut dinleme başlatılmaz → canlı botla çakışmaz
-    telegram.sendText(telegramSummary(p, all, perSym, s, allMoves));
+    const live = createSettings(); live.load();    // canlı ayar dosyası yalnız okunur (backtest konusu)
+    const thread = live.topic('backtest');
+    telegram.sendText(telegramSummary(p, all, perSym, s, allMoves), null, thread);
     for (const c of all.filter(x => x.burst).slice(-1).concat(all.filter(x => !x.burst).slice(-1))) {
       const kb = [[
         { text: '📈 TradingView', url: `https://www.tradingview.com/chart/?symbol=BINANCE:${encodeURIComponent(c.symbol)}.P` },
         { text: '🟡 Binance', url: `https://www.binance.com/tr/futures/${encodeURIComponent(c.symbol)}` },
       ]];
-      telegram.sendText(`🧪 <b>BACKTEST ÖRNEĞİ</b> (geçmiş veri)\n${c.text}`, kb);
+      telegram.sendText(`🧪 <b>BACKTEST ÖRNEĞİ</b> (geçmiş veri)\n${c.text}`, kb, thread);
     }
     const ok = await telegram.flush(90_000);
     const st = telegram.takeStats();

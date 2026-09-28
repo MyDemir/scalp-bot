@@ -89,6 +89,16 @@ Yeniden başlatmada yarım kalan takipler "eksik" işaretlenir.
 - `/istatistik [gün]` — kart sınıfları (RSI 2/3–3/3, DİPTE, hacim, seri içi, negatif tepe …) ve ⚡ uyarılar için
   "sonraki 60 dk" medyanları — backtest'teki tablonun canlı hali
 
+### Konulu (forum) gruba bağlama
+Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı konularına** gönderilebilir.
+1. Grup ayarları → **Konular**'ı aç (grup süpergrup olmalı; ID çoğunlukla değişmez). Yeni bir grup kullanacaksan
+   botu ekle, gruba bir komut yaz ve `fly logs`'ta `Tanımsız sohbetten mesaj yok sayıldı: … ID -100…` satırındaki
+   ID'yi `fly secrets set TELEGRAM_CHAT_ID=-100…` ile tanımla.
+2. İstediğin konunun **içinde** (yönetici olarak) yaz: `/konu kart` · `/konu hareket` · `/konu sistem` ·
+   `/konu kart3` (🔴🔴🔴'ler ayrı konuya) · `/konu backtest`. Bağlantı `/data`'da saklanır.
+3. `/konu` listeyi gösterir, `/konu sil kart` kaldırır. Bağlanmamış tür genel akışa gider; konu silinirse mesajlar
+   kaybolmaz, genel akışa düşer. Komut yanıtları, komutun yazıldığı konuya gelir.
+
 ### Telegram komutları
 | Komut | Kim | |
 |---|---|---|
@@ -98,6 +108,7 @@ Yeniden başlatmada yarım kalan takipler "eksik" işaretlenir.
 | `/sustur ETH [dk]` · `/ac ETH` · `/sessiz` | yönetici / herkes | susturma |
 | `/takip [ETH]` | liste herkes, ekle-çıkar yönetici | takipteki coinlerin kartları her zaman sesli |
 | `/gecmis ETH [adet]` · `/istatistik [gün]` | herkes | kart geçmişi ve sınıf istatistiği |
+| `/konu [ad]` · `/konu sil ad` | liste herkes, bağlama yönetici | konulu grupta yönlendirme |
 | `/durum` · `/benkimim` · `/yardim` | herkes | |
 
 Yönetici: `TELEGRAM_ADMIN_IDS` (virgüllü kullanıcı ID'leri; `/benkimim` ile öğrenilir) tanımlıysa o liste,

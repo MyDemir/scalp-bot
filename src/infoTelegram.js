@@ -15,6 +15,15 @@ const { rowToStat } = require('./cardStore');
 
 const HOUR = 3_600_000;
 
+// Konulu (forum) grupta yönlendirme: konu adı → açıklama
+const TOPICS = {
+  kart:     'RSI kartları (tümü)',
+  kart3:    '🔴🔴🔴 kartlar (ayrıca bu konuya; boşsa "kart" konusuna)',
+  hareket:  '⚡ 1 dk hareket uyarıları',
+  sistem:   'bot mesajları ("hazır" vb.)',
+  backtest: 'backtest raporları (--telegram)',
+};
+
 function normSym(x) {
   const s = String(x || '').trim().toUpperCase().replace(/[^A-Z0-9一-鿿]/g, '');
   if (!s) return null;
@@ -102,6 +111,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, getSer
 /takip [ETH] — takip listesi / ekle-çıkar (takip edilenlerin kartları sesli gelir)
 /gecmis ETH [adet] — coinin son kartları ve sonrasında fiyat
 /istatistik [gün] — kart sınıfları ve sonrasında fiyat (varsayılan 7 gün)
+/konu [ad] — konulu grupta yönlendirme (konunun içinde yaz: /konu kart · /konu hareket · /konu sistem · /konu kart3 · /konu backtest)
 /durum — bot durumu
 /benkimim — Telegram kullanıcı ID'n
 
@@ -215,6 +225,29 @@ ${cls.join('\n') || '—'}
 
 <b>⚡ 1 dk hareket uyarıları</b>
 ${mv.join('\n')}`.slice(0, 4000);
+    },
+
+    konu: async (args, msg) => {
+      const [a0, a1] = args.split(/\s+/).filter(Boolean).map(x => x.toLowerCase());
+      const list = () => {
+        const t = settings.topics();
+        return '🧵 <b>Konu yönlendirme</b>\n' + Object.entries(TOPICS).map(([k, d]) => `• <b>${k}</b> — ${d}: ${t[k] ? `konu #${t[k]}` : '<i>genel akış</i>'}`).join('\n') +
+          '\n\nBağlamak için ilgili konunun içinde yaz: <code>/konu kart</code> · kaldırmak: <code>/konu sil kart</code>';
+      };
+      if (!a0) return list();
+      if (!(await telegram.isAdmin(msg.from?.id))) return 'Bu komut için grup yöneticisi olmalısın.';
+      if (a0 === 'sil') {
+        if (!TOPICS[a1]) return `Bilinmeyen konu adı. Seçenekler: ${Object.keys(TOPICS).join(', ')}`;
+        settings.clearTopic(a1);
+        return `🧵 <b>${a1}</b> artık genel akışa gidiyor.`;
+      }
+      if (!TOPICS[a0]) return `Bilinmeyen konu adı. Seçenekler: ${Object.keys(TOPICS).join(', ')}`;
+      if (!msg.is_topic_message || !msg.message_thread_id) {
+        return 'Bu komutu bağlamak istediğin <b>konunun içinde</b> yaz (grup konulu olmalı: Grup ayarları → Konular).';
+      }
+      settings.setTopic(a0, msg.message_thread_id);
+      console.log(`[AYAR] konu ${a0} → #${msg.message_thread_id} (kullanıcı ${msg.from?.id})`);
+      return `🧵 <b>${a0}</b> (${TOPICS[a0]}) bu konuya bağlandı.`;
     },
 
     durum: () => status(),

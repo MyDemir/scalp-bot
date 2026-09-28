@@ -99,7 +99,8 @@ async function emitCard(card) {
   const sr = series.get(card.symbol);
   let photo = null;
   if (s.chart && sr) photo = chartOf(sr, s, card.snap.level, card.snap.levels || [], `Kart ${card.seq}`);
-  telegram.sendCard({ text, keyboard, silent: card.silent, photo });
+  const thread = (card.grade === 3 && settings.topic('kart3')) || settings.topic('kart');
+  telegram.sendCard({ text, keyboard, silent: card.silent, photo, thread });
   store?.add({ id: card.id, kind: 'card', symbol: card.symbol, t: card.t, seq: card.seq, price: card.price, data: { ...compact(card), bursts: undefined, fwd: undefined } });
   const lv = card.snap.level;
   console.log(`[KART] ${card.symbol} #${card.seq} derece ${card.grade} · RSI ${card.snap.hits}/3 · ${lv ? `${lv.name} ${lv.dist.toFixed(2)}% ${lv.zone}` : 'seviye yok'} · ${card.silent ? 'sessiz' : 'SESLİ'} · ${card.news.join(' | ')}`);
@@ -210,7 +211,7 @@ async function emitMoveNow(m) {
     const cs = await moveCandles(m.symbol, tf);
     if (cs) photo = chart.renderChart({ symbol: m.symbol, candles: cs, tf, level: m.snap?.level ?? null, levels: m.snap?.levels || [], overlays: tf === '5m' && sr && sr.count('5m') >= 60 ? chart.emaOverlays(sr, cs) : [], ichi: ichiOf(s), showIchi: s.chartIchi, fib: s.chartFib, fibDir: m.pct < 0 ? 'down' : 'up', subtitle: `1 dk ${m.pct > 0 ? '+' : '−'}%${Math.abs(m.pct).toFixed(2)}` });
   }
-  telegram.sendCard({ text, keyboard, silent: !(s.moveAlertSound || m.followed), photo });
+  telegram.sendCard({ text, keyboard, silent: !(s.moveAlertSound || m.followed), photo, thread: settings.topic('hareket') });
   store?.add({
     id: `${m.symbol}-${m.t}-move`, kind: 'move', symbol: m.symbol, t: m.t, price: m.to,
     data: { grade: m.grade, movePct: +m.pct.toFixed(3), volX: m.volX != null ? +m.volX.toFixed(2) : null, taker: m.taker != null ? Math.round(m.taker) : null, vol24: m.vol24, hits: m.snap?.hits ?? null },
@@ -453,7 +454,7 @@ async function main() {
   telegram.sendText(`🟢 <b>Bilgi botu hazır</b> — ${readyCount()}/${series.size} coin izleniyor (24s hacim ≥ ${s2.minVolumeM}M $)` +
     ` · kart şartı RSI ≥ ${s2.rsiMin} (${s2.minTFs}/3)` +
     (s2.moveAlertPct > 0 ? ` · hareket uyarısı 1 dk ≥ %${s2.moveAlertPct} (${s2.moveAlertAll ? `${vols24.size} parite` : 'evren'})` : '') +
-    `. Komutlar: /yardim · Ayarlar: /ayarlar`);
+    `. Komutlar: /yardim · Ayarlar: /ayarlar`, null, settings.topic('sistem'));
   console.log('\n✅ Bilgi botu çalışıyor.\n');
 }
 
