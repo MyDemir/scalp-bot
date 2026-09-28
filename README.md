@@ -22,12 +22,12 @@ Kontrol anı: **3m / 5m / 15m mum kapanışları** + **hacimli her 1m mum kapan�
 | Şart | Varsayılan |
 |---|---|
 | 3m/5m/15m RSI | en az **2/3** dilimde **≥ 85** (kapanmamış dilimde devam eden mumla hesaplanır; RSI periyodu 14) |
-| Seviye (zorunlu) | fiyatın üstünde en fazla **%2.5** uzakta bir seviye: 4h MA200 · 4h EMA200 · 1d MA200 · 1d EMA200 · 30 günlük tepe (son 30 **kapanmış** günün en yüksek 3 tepesinin ortalaması) |
+| Seviye (zorunlu) | fiyatın üstünde en fazla **%2.5** uzakta bir seviye: 4h MA200 · 4h EMA200 · 1d MA200 · 1d EMA200 · 30 günlük tepe (son 30 **kapanmış** günün en yüksek 3 tepesinin ortalaması) · **7 / 30 günlük en yüksek** (gerçek tepe) · **1h / 4h tepe** (salınım tepesi: iki yanındaki 3 mumdan yüksek) · **Fib 0.236 / 0.382 / 0.618** (son 1h yükseliş bacağı — grafikteki bacak). Birbirine %0.3'ten yakın seviyeler tek sayılır. Yakında direnç yoksa bkz. **Fiyat keşfi** |
 | Yeni veri | önceki karttan bu yana: RSI dilim sayısı değişti · bir dilim 95'i geçti · hacimli mum · seviye/bölge değişti (DİPTE'ye girdi, seviye kırıldı) · MACD ya da Stoch RSI kesişimi · 1m/3m negatif tepe arttı. **Yeni veri yoksa kart gitmez.** |
 
 **Kurulum kontrol listesi ve derece** (kartta ✅/▫️, başlıkta daireler). 8 madde, yalnızca bilgi (kartı engellemez):
 
-1. Günlük direnç yakın (1d MA200 / 1d EMA200 / 30 günlük tepe, üstte ≤ %2.5)
+1. Günlük direnç yakın (1d MA200 / 1d EMA200 / 30 günlük tepe / 7–30 günlük en yüksek, üstte ≤ %2.5)
 2. Çakışan direnç (başka bir seviye %0.5 içinde — "genelde majör dirençlerle kesişiyor")
 3. 3m ya da 5m RSI 95–98 aralığında (98 üstü "aşırı" diye ayrı yazılır)
 4. 15m RSI ≥ 95
@@ -46,6 +46,17 @@ gelen hacimli 1m mum **şart aranmadan** kart olur (`#SERI`, kartta "Seri içi �
 Böylece tepedeki sert satış mumu RSI'ı 90'ın altına indirse de bildirilir. `/ayarlar` → "Seri patlama" ile kapatılabilir.
 
 Seviye kırılırsa (fiyat seviyenin %0.3'ten fazla üstünde) o seviye sayılmaz, bir üstteki aranır.
+Çakışan direnç maddesinde Fib ve 1h tepe sayılmaz (yalnız MA/EMA200, günlük tepeler, 4h tepe).
+
+**🚀 Fiyat keşfi** (`/ayarlar` → 🎯 Direnç ve kırılım → Fiyat keşfi): RSI şartı sağlanıyor ama %2.5 içinde direnç yok
+ve fiyat son 24 saatte bir seviyeyi (Fib hariç) yukarı kırmış → kart engellenmez. Kartta kırılan seviye, en yakın üst seviye
+(varsa) ve son 1h bacağın **Fib uzantı** hedefleri (1.272 / 1.618; fiyat geçtiyse 2 / 2.618) yazılır · `#FIYATKESFI`.
+
+**⚠️ Sahte kırılım (SFP)** (`/ayarlar` → Sahte kırılım, SFP süresi): her 5m kapanışında, fiyatın kırdığı seviyeler izlenir.
+Kırılım = 5m mum seviyenin %0.3'ten fazla üstünde kapanır **ve** o an 5m ya da 15m RSI ≥ kart eşiği (aşırı alımda kırılım).
+Kırılımdan sonraki **6 mum (30 dk)** içinde bir 5m mum seviyenin **altında kapanırsa** — ya da mumun fitili üstüne çıkıp gövdesi
+altında kalırsa — şart aranmadan kart gelir: `⚠️ Sahte kırılım: 30 günlük tepe 0.7646 · 20 dk önce üstüne çıktı, şimdi altında kapandı`
+· `#SAHTEKIRILIM`. Derece kontrol listesinden. Aynı coinde bir SFP kartından sonra 30 dk yeni SFP kartı gelmez.
 Aynı coinde kartlar **#1, #2 …** diye numaralanır; kapanmış 5m RSI 75'in altına inince numara sıfırlanır.
 
 ### Kartın içeriği
@@ -61,7 +72,7 @@ Görünen tek satır: **`🔴🔴🔴 #COINUSDT — RSI`** (⚡ hacim uyarısın
   taker alış > %55 → ▲ alım, < %45 → ▼ satış, arası ◆ nötr. Art arda gelen patlama mumları tek patlama sayılır.
 - Taker net akış (USDT) · MACD 5m/15m, Stoch RSI 5m, günlük VWAP ±σ,
   yakındaki tüm seviyeler, funding + sonraki funding zamanı, OI 1h değişimi, BTC 1h değişimi
-- Hashtag'ler (dokununca o sınıftaki tüm kartlar listelenir): `#COIN #DERECE1/2/3 #DIPTE/#YAKLASIYOR #HACIM #SERI #NEGTEPE #AYRISMA #TAKIP`
+- Hashtag'ler (dokununca o sınıftaki tüm kartlar listelenir): `#COIN #DERECE1/2/3 #DIPTE/#YAKLASIYOR #HACIM #SERI #SAHTEKIRILIM #FIYATKESFI #NEGTEPE #AYRISMA #TAKIP`
 - Butonlar: 📈 TradingView · 🟡 Binance · ℹ️ Özet (açılır pencere: bu serideki kart sayısı, ilk karttan beri fiyat) · 🔕 1s sustur · ⭐ Takip
 - **Bildirim:** her yeni kart sesli gelir (`/ayarlar` → "Kart sesli" kapatılırsa yalnız 🔴🔴🔴 ve takipteki coinler sesli).
 
@@ -157,7 +168,7 @@ src/
 ├── infoStats.js      # Kart sınıfları + "sonrası" medyanları (backtest ve /istatistik ortak)
 ├── cardStore.js      # Kart geçmişi (SQLite /data/cards.db) + 15/60/240 dk takip
 ├── infoBacktest.js   # Bilgi botu backtest'i
-├── levels.js         # 4h/1d MA200 · EMA200 · 30 günlük tepe
+├── levels.js         # 4h/1d MA200 · EMA200 · 30 günlük tepe · 7/30g en yüksek · 1h/4h tepe · Fib düzeltme/uzantı
 ├── ta.js             # RSI/EMA/ATR/MACD/Stoch RSI/VWAP
 ├── chart.js          # Grafik PNG: 5m mumlar + Ichimoku (Kıvanç düzeni) + hacim + seviye
 ├── assets/fonts/     # Grafik yazı tipi (DejaVu, lisansı yanında)

@@ -102,7 +102,12 @@ function formatCard(card, s, opt = {}) {
   const lv = snap.level;
   B.push(lv
     ? `<b>Direnç:</b> ${esc(lv.name)} ${px(lv.value)} · ${lv.dist <= 0 ? `${pa(lv.dist)} kala` : `${pa(lv.dist)} üstünde`}${lv.zone === 'dip' ? ' ⭐' : ''}`
-    : `<b>Direnç:</b> %${s.levelMaxPct} içinde yok`);
+    : `<b>Direnç:</b> %${s.levelMaxPct} içinde yok${snap.discovery ? ' · 🚀 fiyat keşfi' : ''}`);
+  const dc = snap.discovery;
+  if (dc) {
+    B.push(`<b>Kırılan seviye:</b> ${esc(dc.broken.name)} ${px(dc.broken.value)} (${pa((card.price - dc.broken.value) / dc.broken.value * 100)} aşağıda)`);
+    if (dc.ext.length) B.push(`🎯 <b>Fib uzantı:</b> ${dc.ext.map(x => `${x.r} → ${px(x.value)} (+${pa((x.value - card.price) / card.price * 100, 1)})`).join(' · ')}`);
+  }
 
   B.push('');
   for (const tf of ['3m', '5m', '15m']) B.push(`<b>RSI ${tf}:</b> ${r1(snap.rsi[tf].v)}${mark(snap.rsi[tf].v, s)}`);

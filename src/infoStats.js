@@ -21,6 +21,9 @@ function compact(c) {
     level: sn.level ? { name: sn.level.name, value: sn.level.value, dist: +sn.level.dist.toFixed(3), zone: sn.level.zone } : null,
     burst: c.trig.burst ? { grade: c.trig.burst.grade ?? null, dir: c.trig.burst.dir, body: +c.trig.burst.body.toFixed(2), volX: +c.trig.burst.volX.toFixed(1), taker: Math.round(c.trig.burst.taker) } : null,
     trigTFs: c.trig.tfs,
+    sfp: c.trig.sfp ? { type: c.trig.sfp.type, level: c.trig.sfp.name } : null,
+    discovery: sn.discovery ? { broken: sn.discovery.broken.name } : null,
+    levelKind: sn.level?.kind ?? null,
     sepOk: sn.sepOk, conf: sn.conf.score, checkScore: sn.check?.score ?? null,
     checkOk: sn.check ? sn.check.items.filter(x => x.ok).map(x => x.key) : [],
     neg1m: sn.neg?.['1m']?.count ?? 0, neg3m: sn.neg?.['3m']?.count ?? 0, rsi1h: sn.conf.h1 != null ? +sn.conf.h1.toFixed(1) : null, rsi4h: sn.conf.h4 != null ? +sn.conf.h4.toFixed(1) : null,
@@ -54,6 +57,11 @@ const CLASSES = [
   ['Destek 2/2',           c => c.conf === 2],
   ['Negatif tepe ≥2',      c => Math.max(c.neg1m || 0, c.neg3m || 0) >= 2],
   ['3/3 + DİPTE',          c => c.hits === 3 && c.level?.zone === 'dip'],
+  ['Sahte kırılım (SFP)',  c => c.sfp != null],
+  ['  ↳ fitil',            c => c.sfp?.type === 'wick'],
+  ['Fiyat keşfi',          c => c.discovery != null],
+  ['Seviye: 1h/4h tepe',   c => c.levelKind === 'swing'],
+  ['Seviye: Fib',          c => c.levelKind === 'fib'],
 ];
 
 function classTable(cards) {

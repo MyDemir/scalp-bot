@@ -20,7 +20,7 @@
  */
 
 const ta = require('./ta');
-const { calcLevelSet } = require('./levels');
+const { calcLevelSet, calcExtraLevels, fibExtensions } = require('./levels');
 
 const RSI_TFS = ['3m', '5m', '15m'];
 const DAY = 86_400_000;
@@ -126,7 +126,7 @@ function volGrade(move, volX, taker, s) {
   return agree >= s.dirGrade3Pct ? 3 : 2;
 }
 
-const DAILY_LEVELS = ['1d MA200', '1d EMA200', '30 günlük tepe'];
+const DAILY_LEVELS = ['1d MA200', '1d EMA200', '30 günlük tepe', '30 günlük en yüksek', '7 günlük en yüksek'];
 
 /**
  * Kurulum kontrol listesi (8 madde, yalnızca bilgi — kart göndermeyi engellemez):
@@ -157,7 +157,7 @@ function checklist(snap, s) {
   let conf = null;
   if (ref) {
     for (const L of levels) {
-      if (L.name === ref.name) continue;
+      if (L.name === ref.name || L.kind === 'fib' || L.name === '1h tepe') continue;   // Fib / 1h tepe çakışma sayılmaz
       const gapPct = Math.abs(L.value - ref.value) / ref.value * 100;
       if (gapPct <= s.confluencePct && (!conf || gapPct < conf.gapPct)) conf = { ...L, gapPct };
     }
@@ -293,17 +293,81 @@ function vwapState(series, price) {
 }
 
 /**
- * Seviyeler — yalnızca KAPANMIŞ 4h ve 1d mumlardan (devam eden günün tepesi "direnç" sayılmaz;
- * sayılsaydı yükselen fiyat hep kendi tepesinin "dibinde" görünürdü). 4h/1d kapanınca yeniden hesaplanır.
+ * Seviyeler — yalnızca KAPANMIŞ 1h / 4h / 1d mumlardan (devam eden mumun tepesi "direnç" sayılmaz;
+ * sayılsaydı yükselen fiyat hep kendi tepesinin "dibinde" görünürdü). Mumlar kapanınca yeniden hesaplanır.
+ *   majör (MA200/EMA200, 30 günlük tepe) + 7/30 günlük en yüksek + (levelsSwing) 1h/4h tepe + (levelsFib) Fib
  */
-function levelsOf(series) {
-  const key = `${series.lastT('4h')}:${series.lastT('1d')}`;
+function levelsOf(series, s = {}) {
+  const swing = s.levelsSwing !== false, fib = s.levelsFib !== false, bars = s.swingBars || 3;
+  const key = `${series.lastT('1h')}:${series.lastT('4h')}:${series.lastT('1d')}:${swing}:${fib}:${bars}`;
   if (series._lv && series._lv.key === key) return series._lv.levels;
   const d = series.d['1d'];
   const days = d.t.map((_, i) => ({ high: d.h[i], close: d.c[i] }));
-  const levels = calcLevelSet(series.d['4h'].c, days);
-  series._lv = { key, levels };
+  const major = calcLevelSet(series.d['4h'].c, days);
+  const { levels: extra, leg } = calcExtraLevels({ h1: series.d['1h'], h4: series.d['4h'], d1: series.d['1d'] }, { swing, fib, bars }, major);
+  const levels = [...major, ...extra];
+  series._lv = { key, levels, leg };
   return levels;
+}
+
+/** Seviye kimliği (aynı adda birden fazla seviye olabilir: "1h tepe") */
+const lvKey = L => (L ? `${L.name}@${L.value}` : null);
+
+/**
+ * Fiyat keşfi: %levelMaxPct içinde direnç yok ama fiyat son 24 saatte bir seviyeyi (Fib hariç) yukarı kırmış.
+ * @returns {{broken:object, above:object|null, ext:{r:number,value:number}[]}|null}
+ */
+function discoveryOf(series, price, all) {
+  const h1l = series.d['1h'].l, m1l = series.d['1m'].l;
+  let low = Infinity;
+  for (let i = Math.max(0, h1l.length - 24); i < h1l.length; i++) if (h1l[i] < low) low = h1l[i];
+  for (let i = Math.max(0, m1l.length - 60); i < m1l.length; i++) if (m1l[i] < low) low = m1l[i];
+  let broken = null, above = null;
+  for (const L of all) {
+    if (L.kind === 'fib') continue;
+    if (L.value < price && L.value > low && (!broken || L.value > broken.value)) broken = L;
+    if (L.value > price && (!above || L.value < above.value)) above = L;
+  }
+  if (!broken) return null;
+  return { broken, above, ext: fibExtensions(series._lv?.leg, price, 2) };
+}
+
+/**
+ * Sahte kırılım (SFP) — her kapanmış 5m mumda çağrılır. `watch` coin başına kalıcı takip listesidir.
+ *   Kırılım : 5m mum seviyenin %dipAbovePct'ten fazla üstünde kapanır (önceki mum altındaydı) ve o an
+ *             5m ya da 15m RSI ≥ rsiMin (aşırı alımda kırılım) → sfpBars mum boyunca izlenir.
+ *   Sahte   : izlenirken bir 5m mum seviyenin ALTINDA kapanırsa ('close'),
+ *             ya da aynı mumun fitili üstüne çıkıp gövdesi altında kalırsa ('wick').
+ * Aynı mumda birden fazla olay varsa en önemlisi (majör/en yüksek → salınım → Fib) döner.
+ */
+const KIND_RANK = { major: 0, high: 0, swing: 1, fib: 2 };
+function detectSfp(series, s, watch) {
+  const d = series.d['5m'];
+  const n = d.c.length;
+  if (n < 30) return null;
+  const o = d.o[n - 1], h = d.h[n - 1], c = d.c[n - 1], cPrev = d.c[n - 2], t = d.t[n - 1];
+  const better = (a, b) => !b || (KIND_RANK[a.kind] ?? 3) < (KIND_RANK[b.kind] ?? 3);
+  let ev = null;
+  for (const [k, w] of watch) {
+    if (c < w.value) {
+      const e = { ...w, type: 'close', ago: Math.round((t - w.t) / MIN) };
+      if (better(e, ev)) ev = e;
+      watch.delete(k);
+    } else if (--w.left <= 0) watch.delete(k);
+  }
+  const r5 = ta.rsiLast(d.c, s.rsiPeriod), r15 = rsiOf(series, '15m', s.rsiPeriod).v;
+  if (!(Math.max(r5 ?? 0, r15 ?? 0) >= s.rsiMin)) return ev;
+  const up = s.dipAbovePct / 100;
+  for (const L of levelsOf(series, s)) {
+    const thr = L.value * (1 + up), key = lvKey(L);
+    if (watch.has(key)) continue;
+    if (c > thr && cPrev <= thr) watch.set(key, { name: L.name, value: L.value, kind: L.kind, t, left: s.sfpBars });
+    else if (h > thr && c < L.value && o < L.value) {
+      const e = { name: L.name, value: L.value, kind: L.kind, type: 'wick', ago: 0 };
+      if (better(e, ev)) ev = e;
+    }
+  }
+  return ev;
 }
 
 function pickLevel(price, levels, s) {
@@ -341,10 +405,12 @@ function evaluate(series, s, ctx = {}, force = false) {
   const snap = { symbol: series.symbol, t, price, rsi, hits, hits2, strong, rsiOk: hits >= s.minTFs, ok: false, grade: 0 };
   if (!snap.rsiOk && !force) return snap;
 
-  const { level, all } = pickLevel(price, levelsOf(series), s);
+  const { level, all } = pickLevel(price, levelsOf(series, s), s);
   snap.level = level;
   snap.levels = all;
   snap.levelOk = !!level;
+  // Fiyat keşfi: yakında direnç yok ama fiyat bir seviyeyi yeni kırmış → kart engellenmez, bilgi olarak gelir
+  snap.discovery = !level && s.discoveryCards !== false ? discoveryOf(series, price, all) : null;
 
   snap.sep = { '3m': separation(series, '3m', price), '5m': separation(series, '5m', price) };
   snap.neg = { '1m': negPeaks(series, '1m', 40, s.rsiPeriod), '3m': negPeaks(series, '3m', 40, s.rsiPeriod) };
@@ -370,7 +436,7 @@ function evaluate(series, s, ctx = {}, force = false) {
   snap.chgMin = s.shortWindowMin;
 
   const fails = [];
-  if (s.levelRequired && !snap.levelOk) fails.push('seviye');
+  if (s.levelRequired && !snap.levelOk && !snap.discovery) fails.push('seviye');
   if (s.sepRequired && !snap.sepOk) fails.push('ayrışma');
   if (s.confRequired && snap.conf.score < 1) fails.push('destek');
   if (s.macdRequired && !(snap.macd['5m'] && snap.macd['5m'].weakening)) fails.push('macd');
@@ -388,6 +454,21 @@ function evaluate(series, s, ctx = {}, force = false) {
 const pa = (v, d = 2) => `%${Math.abs(v).toFixed(d)}`;
 const ps = (v, d = 2) => `${v > 0 ? '+' : v < 0 ? '−' : ''}%${Math.abs(v).toFixed(d)}`;
 const distTxt = dist => (dist <= 0 ? `${pa(dist)} kala` : `${pa(dist)} üstünde`);
+const fpx = v => String(+(+v).toPrecision(6));
+
+/** Sahte kırılım yeniliği */
+function sfpText(e) {
+  return e.type === 'wick'
+    ? `⚠️ Sahte kırılım (fitil): ${e.name} ${fpx(e.value)} · mum üstüne çıktı ama altında kapandı`
+    : `⚠️ Sahte kırılım: ${e.name} ${fpx(e.value)} · ${e.ago} dk önce üstüne çıktı, şimdi altında kapandı`;
+}
+
+/** Fiyat keşfi yeniliği */
+function discoveryText(dc, price, s) {
+  const b = dc.broken, a = dc.above;
+  return `🚀 Fiyat keşfi: ${b.name} ${fpx(b.value)} kırıldı (${pa((price - b.value) / b.value * 100)} aşağıda) · %${s.levelMaxPct} içinde direnç yok`
+    + (a ? ` · en yakın: ${a.name} ${pa((a.value - price) / price * 100)} yukarıda` : ' · üstünde hiç seviye yok');
+}
 
 /** Hacimli mum yeniliği. Yön ve renk FİYATTAN (🟢 yükselen · 🔴 düşen mum); alış/satış oranı ayrıca yazılır,
  *  fiyatın tersine ağırsa belirtilir (ör. yükselen mumda satış %78). */
@@ -425,7 +506,8 @@ function createTracker() {
       const out = [];
       const above = RSI_TFS.filter(tf => snap.rsi[tf].v >= s.rsiMin);
       if (!L) {
-        out.push(`İlk kart: RSI ${above.join(', ') || '—'} dilimlerinde ${s.rsiMin} üstü${snap.level ? ` · ${snap.level.name} seviyesine ${distTxt(snap.level.dist)}` : ''}`);
+        if (snap.rsiOk !== false) out.push(`İlk kart: RSI ${above.join(', ') || '—'} dilimlerinde ${s.rsiMin} üstü${snap.level ? ` · ${snap.level.name} seviyesine ${distTxt(snap.level.dist)}` : ''}`);
+        if (snap.discovery) out.push(discoveryText(snap.discovery, snap.price, s));
         if (trig.burst) out.push(burstText(trig.burst));
         return out;
       }
@@ -449,9 +531,12 @@ function createTracker() {
       } else if (sc != null && psc != null && sc !== psc) {
         out.push(`Kontrol listesi ${psc}/${snap.check.total} → ${sc}/${snap.check.total}`);
       }
-      const key = snap.level ? snap.level.name : null;
+      const dKey = snap.discovery ? lvKey(snap.discovery.broken) : null;
+      const discNew = dKey && dKey !== L.discKey;
+      if (discNew) out.push(discoveryText(snap.discovery, snap.price, s));
+      const key = lvKey(snap.level);
       if (key !== L.levelKey) {
-        if (L.level && snap.price > L.level.value * (1 + s.dipAbovePct / 100)) {
+        if (discNew) { /* kırılım fiyat keşfi satırında yazıldı */ } else if (L.level && snap.price > L.level.value * (1 + s.dipAbovePct / 100)) {
           out.push(`⚠️ ${L.level.name} seviyesi kırıldı${snap.level ? ` · sıradaki: ${snap.level.name} (${distTxt(snap.level.dist)})` : ' · yakında başka direnç yok'}`);
         } else if (snap.level) {
           out.push(`Yeni direnç: ${snap.level.name} (${distTxt(snap.level.dist)})`);
@@ -487,7 +572,8 @@ function createTracker() {
         grade: snap.grade,
         score: snap.check?.score ?? null,
         strong: RSI_TFS.filter(tf => snap.rsi[tf].v >= s.strongRsi),
-        levelKey: snap.level ? snap.level.name : null,
+        levelKey: lvKey(snap.level),
+        discKey: snap.discovery ? lvKey(snap.discovery.broken) : null,
         level: snap.level,
         zone: snap.level ? snap.level.zone : null,
         macdKeys: { '5m': snap.macd['5m']?.crossKey ?? (m.last?.macdKeys['5m'] ?? null), '15m': snap.macd['15m']?.crossKey ?? (m.last?.macdKeys['15m'] ?? null) },
@@ -502,6 +588,9 @@ function createTracker() {
 
     /** Seri devam ediyor mu? (bu coinde kart gitmiş ve 5m RSI henüz resetRsi'nin altında kapanmamış) */
     active: sym => (mem.get(sym)?.seq ?? 0) > 0,
+
+    /** Sahte kırılım takip listesi (coin başına, seri sıfırlansa da korunur) */
+    sfpWatch(sym) { const m = get(sym); if (!m.sfp) m.sfp = new Map(); return m.sfp; },
 
     log: sym => mem.get(sym)?.log ?? [],
     forget: sym => mem.delete(sym),
@@ -521,21 +610,37 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
   const tfs = RSI_TFS.filter(tf => closedTfs.has(tf));
   const burst = detectBurst(series, s);
   if (burst) burst.grade = volGrade(burst.body, burst.volX, burst.taker, s);
+  // Sahte kırılım takibi her 5m kapanışında (kart şartından bağımsız)
+  let sfp = null;
+  if (s.sfpCards !== false && closedTfs.has('5m')) {
+    const w = tracker.sfpWatch(sym);
+    sfp = detectSfp(series, s, w);
+    // Bekleme: bir sahte kırılım kartından sonra sfpBars × 5 dk yeni SFP kartı yok (aynı bölgede art arda kart olmasın)
+    const now = series.lastT('1m') + MIN;
+    if (sfp && w.until && now < w.until) sfp = null;
+    else if (sfp) w.until = now + s.sfpBars * 5 * MIN;
+  }
   if (!tfs.length && !burst) return null;
 
   let snap = evaluate(series, s, ctx);
   let inSeries = false;
   if (!snap.ok) {
-    // Seri içi patlama: bu coinde seri sürerken gelen hacimli mum, şart aranmadan kart olur
+    // Şart dışı ama yine de kart: (a) sahte kırılım, (b) seri sürerken gelen hacimli mum
     // (ör. tepedeki sert satış mumu RSI'ı 90'ın altına indirse de bildirilir)
-    if (!(burst && s.seriesBursts && tracker.active(sym))) return null;
+    const seriesBurst = Boolean(burst && s.seriesBursts && tracker.active(sym));
+    if (!sfp && !seriesBurst) return null;
     snap = evaluate(series, s, ctx, true);
-    inSeries = true;
+    inSeries = seriesBurst;
+    if (sfp && !(snap.grade > 0)) {             // SFP kartında derece kontrol listesinden (RSI eşiği aranmaz)
+      const sc = snap.check ? snap.check.score : 0;
+      snap.grade = sc >= s.grade3Min ? 3 : sc >= s.grade2Min ? 2 : 1;
+    }
   }
   if (ctx.isMuted && ctx.isMuted(sym, snap.t)) return null;
 
-  const trig = { tfs, burst, inSeries };
+  const trig = { tfs, burst, inSeries, sfp };
   const news = tracker.news(sym, snap, trig, s);
+  if (sfp) news.unshift(sfpText(sfp));
   if (inSeries) {
     const why = snap.fails.map(f => (f === 'rsi' ? `RSI ${s.rsiMin} üstü ${snap.hits}/3` : f === 'seviye' ? 'yakında direnç yok' : f)).join(', ');
     news.push(`Seri sürüyor, şart artık sağlanmıyor (${why})`);
@@ -550,6 +655,8 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
     snap.level ? (dip ? '#DIPTE' : '#YAKLASIYOR') : null,
     burst ? '#HACIM' : null,
     inSeries ? '#SERI' : null,
+    sfp ? '#SAHTEKIRILIM' : null,
+    snap.discovery ? '#FIYATKESFI' : null,
     Math.max(snap.neg?.['1m']?.count ?? 0, snap.neg?.['3m']?.count ?? 0) >= 2 ? '#NEGTEPE' : null,
     snap.sepOk ? '#AYRISMA' : null,
     followed ? '#TAKIP' : null,
@@ -573,4 +680,4 @@ function movePct(prevClose, prevT, c) {
   return base > 0 ? (c.c - base) / base * 100 : null;
 }
 
-module.exports = { evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, negPeaks, movePct, volGrade, rsiGrade, checklist, circles, dirColor, RSI_TFS };
+module.exports = { evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, detectSfp, discoveryOf, negPeaks, movePct, volGrade, rsiGrade, checklist, circles, dirColor, RSI_TFS };

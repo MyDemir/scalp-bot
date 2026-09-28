@@ -1,5 +1,7 @@
 'use strict';
 
+const { impulseLeg } = require('./levels');
+
 /**
  * Kart grafiği (PNG) — 5m mumlar + Ichimoku BULUTU (KivancOzbilgic "ICHIMOKU Kinko Hyo by KIVANC" parametreleri;
  * sade görünüm için yalnızca Senkou A–B arası bulut çizilir: A ≥ B yeşil, A < B kırmızı)
@@ -135,7 +137,7 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
     const near = L0 => L0 && Number.isFinite(L0.value) && Math.abs(L0.value - last) / last < nearPct;
     const showLevel = near(level);
     if (showLevel) vals.push(level.value);
-    const otherLevels = levels.filter(L0 => near(L0) && (!level || L0.name !== level.name));
+    const otherLevels = levels.filter(L0 => near(L0) && L0.kind !== 'fib' && L0.kind !== 'swing' && (!level || L0.name !== level.name || L0.value !== level.value));
     for (const L0 of otherLevels) vals.push(L0.value);
     let lo = Math.min(...vals), hi = Math.max(...vals);
     const pad = (hi - lo) * 0.05 || last * 0.01;
@@ -197,17 +199,10 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
     // Bacak çok kısa kalırsa (pencerenin en ucunda) tüm pencerenin dip–tepesi kullanılır.
     let fibInfo = null;
     if (fib) {
-      const argmax = (a, b) => { let k = a; for (let i = a; i <= b; i++) if (h[i] > h[k]) k = i; return k; };
-      const argmin = (a, b) => { let k = a; for (let i = a; i <= b; i++) if (l[i] < l[k]) k = i; return k; };
-      let hiI, loI, up;
-      if (fibDir === 'down') { hiI = argmax(start, n - 1); loI = argmin(hiI, n - 1); up = false; }   // tepe → sonraki en düşük
-      else { loI = argmin(start, n - 1); hiI = argmax(loI, n - 1); up = true; }                       // dip → sonraki en yüksek
-      const fullHi = h[argmax(start, n - 1)], fullLo = l[argmin(start, n - 1)];
-      if ((h[hiI] - l[loI]) < (fullHi - fullLo) * 0.3) {       // bacak anlamsız kısa → tüm pencere
-        hiI = argmax(start, n - 1); loI = argmin(start, n - 1); up = loI < hiI;
-      }
-      const HI = h[hiI], Lw = l[loI];
-      if (HI > Lw) {
+      const leg = impulseLeg(h, l, N, fibDir);                 // levels.js — motor aynı bacaktan Fib seviyesi üretir
+      const hiI = leg ? leg.hiI : 0, loI = leg ? leg.loI : 0, up = leg ? leg.up : true;
+      const HI = leg ? h[hiI] : 0, Lw = leg ? l[loI] : 0;
+      if (leg && HI > Lw) {
         fibInfo = { up };
         const R = [[0, '#7d8796'], [0.236, '#8e9aaf'], [0.382, '#5dade2'], [0.5, '#f4d03f'], [0.618, '#f39c12'], [0.786, '#e67e22'], [1, '#7d8796']];
         g.font = '13px ChartSans'; g.textAlign = 'left';

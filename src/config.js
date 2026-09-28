@@ -22,6 +22,17 @@ module.exports = {
     dipBelowPct:   0.5,    // DİPTE sınıfı: seviyenin en fazla %0.5 altında …
     dipAbovePct:   0.3,    // … ya da en fazla %0.3 üstünde (fitil payı). Daha yukarısı = seviye kırıldı
     levelRequired: true,
+    // Ek direnç türleri (src/levels.js): 7/30 günlük gerçek en yüksek her zaman; aşağıdakiler aç-kapa
+    levelsSwing:   true,   // 1h / 4h salınım tepeleri (iki yanında swingBars mumdan yüksek tepe)
+    swingBars:     3,
+    levelsFib:     true,   // son 1h itki bacağının Fib 0.236 / 0.382 / 0.618 düzeltmesi (grafikteki bacak)
+    // Sahte kırılım (SFP): 5m mum, RSI ≥ rsiMin iken seviyenin %dipAbovePct üstünde kapanır; sfpBars mum içinde
+    // altında kapanırsa (ya da fitil üstüne çıkıp gövde altında kalırsa) şart aranmadan kart (#SAHTEKIRILIM)
+    sfpCards:      true,
+    sfpBars:       6,      // 6 × 5m = 30 dk
+    // Fiyat keşfi: RSI şartı var, %levelMaxPct içinde direnç yok ama son 24 saatte bir seviye kırıldı →
+    // kart engellenmez; kırılan seviye + Fib uzantı hedefleri (1.272 / 1.618) yazılır (#FIYATKESFI)
+    discoveryCards: true,
     burstPct1:     1.0,    // hacim patlaması: 1m mum gövdesi ≥ %1 …
     burstPct2:     1.5,    // … ikinci kademe ≥ %1.5
     volMult:       2.0,    // hacim ≥ önceki volAvgN mumun ortalaması × volMult
