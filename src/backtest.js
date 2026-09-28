@@ -43,7 +43,7 @@ const { calcDailyLevels, nearLevelInfo } = require('./levels');
 const { calcTradePlan }  = require('./tradePlan');
 const { createTrade, applyBar, toRecord, HOLD_MS } = require('./outcome');  // sonuç penceresi 4 saat
 const { withRetry }      = require('./binanceClient');
-const { mertVariants, calcLevelSet, locate, rsiCheck, separationOk, makePlan } = require('./mert');
+const { mertVariants, calcLevelSet, locate, rsiCheck, confidence, separationOk, makePlan } = require('./mert');
 
 // ── Sabitler ────────────────────────────────────────────────────────────────
 
@@ -67,6 +67,7 @@ const RSI_BUCKETS = [
 
 // RSI olay çalışması: aynı coinde bu süreden kısa aralıkla tekrar eden anlar tek olay sayılır
 const EVENT_GAP_MS = 30 * MIN;
+const HOUR_MS      = 60 * MIN;
 
 const PAGE_LIMIT   = 1000; // Binance futures klines: limit 500–1000 → weight 5
 // ≈ 860 weight/dk — 2400/dk limitinin çok altında (kendi IP'n korunur). Testlerde 0 yapılabilir.
@@ -268,7 +269,7 @@ async function backtestSymbol(symbol, { startTime, endTime, minScore, compare = 
     openUntil:   null,                                              // Mert: açık işlem bitene kadar yeni işlem yok
     signals: [],
     stats: t.kind === 'mert'
-      ? { trigger: t.key, candles, range, decisions: 0, openBlocked: 0, location: 0, htf: 0, rsiOk: 0, separation: 0, planInvalid: 0, signals: 0 }
+      ? { trigger: t.key, candles, range, decisions: 0, openBlocked: 0, location: 0, rsiOk: 0, separation: 0, planInvalid: 0, signals: 0 }
       : {
         trigger: t.key, candles, range,
         final: { fails: {}, only: {}, rsiDist: {}, rsiLowBy: {} },
@@ -277,10 +278,11 @@ async function backtestSymbol(symbol, { startTime, endTime, minScore, compare = 
       },
   }));
   const rsiEvents = [];   // RSI olay çalışması (yalnızca canlı kural) — aşağıda
+  const mertEvents = [];  // Mert olay çalışması (--compare) — aşağıda
   const result = () => ({
     signals: runs[0].signals, stats: runs[0].stats,
     variants: Object.fromEntries(runs.map(r => [r.trig.key, { signals: r.signals, stats: r.stats }])),
-    rsiEvents,
+    rsiEvents, mertEvents,
   });
 
   if (base.length < BUFFER) {
@@ -304,6 +306,7 @@ async function backtestSymbol(symbol, { startTime, endTime, minScore, compare = 
 
   // RSI olayı: aynı coinde EVENT_GAP içinde tekrar eden anlar tek olay (episode) sayılır
   let lastEventT = null, episodeNo = 0;
+  let lastMertT = null, mertEpisodeNo = 0;
   const RSI_GATES = ['rsi1h', 'rsi4h', 'rsiLow', 'rsiHigh'];
 
   // Mert seviyeleri — 4 saatlik blok başına bir kez, o ana kadar KAPANMIŞ 4h mumlar + günlük liste ile
@@ -390,6 +393,67 @@ async function backtestSymbol(symbol, { startTime, endTime, minScore, compare = 
       });
     };
 
+    // ── Mert olay çalışması: 3m/5m/15m'den en az eventMinTFs tanesi ≥ eventRsiMin olan HER an ──
+    //    Yer, güven (1h/4h), ayrışma FİLTRELENMEZ; kaydedilir → hangi değerin sonuç verdiği ölçülür.
+    const recordMertEvent = (i, T, price) => {
+      if (['3m', '5m', '15m'].some(tf => slice(tf).length < MIN_CANDLES)) return;
+      const rs = { '3m': rsiQ('3m'), '5m': rsiQ('5m'), '15m': rsiQ('15m') };
+      const hitTFs = M.rsiTFs.filter(tf => rs[tf] >= M.eventRsiMin);
+      if (hitTFs.length < M.eventMinTFs) return;
+
+      const first = lastMertT == null || T - lastMertT > EVENT_GAP_MS;
+      if (first) mertEpisodeNo++;
+      lastMertT = T;
+
+      // Seviyeler: her birine uzaklık (%; − = fiyat seviyenin altında), en yakın seviye, en yakın ÜST seviye
+      const levels = levelsAt(T, i);
+      const dists = Object.fromEntries(levels.map(l => [l.name, +((price - l.value) / l.value * 100).toFixed(3)]));
+      const nearest = levels.map(l => ({ ...l, d: (price - l.value) / l.value * 100 })).sort((a, b) => Math.abs(a.d) - Math.abs(b.d))[0] || null;
+      const above = levels.filter(l => l.value >= price).sort((a, b) => a.value - b.value)[0] || null;
+
+      const r1h = slice('1h').length >= MIN_CANDLES ? rsiQ('1h') : null;
+      const r4h = slice('4h').length >= MIN_CANDLES ? rsiQ('4h') : null;
+      const i3 = ind('3m'), i5 = ind('5m');
+      const back = base[i - HOUR_MS / baseMs];
+      const rise1h = back ? +((price - back.close) / back.close * 100).toFixed(3) : null;   // son 1 saatte yükseliş %
+
+      // İleri getiriler (SHORT: + = lehe) ve 4 saatlik MFE/MAE
+      const fut = base.slice(i + 1, i + 1 + holdBars);
+      const at = ms => base[i + ms / baseMs]?.close;
+      const ret = c => (c != null ? +((price - c) / price * 100).toFixed(3) : null);
+      let mfe = 0, mae = 0;
+      for (const c of fut) { mfe = Math.max(mfe, (price - c.low) / price * 100); mae = Math.max(mae, (c.high - price) / price * 100); }
+
+      // Mert planı (TP-A 3m EMA21, TP-B 5m EMA21) üç stopla: %1, %1.5, en yakın üst seviyenin %0.3 üstü
+      const tpA = i3.ema21, tpB = i5.ema21;
+      const planOk = Number.isFinite(tpA) && tpA < price;
+      const sim = slPx => {
+        if (!planOk || !(slPx > price)) return null;
+        const riskPct = (slPx - price) / price * 100;
+        const oc = simulateOutcome({ entryPrice: price, tpA, tpB: tpB < tpA ? tpB : null, slLevel: slPx, initialRiskPct: riskPct, sentAt: T }, fut, baseMs);
+        return { outcome: oc.outcome, netR: netR(oc.pnlPct, feePct, riskPct), pnlPct: oc.pnlPct, riskPct: +riskPct.toFixed(3) };
+      };
+      const lvlStop = above && (above.value - price) / price * 100 <= M.levelStopMaxPct ? above.value * (1 + M.levelStopPct / 100) : null;
+
+      const r2 = x => (x != null && Number.isFinite(x) ? +x.toFixed(2) : null);
+      mertEvents.push({
+        symbol, ts: T, date: new Date(T).toISOString(), period: T < splitT ? 'IS' : 'OOS',
+        episode: `${symbol}#${mertEpisodeNo}`, first, price,
+        rsi3m: r2(rs['3m']), rsi5m: r2(rs['5m']), rsi15m: r2(rs['15m']), hitTFs: hitTFs.length,
+        rsi1h: r2(r1h), rsi4h: r2(r4h), confidence: confidence(r1h, r4h),
+        separated: separationOk(i3, i5), dist3m: r2(i3.distance), dist5m: r2(i5.distance),
+        levelDists: dists,
+        nearestLevel: nearest ? nearest.name : null, nearestDistPct: nearest ? +nearest.d.toFixed(3) : null,
+        aboveLevel: above ? above.name : null, aboveDistPct: above ? +((above.value - price) / price * 100).toFixed(3) : null,
+        rise1h,
+        ret15m: ret(at(15 * MIN)), ret1h: ret(at(HOUR_MS)), ret4h: ret(at(HOLD_MS)),
+        mfe4h: +mfe.toFixed(3), mae4h: +mae.toFixed(3),
+        tpAPct: planOk ? +((price - tpA) / price * 100).toFixed(3) : null,
+        sl10: sim(price * 1.01), sl15: sim(price * 1.015), slLvl: lvlStop ? sim(lvlStop) : null,
+      });
+    };
+    if (compare && (T % TF_MS['3m'] === 0 || T % TF_MS['5m'] === 0)) recordMertEvent(i, T, cur.close);
+
     for (const run of active) {
       const { trig: t, stats } = run;
       stats.decisions++;
@@ -402,10 +466,6 @@ async function backtestSymbol(symbol, { startTime, endTime, minScore, compare = 
         if (!loc) continue;
         stats.location++;
         if (run.need.some(tf => slice(tf).length < MIN_CANDLES)) continue;
-        const r1h = ind('1h').rsi;
-        const r4h = slice('4h').length >= MIN_CANDLES ? ind('4h').rsi : null;
-        if (!(r1h >= M.rsi1hMin) || !(r4h >= M.rsi4hMin)) continue;
-        stats.htf++;
         const rs = { rsi3m: ind('3m').rsi, rsi5m: ind('5m').rsi, rsi15m: ind('15m').rsi };
         if (!rsiCheck(t, rs).pass) continue;
         stats.rsiOk++;
@@ -413,6 +473,10 @@ async function backtestSymbol(symbol, { startTime, endTime, minScore, compare = 
         stats.separation++;
         const plan = makePlan(price, ind('3m').ema21, ind('5m').ema21, t.slPct);
         if (!plan.valid) { stats.planInvalid++; continue; }
+        // Güven puanı (zorunlu değil): 1h / 4h RSI ≥ 70
+        const r1h = ind('1h').rsi;
+        const r4h = slice('4h').length >= MIN_CANDLES ? ind('4h').rsi : null;
+        const conf = confidence(r1h, r4h);
 
         const outcome = simulateOutcome({
           entryPrice: price, tpA: plan.tpA, tpB: plan.tpB, slLevel: plan.slLevel,
@@ -427,6 +491,7 @@ async function backtestSymbol(symbol, { startTime, endTime, minScore, compare = 
           entryPrice: price, tpA: plan.tpA, tpB: plan.tpB, slLevel: plan.slLevel, slPct: t.slPct,
           level: loc.name, levelValue: loc.value, levelDistPct: +loc.distPct.toFixed(3),
           rsi3m: r2(rs.rsi3m), rsi5m: r2(rs.rsi5m), rsi15m: r2(rs.rsi15m), rsi1h: r2(r1h), rsi4h: r2(r4h),
+          confidence: conf,
           dist3m: r2(ind('3m').distance), dist5m: r2(ind('5m').distance),
           tpAPct: +((price - plan.tpA) / price * 100).toFixed(3),     // hedefe uzaklık %
           ...outcome,
@@ -681,6 +746,7 @@ async function main() {
   const results = Object.fromEntries(triggers.map(t => [t.key, []]));
   const stats   = Object.fromEntries(triggers.map(t => [t.key, {}]));
   const rsiEvents = [];
+  const mertEvents = [];
   const tStart  = Date.now();
 
   for (const [idx, symbol] of SYMBOLS.entries()) {
@@ -697,6 +763,8 @@ async function main() {
       }
       printSymbolSummary(COMPARE ? `${symbol} A` : symbol, res.variants.current.signals);
       rsiEvents.push(...res.rsiEvents);
+      mertEvents.push(...res.mertEvents);
+      if (COMPARE && res.mertEvents.length) console.log(`  [${symbol}] Mert RSI olayı: ${res.mertEvents.length} an, ${res.mertEvents.filter(e => e.first).length} olay`);
       const eps = new Set(res.rsiEvents.map(e => e.episode)).size;
       if (res.rsiEvents.length) console.log(`  [${symbol}] RSI şartı: ${res.rsiEvents.length} an, ${eps} olay`);
       if (COMPARE) {
@@ -719,6 +787,7 @@ async function main() {
   printRsiEvents(rsiEvents);
   const selection = COMPARE ? selectMert(mertTs, results) : null;
   if (COMPARE) printMertReport({ triggers, stats, results, selection, startTime, endTime, splitT, feePct: FEE_PCT });
+  if (COMPARE) printMertEvents(mertEvents);
 
   const params    = {
     SYMBOLS, DAYS, MIN_SCORE, startTime, endTime, universe, compare: COMPARE, feePct: FEE_PCT, splitT,
@@ -727,7 +796,7 @@ async function main() {
   const timestamp = new Date().toISOString().replace(/[:T.]/g, '-').slice(0, 19);
   const outFile   = path.join(OUT_DIR, `backtest-${COMPARE ? 'compare-' : ''}${timestamp}.json`);
   const payload   = COMPARE
-    ? { params, mert: cfg.mert, selection, variants: Object.fromEntries(triggers.map(t => [t.key, { trigger: t, stats: stats[t.key], signals: results[t.key] }])), rsiEvents }
+    ? { params, mert: cfg.mert, selection, variants: Object.fromEntries(triggers.map(t => [t.key, { trigger: t, stats: stats[t.key], signals: results[t.key] }])), rsiEvents, mertEvents }
     : { params, stats: stats.current, signals: results.current, rsiEvents };
   fs.writeFileSync(outFile, JSON.stringify(payload, null, 2));
   console.log(`\n📁 Detaylı sonuçlar: ${outFile}\n`);
@@ -739,6 +808,7 @@ async function main() {
       ? buildCompareTelegramReport(params, triggers, stats, results, selection, telegram.esc, rsiEvents)
       : buildTelegramReport(params, stats.current, results.current, telegram.esc, undefined, rsiEvents);
     telegram.sendText(text);
+    if (COMPARE) telegram.sendText(buildMertEventsTelegram(params, mertEvents, telegram.esc));   // ikinci mesaj
     const flushed = await telegram.flush(90_000);
     const st = telegram.takeStats();
     if (flushed && st.sent > 0 && st.failed === 0) {
@@ -764,7 +834,7 @@ function decisionLabel(t) {
 
 function mertRuleText() {
   const m = cfg.mert;
-  return `3/5/15m RSI (en az N TF, 3m-5m ≤ ${m.rsiCap}) · 1h ≥ ${m.rsi1hMin}, 4h ≥ ${m.rsi4hMin} · ` +
+  return `3/5/15m RSI (en az N TF${m.rsiCap != null ? `, 3m-5m ≤ ${m.rsiCap}` : ', üst sınır yok'}) · güven puanı: 1h ≥ ${m.rsi1hMin}, 4h ≥ ${m.rsi4hMin} (zorunlu değil) · ` +
     `4h/1d MA-EMA200 veya günlük direncin dibi (altında ≤ %${m.levelBelowPct}, üstünde ≤ %${m.levelAbovePct}) · ` +
     `3m ve 5m EMA21'den ≥ ${m.separationATR} ATR ayrışma · TP-A 3m EMA21, TP-B 5m EMA21 · açık işlem varken yeni işlem yok`;
 }
@@ -843,7 +913,9 @@ function printMertReport({ triggers, stats, results, selection, startTime, endTi
     // Huni (tüm dönem, seçilen kombinasyon)
     const sum = k => Object.values(stats[t.key]).reduce((x, st) => x + (st[k] || 0), 0);
     console.log(`\n  🔻 Huni (seçilen, tüm dönem): karar ${sum('decisions')} → açık işlem nedeniyle atlanan ${sum('openBlocked')} → ` +
-      `seviye dibinde ${sum('location')} → 1h/4h şişmiş ${sum('htf')} → RSI ${sum('rsiOk')} → ayrışma ${sum('separation')} → sinyal ${sum('signals')}`);
+      `seviye dibinde ${sum('location')} → RSI ${sum('rsiOk')} → ayrışma ${sum('separation')} → sinyal ${sum('signals')}`);
+    const byConf = [0, 1, 2].map(c => { const q = perf(results[t.key].filter(x => x.confidence === c)); return `${c}: ${q.n} (win ${fmtN(q.winRate, 0, '%')}, net ${fmtN(q.avgNetR)})`; });
+    console.log(`  🔒 Güven puanına göre (1h/4h RSI ≥ 70 sayısı): ${byConf.join(' · ')}`);
 
     // Seviyeye göre
     const byLevel = {};
@@ -868,7 +940,7 @@ function buildCompareTelegramReport(p, triggers, stats, results, selection, esc,
     `🪙 ${p.SYMBOLS.length} sembol${p.universe ? ` (${esc(p.universe)})` : ''}`,
     `<i>Sonuçlar 1m mumlarla · R: komisyon %${p.feePct}×2 dahil ortalama net R</i>`,
     '',
-    `<b>Mert kuralları:</b> ${esc('3/5/15m RSI · 1h-4h RSI ≥ 70 · 4h/1d MA-EMA200 ya da günlük direnç dibi · 3m ve 5m EMA21\'den ayrışma · TP 3m EMA21 · açık işlem varken yeni işlem yok')}`,
+    `<b>Mert kuralları:</b> ${esc('3/5/15m RSI (üst sınır yok) · 4h/1d MA-EMA200 ya da günlük direnç dibi · 3m ve 5m EMA21\'den ayrışma · TP 3m EMA21 · açık işlem varken yeni işlem yok · 1h/4h RSI ≥ 70 = güven puanı')}`,
     `<b>A:</b> canlı kural (${esc(rsiRuleText())}, SL %0.5)`,
     '',
   ];
@@ -895,7 +967,8 @@ function buildCompareTelegramReport(p, triggers, stats, results, selection, esc,
       `  W/L/LTR/N ${o.win}/${o.loss}/${o.ltr}/${o.neutral} · TP-B ${fmtN(o.tpB, 0, '%')} · sonuca ~${fmtN(o.holdMin, 0)} dk`,
     );
     if (bp.ALL.breakeven != null) lines.push(`  Tüm dönem: başabaş için gereken isabet ~%${bp.ALL.breakeven.toFixed(0)}, gerçekleşen %${fmtN(bp.ALL.winRate, 0)}`);
-    lines.push(`Huni: karar ${sum('decisions')} → seviye dibi ${sum('location')} → 1h/4h ${sum('htf')} → RSI ${sum('rsiOk')} → ayrışma ${sum('separation')} → sinyal ${sum('signals')}`);
+    lines.push(`Huni: karar ${sum('decisions')} → seviye dibi ${sum('location')} → RSI ${sum('rsiOk')} → ayrışma ${sum('separation')} → sinyal ${sum('signals')}`);
+    lines.push(`Güven (1h/4h ≥ 70): ${[0, 1, 2].map(c => { const q = perf(results[t.key].filter(x => x.confidence === c)); return `${c}→ ${q.n} (${fmtN(q.winRate, 0, '%')})`; }).join(' · ')}`);
     const byLevel = {};
     for (const s of results[t.key]) (byLevel[s.level] ??= []).push(s);
     const lv = Object.entries(byLevel).map(([k, arr]) => { const q = perf(arr); return `${esc(k)} ${q.n} (${fmtN(q.winRate, 0, '%')})`; });
@@ -1083,6 +1156,103 @@ function rsiEventTelegramLines(events, esc) {
   rows.push(`${'Sinyal'.padEnd(10)}${col(sig)}`);
   out.push(`<pre>${esc(rows.join('\n'))}</pre>`, '<i>1s get.: olayın ilk anında short açılsa 1 saat sonraki ort. getiri (+ = lehe)</i>');
   return out;
+}
+
+// ── Mert olay çalışması raporu ────────────────────────────────────────────────
+
+/** Olay grubunun özeti (her olayın İLK anı) — + getiri = SHORT lehine; üç stopla net R */
+function mertEvStats(evs) {
+  const m = (arr) => (arr.length ? avg(arr) : null);
+  const vals = k => evs.map(e => e[k]).filter(x => x != null);
+  const sims = k => evs.map(e => e[k]).filter(Boolean);
+  const s15 = sims('sl15'), s10 = sims('sl10'), sl = sims('slLvl');
+  return {
+    n: evs.length,
+    ret1h: m(vals('ret1h')), ret4h: m(vals('ret4h')),
+    win15: s15.length ? s15.filter(x => x.outcome === 'WIN').length / s15.length * 100 : null,
+    r10: m(s10.map(x => x.netR)), r15: m(s15.map(x => x.netR)),
+    rLvl: m(sl.map(x => x.netR)), nLvl: sl.length,
+  };
+}
+
+const MERT_DIST_BUCKETS = [
+  ['%4+ altında',     d => d < -4],
+  ['%2–4 altında',    d => d >= -4 && d < -2],
+  ['%1–2 altında',    d => d >= -2 && d < -1],
+  ['%0.5–1 altında',  d => d >= -1 && d < -0.5],
+  ['%0–0.5 altında',  d => d >= -0.5 && d < 0],
+  ['%0–0.5 üstünde',  d => d >= 0 && d <= 0.5],
+  ['%0.5+ üstünde',   d => d > 0.5],
+];
+const RISE_BUCKETS = [
+  ['< %1', r => r < 1], ['%1–2', r => r >= 1 && r < 2], ['%2–4', r => r >= 2 && r < 4], ['≥ %4', r => r >= 4],
+];
+
+/** Tabloların satır tanımları: [başlık, [[etiket, filtre], ...]] */
+function mertEventTables(firsts) {
+  const levelNames = [...new Set(firsts.map(e => e.nearestLevel).filter(Boolean))];
+  return [
+    ['En yakın seviyeye uzaklık', [
+      ...MERT_DIST_BUCKETS.map(([l, f]) => [l, e => e.nearestDistPct != null && f(e.nearestDistPct)]),
+      ['Seviye hesaplanamadı', e => e.nearestDistPct == null],
+    ]],
+    ['Seviye türü (en yakın seviyeye %1\'den yakın)', levelNames.map(n => [n, e => e.nearestLevel === n && Math.abs(e.nearestDistPct) <= 1])],
+    ['Güven puanı (1h/4h RSI ≥ 70 sayısı)', [0, 1, 2].map(c => [`${c}`, e => e.confidence === c])],
+    ['RSI ≥ 90 olan TF sayısı', [['2 TF', e => e.hitTFs === 2], ['3 TF', e => e.hitTFs === 3]]],
+    ['3m ve 5m EMA21 ayrışması', [['var', e => e.separated], ['yok', e => !e.separated]]],
+    ['Son 1 saatteki yükseliş', RISE_BUCKETS.map(([l, f]) => [l, e => e.rise1h != null && f(e.rise1h)])],
+  ];
+}
+
+function printMertEvents(events) {
+  const M = cfg.mert;
+  console.log('\n\n════════════════════════════════════════════');
+  console.log('  🎯 MERT OLAY ÇALIŞMASI — filtre uygulanmadan');
+  console.log('════════════════════════════════════════════');
+  console.log(`  Tanım : 3m/5m/15m RSI'lardan en az ${M.eventMinTFs} tanesi ≥ ${M.eventRsiMin} (üst sınır yok), her 3m/5m kapanışı`);
+  console.log('  Yer, güven (1h/4h), ayrışma FİLTRELENMEDİ — aşağıdaki tablolar hangisinin sonucu iyileştirdiğini gösterir.');
+  const firsts = events.filter(e => e.first);
+  if (!firsts.length) { console.log('\n  Bu dönemde tanımı sağlayan an yok.'); return; }
+  console.log(`  An: ${events.length} · Olay: ${firsts.length} (aynı coinde 30 dk içinde tekrar edenler tek) · Coin: ${new Set(events.map(e => e.symbol)).size}`);
+  console.log(`  Plan: TP-A 3m EMA21, TP-B 5m EMA21 · stoplar: %1 · %1.5 · en yakın üst seviyenin %${M.levelStopPct} üstü (seviye ≤ %${M.levelStopMaxPct} uzaktaysa)`);
+  console.log('  Sütunlar: 1s/4s = olayın ilk anında short açılsa ortalama getiri (+ lehe) · Win = %1.5 stopla TP-A isabeti · R = ort. net R\n');
+  const head = `  ${''.padEnd(26)} ${'n'.padStart(5)} ${'1s get'.padStart(8)} ${'4s get'.padStart(8)} ${'Win'.padStart(6)} ${'R %1'.padStart(7)} ${'R %1.5'.padStart(7)} ${'R seviye'.padStart(9)}`;
+  const row = (label, x) => `  ${label.padEnd(26)} ${String(x.n).padStart(5)} ${pctS(x.ret1h).padStart(8)} ${pctS(x.ret4h).padStart(8)} ${fmtN(x.win15, 0, '%').padStart(6)} ${numS(x.r10).padStart(7)} ${numS(x.r15).padStart(7)} ${(numS(x.rLvl) + (x.nLvl ? ` (${x.nLvl})` : '')).padStart(9)}`;
+  console.log(head);
+  console.log(row('TÜM OLAYLAR', mertEvStats(firsts)));
+  for (const [title, rows] of mertEventTables(firsts)) {
+    console.log(`\n  ${title}`);
+    for (const [label, f] of rows) { const x = mertEvStats(firsts.filter(f)); if (x.n) console.log(row('  ' + label, x)); }
+  }
+  console.log('\n  Okuma: bir satır diğerlerinden belirgin iyiyse o değer kurala aday. Olay sayısı (n) azsa kesin hüküm verme;');
+  console.log('         sonra seçilen kural ilk 2/3 dönemde kurulup son 1/3 dönemde doğrulanmalı.');
+}
+
+function buildMertEventsTelegram(p, events, esc) {
+  const M = cfg.mert;
+  const firsts = events.filter(e => e.first);
+  const lines = [
+    '🎯 <b>MERT OLAY ÇALIŞMASI</b> (filtre uygulanmadan)',
+    '<i>Geçmiş veri simülasyonu — canlı sinyal DEĞİLDİR</i>',
+    `3m/5m/15m'den en az ${M.eventMinTFs}'si RSI ≥ ${M.eventRsiMin} olan anlar · ${p.DAYS} gün · ${p.SYMBOLS.length} sembol`,
+  ];
+  if (!firsts.length) return [...lines, '', 'Bu dönemde tanımı sağlayan an yok.'].join('\n');
+  const all = mertEvStats(firsts);
+  lines.push(`${events.length} an · <b>${firsts.length} olay</b> · ${new Set(events.map(e => e.symbol)).size} coin`,
+    `Tümü: 1s ${pctS(all.ret1h)} · 4s ${pctS(all.ret4h)} · win ${fmtN(all.win15, 0, '%')} · R(%1.5) ${numS(all.r15)}`, '');
+  const pick = new Set(['En yakın seviyeye uzaklık', 'Güven puanı (1h/4h RSI ≥ 70 sayısı)', 'RSI ≥ 90 olan TF sayısı', '3m ve 5m EMA21 ayrışması', 'Son 1 saatteki yükseliş']);
+  for (const [title, rows] of mertEventTables(firsts)) {
+    if (!pick.has(title)) continue;
+    const body = [`${''.padEnd(15)}${'n'.padStart(4)}${'1s'.padStart(8)}${'win'.padStart(5)}${'R%1.5'.padStart(7)}`];
+    for (const [label, f] of rows) {
+      const x = mertEvStats(firsts.filter(f)); if (!x.n) continue;
+      body.push(`${label.slice(0, 14).padEnd(15)}${String(x.n).padStart(4)}${pctS(x.ret1h, 1).padStart(8)}${fmtN(x.win15, 0, '%').padStart(5)}${numS(x.r15).padStart(7)}`);
+    }
+    lines.push(`<b>${esc(title)}</b>`, `<pre>${esc(body.join('\n'))}</pre>`);
+  }
+  lines.push('<i>1s: ilk anda short açılsa 1 saat sonraki ort. getiri (+ lehe) · win/R: %1.5 stop, TP-A 3m EMA21, komisyon dahil</i>');
+  const text = lines.join('\n');
+  return text.length <= 4000 ? text : text.slice(0, 3990) + '\n…';
 }
 
 function fmtDate(ts) {
@@ -1289,6 +1459,8 @@ module.exports = {
   buildCompareTelegramReport,
   perf,
   eventStats,
+  mertEvStats,
+  buildMertEventsTelegram,
   selectMert,
   selectionSplit,
   setKlineSource,

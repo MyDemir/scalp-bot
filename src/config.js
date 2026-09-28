@@ -51,10 +51,15 @@ module.exports = {
   // Mert varyantı — ŞİMDİLİK YALNIZCA BACKTEST'TE (--compare). Kurallar src/mert.js başında.
   mert: {
     rsiTFs:        ['3m', '5m', '15m'],   // karar: bunlardan en az minTFs tanesi ≥ rsiMin
-    capTFs:        ['3m', '5m'],          // üst sınır (Mert: "3–5 dk 95–98 aralığı")
-    rsiCap:        98,
-    rsi1hMin:      70,                    // "1s ve 4s RSI de şişmişse"
+    capTFs:        ['3m', '5m'],
+    rsiCap:        null,                  // üst sınır YOK (null). Sayı verilirse capTFs bu değeri aşamaz
+    rsi1hMin:      70,                    // ZORUNLU DEĞİL — güven puanı: 1h ≥ 70 → +1, 4h ≥ 70 → +1 (0–2)
     rsi4hMin:      70,
+    // Olay çalışması (--compare): bu tanımı sağlayan HER an kaydedilir, yer/güven/ayrışma filtrelenmez
+    eventRsiMin:   90,                    // 3m/5m/15m'den en az eventMinTFs tanesi ≥ bu değer
+    eventMinTFs:   2,
+    levelStopPct:  0.3,                   // "seviye üstü stop": en yakın üst seviyenin %0.3 üstü
+    levelStopMaxPct: 3,                   // üst seviye girişten en fazla %3 uzaktaysa kullanılır
     levelBelowPct: 0.5,                   // fiyat seviyenin altında en fazla %0.5
     levelAbovePct: 0.3,                   // üstünde en fazla %0.3 (fitil payı); daha yukarıdaysa sinyal yok
     separationATR: 0.5,                   // 3m ve 5m EMA21'den en az 0.5 ATR uzak

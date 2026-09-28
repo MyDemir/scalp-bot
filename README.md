@@ -275,12 +275,19 @@ Canlı bot **değişmez** — Mert kuralları yalnızca backtest'tedir (`src/mer
 | | Mert kuralı |
 |---|---|
 | Yer | Fiyat bir direncin dibinde: 4h MA200, 4h EMA200, 1d MA200, 1d EMA200 ya da günlük majör direnç. Seviyenin altında ≤ %0.5, üstünde ≤ %0.3 (fitil payı); seviyeyi aşıp yukarıdaysa sinyal yok |
-| Bağlam | 1h RSI ≥ 70 ve 4h RSI ≥ 70 |
-| Karar | 3m / 5m / 15m RSI'lardan en az N tanesi ≥ eşik; 3m ve 5m RSI ≤ 98 |
+| Karar | 3m / 5m / 15m RSI'lardan en az N tanesi ≥ eşik; **üst sınır yok** |
+| Güven puanı | 1h RSI ≥ 70 → +1, 4h RSI ≥ 70 → +1 (0–2). **Zorunlu değil**; raporda sonuçlar puana göre ayrılır |
 | Ayrışma | Fiyat 3m **ve** 5m EMA21'den ≥ 0.5 ATR uzakta, son 3 mumda dokunuş yok |
 | TP | TP-A = 3m EMA21, TP-B = 5m EMA21 (izlenir) |
 | Stop | Giriş × (1 + %SL) |
 | Yönetim | Aynı coinde açık işlem varken yeni işlem yok (bir hareket = bir işlem) |
+
+**Mert olay çalışması (`--compare`):** 3m/5m/15m'den en az 2'si RSI ≥ 90 olan **her an** filtre uygulanmadan
+kaydedilir (yer, güven, ayrışma elenmez). Her an için: 5 seviyenin her birine uzaklık, en yakın üst seviye,
+güven puanı, 3m/5m EMA21 ayrışması, son 1 saatteki yükseliş, 15 dk/1 saat/4 saat sonraki getiri ve Mert planıyla
+(TP-A 3m EMA21) üç stopla varsayımsal sonuç: %1 · %1.5 · en yakın üst seviyenin %0.3 üstü. Rapor (ve ikinci
+Telegram mesajı) sonuçları seviyeye uzaklığa, seviye türüne, güven puanına, TF sayısına, ayrışmaya ve son 1 saatteki
+yükselişe göre ayırır — kuralın eşikleri bu tablolardan seçilir. JSON'da `mertEvents`.
 
 8 kombinasyon denenir: RSI eşiği 90 / 95 × en az 2 / 3 zaman dilimi × stop %1.0 / %1.5.
 
