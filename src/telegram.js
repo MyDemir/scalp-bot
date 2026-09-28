@@ -61,15 +61,18 @@ async function api(method, body, timeoutMs = 15_000) {
 
 // ── Gönderim kuyruğu ───────────────────────────────────────────────────────
 
-const queue = [];   // { kind: 'alert'|'reply', chatId, text, attempts }
+const queue = [];   // { kind: 'alert'|'reply'|'card', chatId, text, attempts, keyboard?, silent?, createdAt }
 let pumping = false;
 let lastSentAt = 0;
 const stats = { sent: 0, failed: 0, retried429: 0, merged: 0 };
 
-function enqueue(kind, chatId, text) {
-  queue.push({ kind, chatId, text, attempts: 0 });
+function enqueue(kind, chatId, text, extra = {}) {
+  queue.push({ kind, chatId, text, attempts: 0, createdAt: Date.now(), ...extra });
   pump();
 }
+
+// Kuyrukta bu kadar bekleyen kartın başına "gecikmeli" etiketi eklenir (hiçbir kart atılmaz)
+const LATE_MS = 2 * 60_000;
 
 async function pump() {
   if (pumping) return;
@@ -90,7 +93,18 @@ async function pump() {
       }
 
       try {
-        await api('sendMessage', { chat_id: item.chatId, text: item.text, parse_mode: 'HTML', disable_web_page_preview: true });
+        const body = { chat_id: item.chatId, text: item.text, parse_mode: 'HTML', disable_web_page_preview: true };
+        if (item.kind === 'card') {
+          const waited = Date.now() - item.createdAt;
+          if (waited > LATE_MS) {
+            body.text = `⏳ <i>gecikmeli (${Math.round(waited / 60000)} dk kuyrukta bekledi)</i>\n` + item.text;
+          }
+          if (item.keyboard) body.reply_markup = { inline_keyboard: item.keyboard };
+          if (item.silent) body.disable_notification = true;
+        } else if (item.keyboard) {
+          body.reply_markup = { inline_keyboard: item.keyboard };
+        }
+        await api('sendMessage', body);
         stats.sent++;
         lastSentAt = Date.now();
       } catch (err) {
@@ -125,9 +139,19 @@ async function pump() {
 }
 
 /** Düz metin mesajı kuyruğa al (HTML) — ör. backtest özet raporu */
-function sendText(text) {
-  enqueue('reply', CHAT_ID, text);
+function sendText(text, keyboard = null) {
+  enqueue('reply', CHAT_ID, text, keyboard ? { keyboard } : {});
 }
+
+/**
+ * Bilgi kartı: kendi mesajı olarak gider (birleştirilmez), butonlu, istenirse sessiz.
+ * 2 dakikadan uzun kuyrukta kalırsa başına "gecikmeli" satırı eklenir.
+ */
+function sendCard({ text, keyboard, silent = false }) {
+  enqueue('card', CHAT_ID, text, { keyboard, silent });
+}
+
+function queueLength() { return queue.length; }
 
 /**
  * Kuyruk boşalana kadar bekle (kısa ömürlü süreçler — backtest — çıkmadan önce).
@@ -209,7 +233,7 @@ ${breakdown.emcBonus > 0 ? `  ⚡ EMC bonus    +${breakdown.emcBonus}` : ''}
 
 const outcomeIcon = o => o === 'WIN' ? '✅' : o === 'LOSS' ? '❌' : o === 'LOSS_THEN_RECOVER' ? '↩️' : o === 'NEUTRAL' ? '➖' : '⏳';
 
-const commands = {
+const legacyCommands = {
   signals() {
     const signals = db.getRecentSignals(10);
     if (!signals.length) return 'Henüz sinyal yok.';
@@ -304,6 +328,43 @@ ${gradeStr}`.trim();
   },
 };
 
+// Aktif komut tablosu — bilgi botu setCommands() ile kendi komutlarını koyar
+let commands = { ...legacyCommands };
+function setCommands(table) { commands = { ...table }; }
+
+// Buton tıklamaları (callback_query) — bilgi botu onCallback() ile işleyici verir
+let callbackHandler = null;
+function onCallback(fn) { callbackHandler = fn; }
+
+// ── Yetki: ayar değiştirme / susturma yalnızca yöneticiler ─────────────────
+// TELEGRAM_ADMIN_IDS (virgüllü kullanıcı ID listesi) tanımlıysa yalnızca onlar;
+// tanımlı değilse grubun yöneticileri (getChatMember: creator/administrator), 10 dk önbellekli.
+const adminCache = new Map();
+async function isAdmin(userId) {
+  if (userId == null) return false;
+  const env = String(process.env.TELEGRAM_ADMIN_IDS || '').split(',').map(x => x.trim()).filter(Boolean);
+  if (env.length) return env.includes(String(userId));
+  const hit = adminCache.get(userId);
+  if (hit && hit.until > Date.now()) return hit.ok;
+  let ok = false;
+  try {
+    const m = await api('getChatMember', { chat_id: CHAT_ID, user_id: userId });
+    ok = ['creator', 'administrator'].includes(m?.status);
+  } catch (err) {
+    console.warn(`[TELEGRAM] getChatMember başarısız (${err.message}) — yetki verilmedi`);
+  }
+  adminCache.set(userId, { ok, until: Date.now() + 10 * 60_000 });
+  return ok;
+}
+
+/** Mesaj düzenleme (ayar menüsü gibi kullanıcı tetiklemeli, nadir işlemler — kuyruğa girmez) */
+async function editMessage(chatId, messageId, text, keyboard) {
+  const body = { chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML', disable_web_page_preview: true };
+  if (keyboard) body.reply_markup = { inline_keyboard: keyboard };
+  try { await api('editMessageText', body); }
+  catch (err) { if (!/not modified/i.test(err.message)) console.warn(`[TELEGRAM] mesaj düzenlenemedi: ${err.message}`); }
+}
+
 // ── Komut dinleme (long polling) ───────────────────────────────────────────
 
 let botUsername = null;
@@ -311,7 +372,18 @@ let polling     = false;
 let startedAt   = 0;
 let ignoredChats = 0;
 
-function handleUpdate(u) {
+async function handleCallback(cq) {
+  if (String(cq.message?.chat?.id) !== String(CHAT_ID)) { ignoredChats++; return; }
+  let res = null;
+  try { res = callbackHandler ? await callbackHandler(cq) : null; }
+  catch (err) { console.error('[TELEGRAM] buton işlenemedi:', err.message); res = { text: 'Hata oluştu.' }; }
+  try {
+    await api('answerCallbackQuery', { callback_query_id: cq.id, text: res?.text ? String(res.text).slice(0, 200) : undefined, show_alert: Boolean(res?.alert) });
+  } catch (err) { console.warn(`[TELEGRAM] answerCallbackQuery: ${err.message}`); }
+}
+
+async function handleUpdate(u) {
+  if (u.callback_query) return handleCallback(u.callback_query);
   const msg = u.message;
   if (!msg?.text || !msg.text.startsWith('/')) return;
 
@@ -321,28 +393,30 @@ function handleUpdate(u) {
   // Bot başlamadan önce yazılmış eski komutları yanıtlama
   if (msg.date * 1000 < startedAt - 60_000) return;
 
-  const m = msg.text.match(/^\/([a-z]+)(?:@(\w+))?(?:\s|$)/i);
+  const m = msg.text.match(/^\/([a-zçğıöşü]+)(?:@(\w+))?(?:\s+([\s\S]*))?$/i);
   if (!m) return;
-  const [, cmd, target] = m;
+  const [, cmd, target, rest] = m;
   if (target && botUsername && target.toLowerCase() !== botUsername.toLowerCase()) return;   // başka bota yazılmış
 
   const handler = commands[cmd.toLowerCase()];
   if (!handler) return;
 
   let reply;
-  try { reply = handler(); }
+  try { reply = await handler((rest || '').trim(), msg); }
   catch (err) { console.error(`[TELEGRAM] /${cmd} hatası:`, err.message); reply = 'Komut çalıştırılırken hata oluştu.'; }
-  enqueue('reply', msg.chat.id, reply);
+  if (reply == null) return;
+  if (typeof reply === 'object') enqueue('reply', msg.chat.id, reply.text, reply.keyboard ? { keyboard: reply.keyboard } : {});
+  else enqueue('reply', msg.chat.id, reply);
 }
 
 async function pollLoop() {
   let offset = 0;
   while (polling) {
     try {
-      const updates = await api('getUpdates', { offset, timeout: 50, allowed_updates: ['message'] }, 65_000);
+      const updates = await api('getUpdates', { offset, timeout: 50, allowed_updates: ['message', 'callback_query'] }, 65_000);
       for (const u of updates) {
         offset = u.update_id + 1;
-        try { handleUpdate(u); } catch (err) { console.error('[TELEGRAM] Güncelleme işlenemedi:', err.message); }
+        handleUpdate(u).catch(err => console.error('[TELEGRAM] Güncelleme işlenemedi:', err.message));
       }
     } catch (err) {
       if (!polling) break;
@@ -386,4 +460,8 @@ function stop() {
   polling = false;
 }
 
-module.exports = { start, stop, sendSignalAlert, sendText, flush, takeStats, esc, _internal: { handleUpdate, commands, queue } };
+module.exports = {
+  start, stop, sendSignalAlert, sendText, sendCard, flush, takeStats, queueLength, esc,
+  setCommands, onCallback, isAdmin, editMessage,
+  _internal: { handleUpdate, get commands() { return commands; }, queue },
+};

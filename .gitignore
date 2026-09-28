@@ -7,3 +7,4 @@ node_modules/
 logs/
 *.log
 backtest-results/
+data/info-settings.json

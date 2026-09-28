@@ -105,6 +105,28 @@ async function fetchFundingRates() {
   return out;
 }
 
+/**
+ * Tüm sembollerin funding oranı + bir sonraki funding zamanı (premiumIndex, tek istek, weight 10)
+ * @returns {Map<string, {rate:number, next:number|null}>}
+ */
+async function fetchPremium() {
+  const rows = await call(10, 'premiumIndex', () => restClient.getMarkPrice());
+  const out = new Map();
+  for (const r of Array.isArray(rows) ? rows : [rows]) {
+    const fr = parseFloat(r.lastFundingRate);
+    if (r.symbol && Number.isFinite(fr)) out.set(r.symbol, { rate: fr, next: Number(r.nextFundingTime) || null });
+  }
+  return out;
+}
+
+/** Son 1 saatteki açık pozisyon değişimi (%) — openInterestHist 5m × 13 */
+async function fetchOIChange1h(symbol) {
+  const rows = await call(1, `openInterestHist ${symbol}`, () => restClient.getOpenInterestStatistics({ symbol, period: '5m', limit: 13 }));
+  if (!Array.isArray(rows) || rows.length < 2) return null;
+  const a = parseFloat(rows[0].sumOpenInterest), b = parseFloat(rows[rows.length - 1].sumOpenInterest);
+  return a > 0 && Number.isFinite(b) ? (b - a) / a * 100 : null;
+}
+
 async function fetchOpenInterest(symbol) {
   const data = await call(1, `openInterest ${symbol}`, () => restClient.getOpenInterest({ symbol }));
   return data ? parseFloat(data.openInterest) : null;
@@ -143,6 +165,18 @@ async function getLiquidSymbols(filterCfg) {
   return maxCoins > 0 ? list.slice(0, maxCoins) : list;
 }
 
+/**
+ * İşlemdeki USDT perpetual'ların 24s hacmi (USDT).
+ * @returns {Map<string, number>}
+ */
+async function getSymbolVolumes(excludeBaseAssets = []) {
+  const tradable = await getTradableSymbols(excludeBaseAssets);
+  const tickers  = await fetch24hTickers();
+  const out = new Map();
+  for (const t of tickers) if (tradable.has(t.symbol)) out.set(t.symbol, parseFloat(t.quoteVolume) || 0);
+  return out;
+}
+
 // ── WebSocket ──────────────────────────────────────────────────────────────
 
 let stream = null;
@@ -158,6 +192,11 @@ function startWebSocket(symbols, timeframes, onKline, opts = {}) {
   stream = createStreamClient({ symbols, timeframes, onKline, onGap: opts.onGap, options: opts.options });
   stream.start();
   return stream;
+}
+
+/** Çalışan WebSocket'in sembol listesini değiştirir (bağlantıyı koparmadan) */
+function setWsSymbols(symbols) {
+  return stream ? stream.setSymbols(symbols) : { added: [], removed: [] };
 }
 
 function stopWebSocket() {
@@ -177,9 +216,13 @@ module.exports = {
   fetch24hTickers,
   fetchFundingRates,
   fetchOpenInterest,
+  fetchPremium,
+  fetchOIChange1h,
   getTradableSymbols,
   getLiquidSymbols,
+  getSymbolVolumes,
   startWebSocket,
+  setWsSymbols,
   stopWebSocket,
   takeWsStats,
 };

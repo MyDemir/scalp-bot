@@ -71,4 +71,25 @@ function nearLevelInfo(price, daily) {
   };
 }
 
-module.exports = { roundPx, calcMajorResistance, calcDailyLevels, calcDailyProximity, nearLevelInfo };
+const sma200 = arr => (arr.length >= 200 ? arr.slice(-200).reduce((s, v) => s + v, 0) / 200 : null);
+const ema200 = arr => (arr.length >= 200 ? calcEMA(arr, 200) : null);
+
+/**
+ * Direnç seviyeleri (bilgi botu + backtest varyantları ortak kullanır).
+ * @param {number[]} h4Closes    - kapanmış 4h kapanışları (eski → yeni; EMA200'ün oturması için ~600)
+ * @param {object[]} dayCandles  - günlük mumlar {high, close} (eski → yeni; devam eden gün dahil olabilir)
+ * @returns {{ name: string, value: number }[]}  yalnızca hesaplanabilenler (yeni coinlerde eksik olabilir)
+ */
+function calcLevelSet(h4Closes, dayCandles) {
+  const dCloses = dayCandles.map(d => d.close);
+  const raw = [
+    ['4h MA200',  sma200(h4Closes)],
+    ['4h EMA200', ema200(h4Closes)],
+    ['1d MA200',  sma200(dCloses)],
+    ['1d EMA200', ema200(dCloses)],
+    ['Günlük direnç', calcMajorResistance(dayCandles.slice(-30))],
+  ];
+  return raw.filter(([, v]) => Number.isFinite(v) && v > 0).map(([name, v]) => ({ name, value: roundPx(v) }));
+}
+
+module.exports = { roundPx, calcMajorResistance, calcDailyLevels, calcDailyProximity, nearLevelInfo, calcLevelSet };

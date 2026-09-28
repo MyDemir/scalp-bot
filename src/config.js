@@ -2,6 +2,40 @@
 
 module.exports = {
 
+  // ── BOT TÜRÜ ──────────────────────────────────────────
+  // 'info'   → bilgi/sınıflandırma botu (src/infoBot.js): koşulları sağlayan coinler için bilgi kartı,
+  //            işlem kararı kullanıcıda. Tüm USDT perpetual'lar (hacim filtreli) izlenir.
+  // 'signal' → eski SHORT sinyal botu (src/legacyBot.js). Ortam değişkeni BOT_MODE bunu ezer.
+  botMode: 'info',
+
+  // ── BİLGİ BOTU ────────────────────────────────────────
+  // Buradakiler VARSAYILAN değerler. Telegram'dan /ayarlar ile değiştirilenler /data/info-settings.json'a
+  // yazılır ve bunların önüne geçer (deploy sonrası korunur). Anlamları: src/infoSettings.js
+  info: {
+    rsiMin:        90,     // 3m/5m/15m RSI eşiği
+    minTFs:        2,      // eşiği geçmesi gereken dilim sayısı (3 üzerinden)
+    strongRsi:     95,     // "RSI 95↑" yeniliği ve kartta vurgu
+    levelMaxPct:   2.5,    // ZORUNLU: fiyatın üstünde en fazla bu kadar uzakta bir seviye
+    dipBelowPct:   0.5,    // DİPTE sınıfı: seviyenin en fazla %0.5 altında …
+    dipAbovePct:   0.3,    // … ya da en fazla %0.3 üstünde (fitil payı). Daha yukarısı = seviye kırıldı
+    levelRequired: true,
+    burstPct1:     1.0,    // hacim patlaması: 1m mum gövdesi ≥ %1 …
+    burstPct2:     1.5,    // … ikinci kademe ≥ %1.5
+    volMult:       2.0,    // hacim ≥ önceki volAvgN mumun ortalaması × volMult
+    volAvgN:       20,
+    takerBuyPct:   55,     // taker alış oranı > %55 → alım
+    takerSellPct:  45,     // < %45 → satış (arası nötr)
+    windowMin:     60,     // sayaç penceresi (dk)
+    shortWindowMin: 15,    // kısa sayaç penceresi (dk)
+    resetRsi:      75,     // 5m RSI bunun altında kapanınca kart numarası sıfırlanır (#1'den başlar)
+    sepATR:        0.5,    // EMA21 ayrışması (3m & 5m, ATR cinsinden)
+    sepRequired:   false,
+    confRsi:       70,     // destek: 1h / 4h RSI ≥ bu
+    confRequired:  false,  // açıksa 1h veya 4h'ten en az biri ≥ confRsi olmalı
+    macdRequired:  false,  // açıksa 5m MACD histogramı zayıflıyor (düşüyor ya da ≤ 0) olmalı
+    minVolumeM:    5,      // izlenen evren: 24s hacim ≥ 5 milyon USDT
+  },
+
   // ── MOD ───────────────────────────────────────────────
   // 'test'       → testSymbols izlenir (Binance'te olmayanlar başlangıçta uyarıyla çıkarılır)
   // 'production' → autoFilter ile hacme göre perpetual'lar; tüm market için maxCoins: 0
@@ -29,7 +63,7 @@ module.exports = {
     minVolume24hUSDT: 50_000_000,
     maxCoins:         30,          // 0 = sınırsız (tüm market)
     // Baz varlıkta TAM eşleşme (eski 'UP' alt dize araması JUPUSDT/SUPERUSDT'yi eliyordu)
-    excludeBaseAssets: ['USDC', 'FDUSD', 'TUSD', 'USDP', 'BUSD', 'DAI', 'USDE'],
+    excludeBaseAssets: ['USDC', 'FDUSD', 'TUSD', 'USDP', 'BUSD', 'DAI', 'USDE', 'USD1', 'USDS', 'PYUSD', 'RLUSD'],
   },
 
   // 4h de WebSocket'ten — canlı güncellenir (eskiden 4 saatte bir REST ile bayat geliyordu)

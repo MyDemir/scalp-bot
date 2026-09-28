@@ -29,6 +29,7 @@ const DEFAULTS = {
   watchdogEveryMs:      10_000,
   minBackoffMs:         1_000,
   maxBackoffMs:         30_000,
+  finalOnly:            false,   // true: kapanmamış mum güncellemeleri JSON'a çevrilmeden atlanır (CPU)
 };
 
 function chunk(arr, n) {
@@ -44,16 +45,19 @@ function chunk(arr, n) {
  * @param {function} p.onKline             (symbol, tf, kline, isFinal) — kline: {startTime, open, high, low, close, volume, final, interval}
  * @param {function} [p.onGap]             (symbols[], downSince) — yeniden bağlanınca
  * @param {object}   [p.options]
+ *
+ * setSymbols(list) ile sembol listesi çalışırken değiştirilebilir (SUBSCRIBE / UNSUBSCRIBE; bağlantı kopmaz).
  */
 function createStreamClient({ symbols, timeframes, onKline, onGap = () => {}, options = {}, logger = console }) {
   const opt = { ...DEFAULTS, ...options };
-  const streams = [];
-  for (const s of symbols) for (const tf of timeframes) streams.push(`${s.toLowerCase()}@kline_${tf}`);
+  const streamsOf = list => list.flatMap(s => timeframes.map(tf => `${s.toLowerCase()}@kline_${tf}`));
+  const symOf = st => st.split('@')[0].toUpperCase();
+  let streams = streamsOf(symbols);
 
-  const conns = chunk(streams, opt.streamsPerConnection).map((list, i) => ({
-    id:          i + 1,
+  const newConn = (list, id) => ({
+    id,
     streams:     list,
-    symbols:     [...new Set(list.map(st => st.split('@')[0].toUpperCase()))],
+    symbols:     [...new Set(list.map(symOf))],
     ws:          null,
     state:       'idle',          // idle | connecting | open | closed
     lastMsgAt:   0,
@@ -62,14 +66,41 @@ function createStreamClient({ symbols, timeframes, onKline, onGap = () => {}, op
     reconnects:  0,
     subAcks:     0,
     timers:      [],
-  }));
+    outbox:      [],              // gönderilecek SUBSCRIBE/UNSUBSCRIBE mesajları (10 msj/sn sınırı)
+    sending:     false,
+  });
+  const conns = chunk(streams, opt.streamsPerConnection).map((list, i) => newConn(list, i + 1));
 
-  const counters = { messages: 0, finals: {}, parseErrors: 0 };
+  const counters = { messages: 0, finals: {}, parseErrors: 0, skipped: 0 };
   let stopped = false;
   let watchdog = null;
 
+  // İlk veri geldiyse bağlantı sağlıklı → geri çekilmeyi sıfırla, boşluk varsa bildir
+  function checkGap(conn) {
+    if (conn.downSince == null) return;
+    const since = conn.downSince;
+    conn.downSince = null;
+    conn.backoffMs = opt.minBackoffMs;
+    try {
+      const r = onGap(conn.symbols, since);
+      if (r && typeof r.catch === 'function') r.catch(e => logger.error(`[WS#${conn.id}] onGap hatası:`, e?.message || e));
+    } catch (e) { logger.error(`[WS#${conn.id}] onGap hatası:`, e.message); }
+  }
+
+  const FINAL_MARK = Buffer.from('"x":true');
+  const KLINE_MARK = Buffer.from('"e":"kline"');
+
   function handleMessage(conn, raw) {
     conn.lastMsgAt = Date.now();
+    // Kapanmamış mum güncellemesi → ayrıştırmadan atla (tüm markette saniyede yüzlerce mesaj)
+    // (ws@7 metin çerçevelerini string, ws@8 Buffer olarak verir — ikisi de desteklenir)
+    if (opt.finalOnly && (typeof raw === 'string'
+      ? raw.includes('"e":"kline"') && !raw.includes('"x":true')
+      : Buffer.isBuffer(raw) && raw.includes(KLINE_MARK) && !raw.includes(FINAL_MARK))) {
+      counters.skipped++;
+      checkGap(conn);          // veri geri geldi → boşluk bildirimi (kapanış beklenmeden)
+      return;
+    }
     let msg;
     try { msg = JSON.parse(raw); } catch { counters.parseErrors++; return; }
 
@@ -88,37 +119,48 @@ function createStreamClient({ symbols, timeframes, onKline, onGap = () => {}, op
       low:       +k.l,
       close:     +k.c,
       volume:    +k.v,
+      quoteVolume:   +k.q,
+      takerBuyBase:  +k.V,
+      takerBuyQuote: +k.Q,
       final:     k.x === true,
       interval:  k.i,
     };
     if (kline.final) counters.finals[k.i] = (counters.finals[k.i] || 0) + 1;
 
-    // İlk veri geldiyse bağlantı sağlıklı → geri çekilmeyi sıfırla, boşluk varsa bildir
-    if (conn.downSince != null) {
-      const since = conn.downSince;
-      conn.downSince = null;
-      conn.backoffMs = opt.minBackoffMs;
-      try { onGap(conn.symbols, since); } catch (e) { logger.error(`[WS#${conn.id}] onGap hatası:`, e.message); }
-    }
+    checkGap(conn);
 
     try { onKline(d.s, k.i, kline, kline.final); }
     catch (e) { logger.error(`[WS#${conn.id}] onKline hatası (${d.s} ${k.i}):`, e.message); }
   }
 
   /**
-   * SUBSCRIBE mesajlarını sırayla gönderir. Her mesaj bir öncekinin GERÇEKTEN gönderilmesinden
-   * subscribeGapMs sonra zamanlanır — tüm zamanlayıcıları baştan kurmak, event loop meşgulken
-   * geciken zamanlayıcıların üst üste ateşlenmesine (10 mesaj/sn limitinin aşılmasına) yol açıyordu.
+   * Mesajları sırayla gönderir. Her mesaj bir öncekinin GERÇEKTEN gönderilmesinden subscribeGapMs
+   * sonra zamanlanır — tüm zamanlayıcıları baştan kurmak, event loop meşgulken geciken
+   * zamanlayıcıların üst üste ateşlenmesine (10 mesaj/sn limitinin aşılmasına) yol açıyordu.
    */
-  function subscribe(conn) {
-    const batches = chunk(conn.streams, opt.paramsPerMessage);
+  function drain(conn) {
+    if (conn.sending) return;
     const ws = conn.ws;
-    const sendNext = (i) => {
-      if (i >= batches.length || conn.ws !== ws || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify({ method: 'SUBSCRIBE', params: batches[i], id: conn.id * 1000 + i }));
-      conn.timers.push(setTimeout(() => sendNext(i + 1), opt.subscribeGapMs));
+    const sendNext = () => {
+      if (!conn.outbox.length || conn.ws !== ws || !ws || ws.readyState !== WebSocket.OPEN) { conn.sending = false; return; }
+      conn.sending = true;
+      const m = conn.outbox.shift();
+      ws.send(JSON.stringify({ method: m.method, params: m.params, id: conn.id * 100000 + (++msgSeq % 100000) }));
+      conn.timers.push(setTimeout(sendNext, opt.subscribeGapMs));
     };
-    sendNext(0);
+    sendNext();
+  }
+  let msgSeq = 0;
+
+  function queueMsg(conn, method, list) {
+    for (const b of chunk(list, opt.paramsPerMessage)) conn.outbox.push({ method, params: b });
+    if (conn.state === 'open') drain(conn);
+  }
+
+  function subscribe(conn) {
+    conn.outbox = [];
+    conn.sending = false;
+    queueMsg(conn, 'SUBSCRIBE', conn.streams);
   }
 
   function connect(conn) {
@@ -144,6 +186,7 @@ function createStreamClient({ symbols, timeframes, onKline, onGap = () => {}, op
     ws.on('close', (code) => {
       conn.timers.forEach(clearTimeout);
       conn.timers = [];
+      conn.sending = false;
       if (conn.ws !== ws) return;            // eski sokete ait gecikmiş olay
       conn.state = 'closed';
       if (conn.downSince == null) conn.downSince = Date.now();
@@ -167,7 +210,42 @@ function createStreamClient({ symbols, timeframes, onKline, onGap = () => {}, op
     }
   }
 
+  /** Çalışırken sembol listesini değiştir. @returns {{added:string[], removed:string[]}} */
+  function setSymbols(list) {
+    const want = new Set(streamsOf(list));
+    const have = new Set(conns.flatMap(c => c.streams));
+    const removed = [...have].filter(st => !want.has(st));
+    const added = [...want].filter(st => !have.has(st));
+    for (const c of conns) {
+      const rm = c.streams.filter(st => !want.has(st));
+      if (!rm.length) continue;
+      c.streams = c.streams.filter(st => want.has(st));
+      c.symbols = [...new Set(c.streams.map(symOf))];
+      if (c.state === 'open') queueMsg(c, 'UNSUBSCRIBE', rm);
+    }
+    let rest = added;
+    for (const c of conns) {
+      if (!rest.length) break;
+      const room = opt.streamsPerConnection - c.streams.length;
+      if (room <= 0) continue;
+      const take = rest.slice(0, room);
+      rest = rest.slice(room);
+      c.streams.push(...take);
+      c.symbols = [...new Set(c.streams.map(symOf))];
+      if (c.state === 'open') queueMsg(c, 'SUBSCRIBE', take);
+    }
+    for (const list2 of chunk(rest, opt.streamsPerConnection)) {
+      const c = newConn(list2, conns.length + 1);
+      conns.push(c);
+      if (!stopped && watchdog) connect(c);
+    }
+    streams = conns.flatMap(c => c.streams);
+    return { added: [...new Set(added.map(symOf))], removed: [...new Set(removed.map(symOf))] };
+  }
+
   return {
+    setSymbols,
+
     start() {
       stopped = false;
       conns.forEach((c, i) => setTimeout(() => connect(c), i * opt.connectStaggerMs));
@@ -193,11 +271,13 @@ function createStreamClient({ symbols, timeframes, onKline, onGap = () => {}, op
         open:        conns.filter(c => c.state === 'open').length,
         streams:     streams.length,
         messages:    counters.messages,
+        skipped:     counters.skipped,
         finals:      { ...counters.finals },
         reconnects:  conns.reduce((n, c) => n + c.reconnects, 0),
         parseErrors: counters.parseErrors,
       };
       counters.messages = 0;
+      counters.skipped = 0;
       counters.finals = {};
       counters.parseErrors = 0;
       for (const c of conns) c.reconnects = 0;

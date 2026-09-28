@@ -1,12 +1,13 @@
 {
   "name": "scalp-sinyal-motoru",
   "version": "1.0.0",
-  "description": "Binance USDT-M Futures scalp sinyal botu — Mert stratejisi, RSI+Volume+MTF",
+  "description": "Binance USDT-M Futures bilgi/sınıflandırma botu (RSI + seviye + hacim sayacı) — Telegram kartları",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "backtest": "node src/backtest.js"
+    "backtest": "node src/backtest.js",
+    "backtest:info": "node src/infoBacktest.js"
   },
   "engines": {
     "node": ">=20"

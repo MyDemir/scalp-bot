@@ -21,8 +21,7 @@
  */
 
 const cfg = require('./config');
-const { roundPx, calcMajorResistance } = require('./levels');
-const { calcEMA } = require('./indicators');
+const { roundPx, calcLevelSet } = require('./levels');
 
 /** Test edilecek kombinasyonlar (aşırı uydurmayı önlemek için küçük tutuldu) */
 function mertVariants() {
@@ -44,27 +43,6 @@ function mertVariants() {
     }
   }
   return out;
-}
-
-const sma = (arr, n) => (arr.length >= n ? arr.slice(-n).reduce((s, v) => s + v, 0) / n : null);
-const ema = (arr, n) => (arr.length >= n ? calcEMA(arr, n) : null);
-
-/**
- * Direnç seviyeleri.
- * @param {number[]} h4Closes    - kapanmış 4h kapanışları (eski → yeni; EMA200'ün oturması için ~600)
- * @param {object[]} dayCandles  - günlük mumlar {high, close} (eski → yeni; devam eden gün dahil olabilir)
- * @returns {{ name: string, value: number }[]}
- */
-function calcLevelSet(h4Closes, dayCandles) {
-  const dCloses = dayCandles.map(d => d.close);
-  const raw = [
-    ['4h MA200',  sma(h4Closes, 200)],
-    ['4h EMA200', ema(h4Closes, 200)],
-    ['1d MA200',  sma(dCloses, 200)],
-    ['1d EMA200', ema(dCloses, 200)],
-    ['Günlük direnç', calcMajorResistance(dayCandles.slice(-30))],
-  ];
-  return raw.filter(([, v]) => Number.isFinite(v) && v > 0).map(([name, v]) => ({ name, value: roundPx(v) }));
 }
 
 /**
