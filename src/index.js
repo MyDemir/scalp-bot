@@ -2,15 +2,11 @@
 
 require('dotenv').config();
 
-const cfg      = require('./config');
 const binance  = require('./binanceClient');
 const telegram = require('./telegram');
 
 /**
- * Giriş noktası.
- *   BOT_MODE (ortam) ya da config.botMode:
- *     'info'   → bilgi / sınıflandırma botu (varsayılan) — src/infoBot.js
- *     'signal' → eski SHORT sinyal botu — src/legacyBot.js
+ * Giriş noktası — bilgi botu (src/infoBot.js).
  *   BOT_PAUSED=1 → makine açık kalır, bot hiçbir bağlantı açmaz (uzun backtest'ler için)
  */
 
@@ -20,8 +16,7 @@ function main() {
     setInterval(() => console.log('[BOT] duraklatıldı (BOT_PAUSED=1)'), 60 * 60 * 1000);
     return Promise.resolve();
   }
-  const mode = String(process.env.BOT_MODE || cfg.botMode || 'info').toLowerCase();
-  return mode === 'signal' ? require('./legacyBot').main() : require('./infoBot').main();
+  return require('./infoBot').main();
 }
 
 // ── Graceful shutdown ──────────────────────────────────────────────────────

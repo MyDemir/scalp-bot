@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Telegram — sinyal gönderimi + komutlar (Node'un yerleşik fetch'i ile, harici kütüphane yok)
+ * Telegram — kart / mesaj gönderimi + komutlar + butonlar (Node'un yerleşik fetch'i ile, harici kütüphane yok)
  *
  * Eskiden node-telegram-bot-api kullanılıyordu: bağımlılık zincirinde 9 güvenlik açığı (2 kritik)
  * vardı ve hız sınırı / yetki kontrolü yoktu.
@@ -17,7 +17,6 @@
 
 require('dotenv').config();
 const cfg = require('./config');
-const db  = require('./db');
 
 const API_BASE = process.env.TELEGRAM_API_BASE || 'https://api.telegram.org';
 const TOKEN    = process.env.TELEGRAM_BOT_TOKEN;
@@ -176,160 +175,10 @@ function takeStats() {
   return s;
 }
 
-// ── Sinyal mesajı ──────────────────────────────────────────────────────────
-
-function bar(filled, total, maxWidth = 10) {
-  const f = Math.max(0, Math.min(maxWidth, Math.round((filled / total) * maxWidth)));
-  return '█'.repeat(f) + '░'.repeat(maxWidth - f);
-}
-
-/**
- * Sinyali kuyruğa alır (beklemez). Sıra, hız sınırı ve 429 tekrarları kuyrukta yönetilir.
- */
-function sendSignalAlert(sig, breakdown) {
-  const regime_icon = sig.regime === 'REVERSAL' ? '✅' : sig.regime === 'NEUTRAL' ? '❓' : '⚠️';
-  const emc_line    = sig.hasEMC
-    ? `\n⚡ <b>EMC</b> — Extreme Momentum Condition (15m RSI 95+)`
-    : '';
-
-  const text = `
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔴 <b>SHORT SİNYALİ</b>  |  Derece: <b>${esc(sig.grade)}</b>  [${sig.score}/100]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💰 <b>$${esc(sig.symbol)}</b>
-📍 Fiyat: <code>${sig.entryPrice}</code>
-🔹 Rejim: <b>${esc(sig.regime)}</b> ${regime_icon}${emc_line}
-
-📊 <b>RSI Analizi:</b>
-  ⏱ 5m  → ${sig.rsi5m?.toFixed(1) ?? '—'}${sig.rsi5m >= 95 ? '  🔥' : sig.rsi5m >= cfg.rsi5mMin ? '  ✅' : ''}
-  ⏱ 15m → ${sig.rsi15m?.toFixed(1) ?? '—'}${sig.rsi15m >= 95 ? '  🔥' : sig.rsi15m >= cfg.rsi15mMin ? '  ✅' : ''}
-  ⏱ 1h  → ${sig.rsi1h?.toFixed(1) ?? '—'}  ✅
-  ⏱ 4h  → ${sig.rsi4h?.toFixed(1) ?? '—'}  ✅
-
-📐 EMA21 uzaklık: <b>${sig.ema21Distance?.toFixed(2)} × ATR</b>  ✅
-${sig.dailyResistance ? `🧱 Günlük direnç: <code>${sig.dailyResistance}</code>` : ''}${sig.dailyEMA200 ? `  |  EMA200: <code>${sig.dailyEMA200}</code>` : ''}
-📦 Volume: <b>${sig.volumeRatio?.toFixed(1)}×</b> ortalama
-📈 CVD: ${sig.cvdDirection === 'NEGATIVE' ? 'Negatife dönüyor ✅' : sig.cvdDirection === 'POSITIVE' ? 'Pozitif ⚠️' : 'Nötr'}
-${sig.oiDeltaPct != null ? `📊 OI Delta: <b>${sig.oiDeltaPct > 0 ? '+' : ''}${sig.oiDeltaPct.toFixed(2)}%</b>` : ''}
-
-🎯 TP-A: <code>${sig.tpA}</code>
-🎯 TP-B: <code>${sig.tpB ?? '—'}</code>
-
-🧠 <b>Skor: ${sig.score}/100</b>
-  RSI şiddeti    ${bar(breakdown.rsi,    25)}  ${breakdown.rsi}/25
-  EMA21 uzaklık  ${bar(breakdown.ema21,  20)}  ${breakdown.ema21}/20
-  Direnç         ${bar(breakdown.resist, 20)}  ${breakdown.resist}/20
-  Volume + CVD   ${bar(breakdown.volume, 15)}  ${breakdown.volume}/15
-  OI delta       ${bar(breakdown.oi,     10)}  ${breakdown.oi}/10
-  Divergence     ${bar(breakdown.diverge,10)}  ${breakdown.diverge}/10
-${breakdown.emcBonus > 0 ? `  ⚡ EMC bonus    +${breakdown.emcBonus}` : ''}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  `.trim();
-
-  enqueue('alert', CHAT_ID, text);
-}
-
 // ── Komutlar ───────────────────────────────────────────────────────────────
 
-const outcomeIcon = o => o === 'WIN' ? '✅' : o === 'LOSS' ? '❌' : o === 'LOSS_THEN_RECOVER' ? '↩️' : o === 'NEUTRAL' ? '➖' : '⏳';
-
-const legacyCommands = {
-  signals() {
-    const signals = db.getRecentSignals(10);
-    if (!signals.length) return 'Henüz sinyal yok.';
-    const lines = signals.map(s => {
-      const r = s.rMultiple != null ? ` | R: ${s.rMultiple.toFixed(2)}` : '';
-      return `${outcomeIcon(s.outcome)} <b>${esc(s.symbol)}</b> [${esc(s.grade)} ${s.score}]${r}`;
-    }).join('\n');
-    return `<b>Son 10 Sinyal:</b>\n${lines}`;
-  },
-
-  stats() {
-    const s = db.getStats();
-    if (!s || !s.total) return 'Henüz sonuçlanmış sinyal yok.';
-    const winRate = ((s.wins / s.total) * 100).toFixed(1);
-    return `
-📊 <b>Genel İstatistik</b>
-Toplam: ${s.total}
-✅ Win: ${s.wins} | ❌ Loss: ${s.losses} | ↩️ Stop sonrası dönüş: ${s.ltr} | ➖ Nötr: ${s.neutrals}
-Win rate: <b>${winRate}%</b>
-TP-B'ye ulaşan: ${s.tpBReached}
-Ort. R: <b>${s.avgR ?? '—'}</b>
-Ort. MFE: ${s.avgMFE ?? '—'}%
-Ort. MAE: ${s.avgMAE ?? '—'}%`.trim();
-  },
-
-  winrate() {
-    const rows = db.getWinrateByGrade();
-    if (!rows.length) return 'Henüz veri yok.';
-    const lines = rows.map(r => `<b>${esc(r.grade)}</b>: ${r.winPct}% win | ${r.total} sinyal | Ort R: ${r.avgR ?? '—'}`).join('\n');
-    return `📈 <b>Dereceye Göre Win Rate:</b>\n${lines}`;
-  },
-
-  regime() {
-    const rows = db.getWinrateByRegime();
-    if (!rows.length) return 'Henüz veri yok.';
-    const lines = rows.map(r => `<b>${esc(r.regime)}</b>: ${r.winPct}% win | ${r.total} sinyal | Ort R: ${r.avgR ?? '—'}`).join('\n');
-    return `🔍 <b>Rejime Göre Win Rate:</b>\n${lines}`;
-  },
-
-  emc() {
-    const rows = db.getEMCStats();
-    if (!rows.length) return 'Henüz veri yok.';
-    const w = rows.find(r => r.hasEMC === 1);
-    const wo = rows.find(r => r.hasEMC === 0);
-    return `
-⚡ <b>EMC (Extreme Momentum Condition) Analizi</b>
-EMC Var:  ${w  ? `${w.winPct}% win | ${w.total} sinyal`   : '—'}
-EMC Yok:  ${wo ? `${wo.winPct}% win | ${wo.total} sinyal` : '—'}`.trim();
-  },
-
-  best() {
-    const rows = db.getBestSymbols();
-    if (!rows.length) return 'Henüz yeterli veri yok.';
-    return `🏆 <b>En Başarılı Coinler:</b>\n` + rows.map((r, i) => `${i + 1}. <b>${esc(r.symbol)}</b>: ${r.winPct}% (${r.total} sinyal)`).join('\n');
-  },
-
-  worst() {
-    const rows = db.getWorstSymbols();
-    if (!rows.length) return 'Henüz yeterli veri yok.';
-    return `⚠️ <b>En Başarısız Coinler:</b>\n` + rows.map((r, i) => `${i + 1}. <b>${esc(r.symbol)}</b>: ${r.winPct}% (${r.total} sinyal)`).join('\n');
-  },
-
-  report() {
-    const s = db.getStats();
-    const rows = db.getWinrateByGrade();
-    if (!s || !s.total) return 'Henüz veri yok.';
-    const winRate  = ((s.wins / s.total) * 100).toFixed(1);
-    const gradeStr = rows.map(r => `  ${esc(r.grade)}: ${r.winPct}% (${r.total})`).join('\n');
-    return `
-📋 <b>Performans Raporu</b>
-
-Toplam sinyal: ${s.total}
-Win rate: <b>${winRate}%</b>
-Ort. R-multiple: <b>${s.avgR ?? '—'}</b>
-
-<b>Dereceye göre:</b>
-${gradeStr}`.trim();
-  },
-
-  help() {
-    return `
-<b>Scalp Sinyal Motoru — Komutlar</b>
-
-/signals  — Son 10 sinyal
-/stats    — Genel istatistik
-/winrate  — Dereceye göre win rate
-/regime   — Rejime göre win rate
-/emc      — EMC analizi
-/best     — En başarılı coinler
-/worst    — En başarısız coinler
-/report   — Performans raporu`.trim();
-  },
-};
-
 // Aktif komut tablosu — bilgi botu setCommands() ile kendi komutlarını koyar
-let commands = { ...legacyCommands };
+let commands = {};
 function setCommands(table) { commands = { ...table }; }
 
 // Buton tıklamaları (callback_query) — bilgi botu onCallback() ile işleyici verir
@@ -461,7 +310,7 @@ function stop() {
 }
 
 module.exports = {
-  start, stop, sendSignalAlert, sendText, sendCard, flush, takeStats, queueLength, esc,
+  start, stop, sendText, sendCard, flush, takeStats, queueLength, esc,
   setCommands, onCallback, isAdmin, editMessage,
   _internal: { handleUpdate, get commands() { return commands; }, queue },
 };

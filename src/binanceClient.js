@@ -91,21 +91,6 @@ function fetch24hTickers() {
 }
 
 /**
- * Tüm sembollerin güncel funding oranı TEK istekte (premiumIndex, weight 10).
- * Eski sürüm sembol başına fundingRate geçmişi çekiyordu (tüm markette 500+ istek).
- * @returns {Map<string, number>} symbol → lastFundingRate (kesir: 0.0001 = %0.01)
- */
-async function fetchFundingRates() {
-  const rows = await call(10, 'premiumIndex', () => restClient.getMarkPrice());
-  const out = new Map();
-  for (const r of Array.isArray(rows) ? rows : [rows]) {
-    const fr = parseFloat(r.lastFundingRate);
-    if (r.symbol && Number.isFinite(fr)) out.set(r.symbol, fr);
-  }
-  return out;
-}
-
-/**
  * Tüm sembollerin funding oranı + bir sonraki funding zamanı (premiumIndex, tek istek, weight 10)
  * @returns {Map<string, {rate:number, next:number|null}>}
  */
@@ -125,11 +110,6 @@ async function fetchOIChange1h(symbol) {
   if (!Array.isArray(rows) || rows.length < 2) return null;
   const a = parseFloat(rows[0].sumOpenInterest), b = parseFloat(rows[rows.length - 1].sumOpenInterest);
   return a > 0 && Number.isFinite(b) ? (b - a) / a * 100 : null;
-}
-
-async function fetchOpenInterest(symbol) {
-  const data = await call(1, `openInterest ${symbol}`, () => restClient.getOpenInterest({ symbol }));
-  return data ? parseFloat(data.openInterest) : null;
 }
 
 // ── Sembol listesi ─────────────────────────────────────────────────────────
@@ -214,8 +194,6 @@ module.exports = {
   fetchKlines,
   fetchExchangeInfo,
   fetch24hTickers,
-  fetchFundingRates,
-  fetchOpenInterest,
   fetchPremium,
   fetchOIChange1h,
   getTradableSymbols,

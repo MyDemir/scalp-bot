@@ -6,8 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "backtest": "node src/backtest.js",
-    "backtest:info": "node src/infoBacktest.js"
+    "backtest": "node src/infoBacktest.js"
   },
   "engines": {
     "node": ">=20"
