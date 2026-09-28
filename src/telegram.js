@@ -95,15 +95,20 @@ async function sendWithPhoto(body, photo) {
   let caption = body.text;
   // Sığmıyorsa "Detaylar" bloğunu sondan satır satır kırp (önemli satırlar başta)
   while (visibleLen(caption) > CAPTION_MAX) {
-    const m = caption.match(/<blockquote expandable>([\s\S]*?)<\/blockquote>\n?/);
-    if (!m) break;
-    const lines = m[1].split('\n');
+    // Önce SON kutu (Ayrıntılar) sondan satır satır kırpılır; boşalınca kaldırılır, sonra bir önceki kutu
+    const open = caption.lastIndexOf('<blockquote expandable>');
+    if (open < 0) break;
+    const close = caption.indexOf('</blockquote>', open);
+    if (close < 0) break;
+    const endTag = close + '</blockquote>'.length;
+    const lines = caption.slice(open + '<blockquote expandable>'.length, close).split('\n');
     // Sondan kırp, ama kutunun sonundaki etiket satırını (#…) koru
     let i = lines.length - 1;
     while (i >= 0 && /^#/.test(lines[i])) i--;
     if (i < 0) lines.length = 0; else lines.splice(i, 1);
-    const repl = lines.length ? `<blockquote expandable>${lines.join('\n')}</blockquote>\n` : '';
-    caption = caption.replace(m[0], () => repl);   // fonksiyon: metindeki "$" işaretleri özel anlam taşımasın
+    const keepTagsOnly = lines.length && lines.every(x => /^#/.test(x)) && caption.slice(0, open).includes('<blockquote expandable>');
+    const repl = lines.length && !(lines.length === 1 && lines[0] === '<b>Ayrıntılar</b>') && !keepTagsOnly ? `<blockquote expandable>${lines.join('\n')}</blockquote>` : '';
+    caption = (caption.slice(0, open) + repl + caption.slice(endTag)).replace(/\n+$/, '');
   }
   if (visibleLen(caption) <= CAPTION_MAX) {
     return apiMultipart('sendPhoto', { ...base, caption, reply_markup: body.reply_markup }, photo);

@@ -60,18 +60,37 @@ altında kalırsa — şart aranmadan kart gelir: `⚠️ Sahte kırılım: 30 g
 Aynı coinde kartlar **#1, #2 …** diye numaralanır; kapanmış 5m RSI 75'in altına inince numara sıfırlanır.
 
 ### Kartın içeriği
-Görünen tek satır: **`🔴🔴🔴 #COINUSDT — RSI`** (⚡ hacim uyarısında `⚡🔴🔴 #COINUSDT — HACİM`) — dairelerin **rengi** son 15 dk fiyat yönü (🟢 yükseliş · 🔴 düşüş),
-**sayısı** derece (kontrol listesi skoru: 1 / 2 / 3). Aşağıdakilerin hepsi dokununca açılan **bilgi kutusunda**
-(kutu 1024 karakteri aşarsa sondan kırpılır, etiketler korunur):
-- Kart no · 15 dk değişim · saat · 🔔 bu kartı doğuran yeni veri · coin etiketi başlıkta (dokununca o coinin tüm kartları)
-- RSI 3m/5m/15m · seviye + mesafe (**⭐ DİPTE**: seviyenin %0.5 altı–%0.3 üstü, ya da **↗ yaklaşıyor**)
-- **EMA21** 3m/5m: fiyatı, fiyata uzaklığı (%) ve ATR cinsinden ayrışma (geri çekilme hedefleri) · destek RSI (1h/4h ≥ 70)
-- **〽️ Negatif tepe** (1m/3m): fiyat eşit ya da daha yüksek tepe yaparken RSI daha düşük tepe — ardışık sayı
-  ("2–3 tepe negatif yapıp çakarsa"). Son tepe 6 mumdan eskiyse gösterilmez. ≥2 ise `#NEGTEPE`.
+Görünen tek satır: **`🔴🔴🔴 #COINUSDT — RSI`** — dairelerin **rengi** son 15 dk fiyat yönü (🟢 yükseliş · 🔴 düşüş),
+**sayısı** derece (kontrol listesi skoru: 1 / 2 / 3). Altında dokununca açılan **iki kutu** var. Bilgisi olmayan satır
+("yok") yazılmaz, aynı bilgi iki kez yazılmaz.
+
+**1) Özet kutusu** — her kartta aynı sırada:
+```
+Kart 1 · ⭐ Dipte · 21:12
+🔔 bu kartı doğuran yeni veri (ör. "RSI 85 üstüne çıktı: 3m 86.1 · 5m 85.4", hacimli mum, sahte kırılım)
+
+Fiyat: 0.33576
+Direnç: 4h MA200 0.33664 (%0.26 kala) ⭐        (fiyat keşfinde: kırılan seviye · sonraki direnç · Fib uzantı)
+
+RSI 3m / 5m / 15m / 1h / 4h                      (alt alta; 🔴 ≥ 85 · 🔴🔴 ≥ 90 · 🔴🔴🔴 ≥ 95)
+
+Kontrol 2/8: ✅ çakışan direnç (4h EMA200) · ✅ EMA21 ayrışma
+Hedef: 3m EMA21 %0.2 · 5m EMA21 %0.2 aşağıda
+Hacimli mum (60 dk): 1 alış · 2 satış             (yalnız varsa)
+Alış − satış (60 dk): +1.2M $
+#DERECE1 #DIPTE #AYRISMA
+```
+**2) Ayrıntılar kutusu** — sağlanmayan kontrol maddeleri (değerleriyle), MACD 5m/15m, Stoch RSI 5m, günlük VWAP,
+üstteki diğer dirençler (en yakın 3), 15 dk / ≥%1.5 hacimli mumlar (varsa), funding, açık pozisyon (1 saat), BTC (1 saat).
+Grafikli kartta açıklama 1024 karakteri aşarsa önce bu kutu sondan kırpılır; etiketler korunur.
+
+**⚡ HACİM kartı** tek kutu: hareket · hacim katı · alış/satış oranı → fiyat → 24 saatlik hacim → RSI (alt alta) → direnç → etiketler.
+
+- **EMA21** 3m/5m: fiyata uzaklığı (%) ve ATR cinsinden ayrışma (geri çekilme hedefleri)
+- **Negatif tepe** (1m/3m): fiyat eşit ya da daha yüksek tepe yaparken RSI daha düşük tepe — ardışık sayı
+  ("2–3 tepe negatif yapıp çakarsa"). Son tepe 6 mumdan eskiyse sayılmaz. ≥2 ise `#NEGTEPE`.
 - **Hacim sayacı** (60 dk ve 15 dk): 1m gövde ≥ %1 / ≥ %1.5 ve hacim ≥ 2× (önceki 20 mum ortalaması);
-  taker alış > %55 → ▲ alım, < %45 → ▼ satış, arası ◆ nötr. Art arda gelen patlama mumları tek patlama sayılır.
-- Taker net akış (USDT) · MACD 5m/15m, Stoch RSI 5m, günlük VWAP ±σ,
-  yakındaki tüm seviyeler, funding + sonraki funding zamanı, OI 1h değişimi, BTC 1h değişimi
+  taker alış > %55 → alım, < %45 → satış, arası nötr. Art arda gelen patlama mumları tek patlama sayılır.
 - Hashtag'ler (dokununca o sınıftaki tüm kartlar listelenir): `#COIN #DERECE1/2/3 #DIPTE/#YAKLASIYOR #HACIM #SERI #SAHTEKIRILIM #FIYATKESFI #NEGTEPE #AYRISMA #TAKIP`
 - Butonlar: 📈 TradingView · 🟡 Binance · ℹ️ Özet (açılır pencere: bu serideki kart sayısı, ilk karttan beri fiyat) · 🔕 1s sustur · ⭐ Takip
 - **Bildirim:** her yeni kart sesli gelir (`/ayarlar` → "Kart sesli" kapatılırsa yalnız 🔴🔴🔴 ve takipteki coinler sesli).

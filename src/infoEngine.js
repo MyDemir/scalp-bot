@@ -463,11 +463,9 @@ function sfpText(e) {
     : `⚠️ Sahte kırılım: ${e.name} ${fpx(e.value)} · ${e.ago} dk önce üstüne çıktı, şimdi altında kapandı`;
 }
 
-/** Fiyat keşfi yeniliği */
-function discoveryText(dc, price, s) {
-  const b = dc.broken, a = dc.above;
-  return `🚀 Fiyat keşfi: ${b.name} ${fpx(b.value)} kırıldı (${pa((price - b.value) / b.value * 100)} aşağıda) · %${s.levelMaxPct} içinde direnç yok`
-    + (a ? ` · en yakın: ${a.name} ${pa((a.value - price) / price * 100)} yukarıda` : ' · üstünde hiç seviye yok');
+/** Fiyat keşfi yeniliği (ayrıntı — kırılan seviye, sonraki direnç, Fib uzantı — kartın gövdesinde) */
+function discoveryText(dc) {
+  return `🚀 Fiyat keşfi: ${dc.broken.name} kırıldı`;
 }
 
 /** Hacimli mum yeniliği. Yön ve renk FİYATTAN (🟢 yükselen · 🔴 düşen mum); alış/satış oranı ayrıca yazılır,
@@ -506,25 +504,20 @@ function createTracker() {
       const out = [];
       const above = RSI_TFS.filter(tf => snap.rsi[tf].v >= s.rsiMin);
       if (!L) {
-        if (snap.rsiOk !== false) out.push(`İlk kart: RSI ${above.join(', ') || '—'} dilimlerinde ${s.rsiMin} üstü${snap.level ? ` · ${snap.level.name} seviyesine ${distTxt(snap.level.dist)}` : ''}`);
-        if (snap.discovery) out.push(discoveryText(snap.discovery, snap.price, s));
+        if (snap.rsiOk !== false) out.push('İlk kart');        // RSI ve direnç zaten kartta ayrı satırlarda
+        if (snap.discovery) out.push(discoveryText(snap.discovery));
         if (trig.burst) out.push(burstText(trig.burst));
         return out;
       }
       if (trig.burst) out.push(burstText(trig.burst));
+      // RSI eşik geçişleri — aynı olay tek satırda: "RSI 85 üstüne çıktı: 3m 86.1 · 5m 85.4"
       const prevAbove = L.above || [];
-      for (const tf of RSI_TFS) {
-        if (above.includes(tf) && !prevAbove.includes(tf)) out.push(`${tf} RSI ${s.rsiMin} üstüne çıktı (${snap.rsi[tf].v.toFixed(1)})`);
-        else if (!above.includes(tf) && prevAbove.includes(tf)) out.push(`${tf} RSI ${s.rsiMin} altına indi (${snap.rsi[tf].v.toFixed(1)})`);
-      }
-      if (s.rsiMin2 > s.rsiMin) {
-        for (const tf of RSI_TFS) {
-          if (snap.rsi[tf].v >= s.rsiMin2 && !(L.above2 || []).includes(tf)) out.push(`${tf} RSI ${s.rsiMin2} üstüne çıktı (${snap.rsi[tf].v.toFixed(1)})`);
-        }
-      }
-      for (const tf of RSI_TFS) {
-        if (snap.rsi[tf].v >= s.strongRsi && !L.strong.includes(tf)) out.push(`${tf} RSI ${s.strongRsi} üstüne çıktı (${snap.rsi[tf].v.toFixed(1)})`);
-      }
+      const f1 = tf => `${tf} ${snap.rsi[tf].v.toFixed(1)}`;
+      const line = (txt, tfs) => { if (tfs.length) out.push(`${txt}: ${tfs.map(f1).join(' · ')}`); };
+      line(`RSI ${s.rsiMin} üstüne çıktı`, RSI_TFS.filter(tf => above.includes(tf) && !prevAbove.includes(tf)));
+      line(`RSI ${s.rsiMin} altına indi`, RSI_TFS.filter(tf => !above.includes(tf) && prevAbove.includes(tf)));
+      if (s.rsiMin2 > s.rsiMin) line(`RSI ${s.rsiMin2} üstüne çıktı`, RSI_TFS.filter(tf => snap.rsi[tf].v >= s.rsiMin2 && !(L.above2 || []).includes(tf)));
+      line(`RSI ${s.strongRsi} üstüne çıktı`, RSI_TFS.filter(tf => snap.rsi[tf].v >= s.strongRsi && !L.strong.includes(tf)));
       const sc = snap.check?.score, psc = L.score;
       if (snap.grade !== (L.grade ?? snap.grade)) {
         out.push(`Derece ${snap.grade > L.grade ? 'yükseldi' : 'düştü'}: ${circles(snap.grade)}${sc != null ? ` (kontrol ${sc}/${snap.check.total})` : ` (${GRADE_TXT[snap.grade]})`}`);
@@ -533,7 +526,7 @@ function createTracker() {
       }
       const dKey = snap.discovery ? lvKey(snap.discovery.broken) : null;
       const discNew = dKey && dKey !== L.discKey;
-      if (discNew) out.push(discoveryText(snap.discovery, snap.price, s));
+      if (discNew) out.push(discoveryText(snap.discovery));
       const key = lvKey(snap.level);
       if (key !== L.levelKey) {
         if (discNew) { /* kırılım fiyat keşfi satırında yazıldı */ } else if (L.level && snap.price > L.level.value * (1 + s.dipAbovePct / 100)) {
