@@ -44,6 +44,16 @@ module.exports = {
     moveAlertPct:  2,      // 0 = kapalı
     moveAlertAll:  true,   // true: TÜM USDT perpetual'lar (hacim filtresi yok) · false: yalnızca izlenen evren
     moveAlertSound: true,  // hareket uyarıları sesli
+    // Grafik (5m mumlar + Ichimoku + hacim + seviye) — kartlara ve ⚡ uyarılara fotoğraf olarak eklenir
+    chart:         true,
+    chartMoves:    true,
+    // Ichimoku — KivancOzbilgic "ICHIMOKU Kinko Hyo by KIVANC" düzeni (5 parametre). Kripto önerisi 1-3-3-6-3
+    // oranında 10/30/30/60/30 (klasik: 9/26/26/52/26). /ayar ichiTenkan 9 … ile değişir.
+    ichiTenkan:    10,
+    ichiKijun:     30,
+    ichiChikou:    30,
+    ichiSenkouB:   60,
+    ichiShift:     30,
   },
 
   // Evrenden hariç tutulan baz varlıklar (stabil coinler) — TAM eşleşme

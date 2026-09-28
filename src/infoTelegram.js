@@ -31,22 +31,24 @@ function normSym(x) {
  * @param {function} p.status    () → durum metni
  * @param {object}   [p.store]   kart geçmişi (cardStore)
  */
-function installInfoTelegram({ telegram, settings, tracker, store = null, getSeries, ctx, status }) {
+function installInfoTelegram({ telegram, settings, tracker, store = null, getSeries, ctx, status, chartFor = null }) {
   const defs = settings.defs;
 
   function menu() {
     const v = settings.get();
-    const lines = defs.map(d => `${d.type === 'bool' ? (v[d.key] ? '✅' : '▫️') : '•'} ${esc(d.label)}: <b>${d.type === 'bool' ? (v[d.key] ? 'açık' : 'kapalı') : v[d.key]}</b>`);
-    const text = `⚙️ <b>Bilgi botu ayarları</b>\n${lines.join('\n')}\n\n<i>− / + ve aç-kapa butonları yalnızca yöneticiler içindir. Değişiklik anında geçerli olur ve kalıcıdır.</i>`;
+    const lines = defs.filter(d => d.menu !== false).map(d => `${d.type === 'bool' ? (v[d.key] ? '✅' : '▫️') : '•'} ${esc(d.label)}: <b>${d.type === 'bool' ? (v[d.key] ? 'açık' : 'kapalı') : v[d.key]}</b>`);
+    const text = `⚙️ <b>Bilgi botu ayarları</b>\n${lines.join('\n')}\n\nIchimoku: ${v.ichiTenkan}/${v.ichiKijun}/${v.ichiChikou}/${v.ichiSenkouB}/${v.ichiShift} (<code>/ayar ichiTenkan 9</code> gibi)
+
+<i>− / + ve aç-kapa butonları yalnızca yöneticiler içindir. Değişiklik anında geçerli olur ve kalıcıdır.</i>`;
     const kb = [];
-    for (const d of defs.filter(x => x.type !== 'bool')) {
+    for (const d of defs.filter(x => x.type !== 'bool' && x.menu !== false)) {
       kb.push([
         { text: '➖', callback_data: `s:${d.key}:-1` },
         { text: `${d.short}: ${v[d.key]}`, callback_data: 'n' },
         { text: '➕', callback_data: `s:${d.key}:1` },
       ]);
     }
-    const bools = defs.filter(x => x.type === 'bool');
+    const bools = defs.filter(x => x.type === 'bool' && x.menu !== false);
     for (let i = 0; i < bools.length; i += 2) {
       kb.push(bools.slice(i, i + 2).map(d => ({ text: `${v[d.key] ? '✅' : '▫️'} ${d.short}`, callback_data: `t:${d.key}` })));
     }
@@ -138,7 +140,9 @@ Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesin
         news: [`Anlık durum (kart değil) · şart: ${snap.ok ? 'sağlanıyor ✅' : `sağlanmıyor (${snap.fails.join(', ')})`}`],
         tags: [`#${sym}`], followed: settings.isFollowed(sym),
       };
-      return formatCard(card, s, { now: Date.now() });
+      const out = formatCard(card, s, { now: Date.now() });
+      const photo = chartFor ? chartFor(sym, snap.level) : null;
+      return photo ? { ...out, photo } : out;
     },
 
     sustur: adminOnly((args) => {

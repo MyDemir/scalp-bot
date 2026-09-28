@@ -25,6 +25,7 @@ const eng      = require('./infoEngine');
 const { formatCard, formatMove } = require('./infoCard');
 const { compact } = require('./infoStats');
 const { createCardStore } = require('./cardStore');
+const chart = require('./chart');
 const { createSettings } = require('./infoSettings');
 const { installInfoTelegram } = require('./infoTelegram');
 
@@ -93,8 +94,11 @@ async function emitCard(card) {
   stats.cardsToday++;
   const oi = await oiChange(card.symbol);
   if (oi != null) card.oi = { changePct: oi };
-  const { text, keyboard } = formatCard(card, settings.get(), { now: Date.now() });
-  telegram.sendCard({ text, keyboard, silent: card.silent });
+  const s = settings.get();
+  const { text, keyboard } = formatCard(card, s, { now: Date.now() });
+  const sr = series.get(card.symbol);
+  const photo = s.chart && sr ? chart.renderChart({ symbol: card.symbol, candles: chart.candlesFromSeries(sr), level: card.snap.level, ichi: ichiOf(s), subtitle: `Kart ${card.seq}` }) : null;
+  telegram.sendCard({ text, keyboard, silent: card.silent, photo });
   store?.add({ id: card.id, kind: 'card', symbol: card.symbol, t: card.t, seq: card.seq, price: card.price, data: { ...compact(card), bursts: undefined, fwd: undefined } });
   const lv = card.snap.level;
   console.log(`[KART] ${card.symbol} #${card.seq} derece ${card.grade} · RSI ${card.snap.hits}/3 · ${lv ? `${lv.name} ${lv.dist.toFixed(2)}% ${lv.zone}` : 'seviye yok'} · ${card.silent ? 'sessiz' : 'SESLİ'} · ${card.news.join(' | ')}`);
@@ -151,7 +155,29 @@ function checkMove(symbol, c) {
   if (L.vols.length > 20) L.vols.shift();
 }
 
+/** Ayarlardaki Ichimoku parametreleri */
+function ichiOf(s) {
+  return { tenkan: s.ichiTenkan, kijun: s.ichiKijun, chikou: s.ichiChikou, senkouB: s.ichiSenkouB, shift: s.ichiShift };
+}
+
+/** ⚡ uyarı grafiği için 5m mumlar: izlenen coinde bellekten, değilse REST'ten (tek istek) */
+async function moveCandles(sym) {
+  const sr = series.get(sym);
+  if (sr && sr.count('5m') >= 60) return chart.candlesFromSeries(sr);
+  try {
+    const raw = await Promise.race([binance.fetchKlines(sym, '5m', 250), new Promise(r => setTimeout(() => r(null), 5000))]);
+    return raw ? raw.map(k => normKline(k)) : null;
+  } catch { return null; }
+}
+
 function emitMove(m) {
+  const prev = chains.get(m.symbol) || Promise.resolve();
+  const next = prev.then(() => emitMoveNow(m)).catch(err => console.error(`[HAREKET] ${m.symbol} gönderilemedi:`, err?.message || err));
+  chains.set(m.symbol, next);
+  next.then(() => { if (chains.get(m.symbol) === next) chains.delete(m.symbol); });
+}
+
+async function emitMoveNow(m) {
   const s = settings.get();
   const sr = series.get(m.symbol);
   if (sr && sr.ready() && !busy.has(m.symbol)) {
@@ -163,7 +189,12 @@ function emitMove(m) {
   rollDay();
   stats.movesToday++;
   const { text, keyboard } = formatMove(m, s);
-  telegram.sendCard({ text, keyboard, silent: !(s.moveAlertSound || m.followed) });
+  let photo = null;
+  if (s.chartMoves) {
+    const cs = await moveCandles(m.symbol);
+    if (cs) photo = chart.renderChart({ symbol: m.symbol, candles: cs, level: m.snap?.level ?? null, ichi: ichiOf(s), subtitle: `1 dk ${m.pct > 0 ? '+' : '−'}%${Math.abs(m.pct).toFixed(2)}` });
+  }
+  telegram.sendCard({ text, keyboard, silent: !(s.moveAlertSound || m.followed), photo });
   store?.add({
     id: `${m.symbol}-${m.t}-move`, kind: 'move', symbol: m.symbol, t: m.t, price: m.to,
     data: { grade: m.grade, movePct: +m.pct.toFixed(3), volX: m.volX != null ? +m.volX.toFixed(2) : null, taker: m.taker != null ? Math.round(m.taker) : null, vol24: m.vol24, hits: m.snap?.hits ?? null },
@@ -370,7 +401,11 @@ async function main() {
 
   store = createCardStore();
   await telegram.start();
-  installInfoTelegram({ telegram, settings, tracker, store, getSeries: sym => series.get(sym), ctx: () => ctx, status: statusText });
+  installInfoTelegram({ telegram, settings, tracker, store, getSeries: sym => series.get(sym), ctx: () => ctx, status: statusText, chartFor: (sym, level) => {
+    const sr = series.get(sym), s0 = settings.get();
+    return sr && s0.chart ? chart.renderChart({ symbol: sym, candles: chart.candlesFromSeries(sr), level, ichi: ichiOf(s0), subtitle: 'Anlık' }) : null;
+  } });
+  console.log(`[GRAFİK] ${chart.available() ? 'açık (5m + Ichimoku)' : 'KAPALI — @napi-rs/canvas yüklenemedi, kartlar grafiksiz gider'}`);
 
   console.log('Evren belirleniyor...');
   const { list } = await refreshUniverse(true);

@@ -44,6 +44,13 @@ const DEFS = [
   { key: 'moveAlertPct', short: 'Hareket %', label: 'Hareket uyarısı: 1 dk ≥ % (0 = kapalı)', type: 'num', min: 0, max: 20, step: 0.5 },
   { key: 'moveAlertAll', short: 'Hrk. tüm pariteler', label: 'Hareket uyarısı: tüm pariteler', type: 'bool' },
   { key: 'moveAlertSound', short: 'Hrk. sesli', label: 'Hareket uyarısı sesli', type: 'bool' },
+  { key: 'chart', short: 'Grafik', label: 'Kartlarda grafik', type: 'bool' },
+  { key: 'chartMoves', short: 'Grafik ⚡', label: '⚡ uyarılarda grafik', type: 'bool' },
+  { key: 'ichiTenkan', short: 'Tenkan', label: 'Ichimoku Tenkan', type: 'int', min: 2, max: 100, step: 1, menu: false },
+  { key: 'ichiKijun', short: 'Kijun', label: 'Ichimoku Kijun', type: 'int', min: 2, max: 200, step: 1, menu: false },
+  { key: 'ichiChikou', short: 'Chikou', label: 'Ichimoku Chikou kaydırma', type: 'int', min: 1, max: 200, step: 1, menu: false },
+  { key: 'ichiSenkouB', short: 'Senkou B', label: 'Ichimoku Senkou B', type: 'int', min: 2, max: 300, step: 1, menu: false },
+  { key: 'ichiShift', short: 'Kaydırma', label: 'Ichimoku bulut kaydırma', type: 'int', min: 1, max: 200, step: 1, menu: false },
   { key: 'minVolumeM', short: 'Hacim M$',    label: 'Evren: 24s hacim ≥ (milyon $)', type: 'num', min: 0, max: 500, step: 1 },
 ];
 const DEF_BY_KEY = Object.fromEntries(DEFS.map(d => [d.key, d]));

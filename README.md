@@ -58,6 +58,15 @@ Aynı coinde kartlar **#1, #2 …** diye numaralanır; kapanmış 5m RSI 75'in a
 - Butonlar: 📈 TradingView · 🟡 Binance · ℹ️ Özet (açılır pencere: bu serideki kart sayısı, ilk karttan beri fiyat) · 🔕 1s sustur · ⭐ Takip
 - **Sesli bildirim** yalnızca 🔴🔴🔴 kartlar ve takipteki coinler; diğerleri sessiz gelir.
 
+### Grafik
+Kartlar ve ⚡ uyarılar **grafikli** gelir (fotoğraf + açıklama): son ~8 saatin 5m mumları, hacim, direnç seviyesi
+(kesikli turuncu), son fiyat etiketi ve **Ichimoku** — KivancOzbilgic'in "ICHIMOKU Kinko Hyo by KIVANC" düzeni:
+Tenkan (kırmızı), Kijun (mavi), Chikou (erik), Senkou A (yeşil), Senkou B (mor), bulut. Varsayılan periyotlar
+Kıvanç'ın kripto önerisi 10/30/30/60/30 (1-3-3-6-3 oranı); klasik 9/26/26/52/26 için `/ayar ichiTenkan 9` vb.
+Evren dışı pariteler için grafik verisi o an REST'ten çekilir. Açıklama Telegram'ın 1024 karakter sınırını
+aşarsa açılır "Detaylar" bloğu çıkarılır. Kapatmak: `/ayarlar` → Grafik / Grafik ⚡. Çizim `@napi-rs/canvas`
+ile yapılır, yazı tipi repo içinde (`src/assets/fonts`, DejaVu); kütüphane yüklenemezse kartlar grafiksiz gider.
+
 ### ⚡ 1 dakikalık hareket uyarısı
 **Tüm** USDT perpetual paritelerde (hacim filtresi yok, stabil coinler hariç) 1m mum kapanışı, bir önceki
 1m kapanışa göre **≥ %2** değişirse ayrı bir ⚡ uyarı gelir: yön, eski → yeni fiyat, hacim katı (önceki 20 dk
@@ -129,6 +138,8 @@ src/
 ├── infoBacktest.js   # Bilgi botu backtest'i
 ├── levels.js         # 4h/1d MA200 · EMA200 · 30 günlük tepe
 ├── ta.js             # RSI/EMA/ATR/MACD/Stoch RSI/VWAP
+├── chart.js          # Grafik PNG: 5m mumlar + Ichimoku (Kıvanç düzeni) + hacim + seviye
+├── assets/fonts/     # Grafik yazı tipi (DejaVu, lisansı yanında)
 ├── binanceClient.js  # REST (weight bütçeli kuyruk) + sembol/hacim listesi + funding/OI
 ├── streamClient.js   # Combined stream WS (≤800 stream/bağlantı, watchdog, dinamik abonelik)
 ├── telegram.js       # Gönderim kuyruğu (20 msj/dk, 429 tekrar) + komut/buton dinleme

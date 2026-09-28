@@ -58,6 +58,49 @@ async function api(method, body, timeoutMs = 15_000) {
   return data.result;
 }
 
+/** Dosyalı istek (sendPhoto) — Node'un yerleşik FormData/Blob'u ile, harici kütüphane yok */
+async function apiMultipart(method, fields, photo, timeoutMs = 30_000) {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) {
+    if (v == null) continue;
+    fd.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
+  }
+  fd.append('photo', new Blob([photo], { type: 'image/png' }), 'grafik.png');
+  let res;
+  try {
+    res = await fetch(`${API_BASE}/bot${TOKEN}/${method}`, { method: 'POST', body: fd, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (err) {
+    throw new TelegramError(`ağ hatası (${err.name === 'TimeoutError' ? 'zaman aşımı' : err.cause?.code || err.message})`, 0);
+  }
+  const data = await res.json().catch(() => ({ ok: false, description: `HTTP ${res.status}` }));
+  if (!data.ok) throw new TelegramError(data.description || `HTTP ${res.status}`, data.error_code ?? res.status, data.parameters?.retry_after);
+  return data.result;
+}
+
+// Fotoğraf açıklaması (caption) sınırı: görünen metin 1024 karakter
+const CAPTION_MAX = 1024;
+// multipart gönderimde satır sonları \r\n'e çevrilir → her satır sonu 2 karakter sayılır (güvenli taraf)
+const visibleLen = html => {
+  const t = html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  return t.length + (t.match(/\n/g) || []).length;
+};
+
+/**
+ * Grafikli mesaj: metin açıklamaya sığıyorsa tek mesaj (fotoğraf + açıklama + butonlar).
+ * Sığmıyorsa önce açılır "Detaylar" bloğu çıkarılır; yine sığmıyorsa fotoğraf yalnız başlıkla,
+ * tam metin + butonlar ayrı mesajla gider.
+ */
+async function sendWithPhoto(body, photo) {
+  const base = { chat_id: body.chat_id, parse_mode: 'HTML', disable_notification: body.disable_notification };
+  let caption = body.text;
+  if (visibleLen(caption) > CAPTION_MAX) caption = caption.replace(/<blockquote expandable>[\s\S]*?<\/blockquote>\n?/, '');
+  if (visibleLen(caption) <= CAPTION_MAX) {
+    return apiMultipart('sendPhoto', { ...base, caption, reply_markup: body.reply_markup }, photo);
+  }
+  await apiMultipart('sendPhoto', { ...base, caption: body.text.split('\n')[0] }, photo);
+  return api('sendMessage', body);
+}
+
 // ── Gönderim kuyruğu ───────────────────────────────────────────────────────
 
 const queue = [];   // { kind: 'alert'|'reply'|'card', chatId, text, attempts, keyboard?, silent?, createdAt }
@@ -103,7 +146,8 @@ async function pump() {
         } else if (item.keyboard) {
           body.reply_markup = { inline_keyboard: item.keyboard };
         }
-        await api('sendMessage', body);
+        if (item.photo) await sendWithPhoto(body, item.photo);
+        else await api('sendMessage', body);
         stats.sent++;
         lastSentAt = Date.now();
       } catch (err) {
@@ -114,6 +158,13 @@ async function pump() {
           console.warn(`[TELEGRAM] 429 hız sınırı — ${sec} sn sonra tekrar denenecek (kuyrukta ${queue.length + 1})`);
           queue.unshift(item);
           await sleep(sec * 1000);
+          continue;
+        }
+        if (item.photo && err.code >= 400 && err.code < 500) {
+          // Grafik reddedildiyse (boyut/biçim) kartı kaybetme — metin olarak tekrar dene
+          console.warn(`[TELEGRAM] Grafikli gönderim reddedildi (${err.code}: ${err.message}) — grafiksiz tekrar deneniyor`);
+          item.photo = null;
+          queue.unshift(item);
           continue;
         }
         if (err.code >= 400 && err.code < 500) {
@@ -146,8 +197,8 @@ function sendText(text, keyboard = null) {
  * Bilgi kartı: kendi mesajı olarak gider (birleştirilmez), butonlu, istenirse sessiz.
  * 2 dakikadan uzun kuyrukta kalırsa başına "gecikmeli" satırı eklenir.
  */
-function sendCard({ text, keyboard, silent = false }) {
-  enqueue('card', CHAT_ID, text, { keyboard, silent });
+function sendCard({ text, keyboard, silent = false, photo = null }) {
+  enqueue('card', CHAT_ID, text, { keyboard, silent, photo });
 }
 
 function queueLength() { return queue.length; }
@@ -254,7 +305,7 @@ async function handleUpdate(u) {
   try { reply = await handler((rest || '').trim(), msg); }
   catch (err) { console.error(`[TELEGRAM] /${cmd} hatası:`, err.message); reply = 'Komut çalıştırılırken hata oluştu.'; }
   if (reply == null) return;
-  if (typeof reply === 'object') enqueue('reply', msg.chat.id, reply.text, reply.keyboard ? { keyboard: reply.keyboard } : {});
+  if (typeof reply === 'object') enqueue('reply', msg.chat.id, reply.text, { ...(reply.keyboard ? { keyboard: reply.keyboard } : {}), ...(reply.photo ? { photo: reply.photo } : {}) });
   else enqueue('reply', msg.chat.id, reply);
 }
 

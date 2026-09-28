@@ -12,12 +12,13 @@
     "node": ">=20"
   },
   "dependencies": {
-    "binance": "^2.9.1",
-    "technicalindicators": "^3.1.0",
-    "ws": "^7.5.10",
+    "@napi-rs/canvas": "^1.0.9",
     "better-sqlite3": "^11.1.2",
+    "binance": "^2.9.1",
     "dotenv": "^16.4.5",
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^3.3.2",
+    "technicalindicators": "^3.1.0",
+    "ws": "^7.5.10"
   },
   "license": "MIT"
 }
