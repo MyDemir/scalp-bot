@@ -17,6 +17,8 @@
  *   node src/infoBacktest.js --symbol ETHUSDT,SOLUSDT --days 60 --ornek 5
  *   node src/infoBacktest.js --ayar rsiMin=95,minTFs=3,levelMaxPct=2   # ayar dene
  *   node src/infoBacktest.js --canli-ayar            # /data/info-settings.json'daki (Telegram'dan değiştirilmiş) ayarlarla
+ *   node src/infoBacktest.js --kanit --days 1        # KANIT modu: RSI ≥ 70, sıfırlama 60 → çok kart; motorun çalıştığını
+ *                                                    # görmek için (yalnızca bu backtest'te; canlı ayarlara dokunmaz)
  *   --telegram → bitince özet + 2 örnek kart gruba gönderilir
  *
  * Çıktı: backtest-results/info-<zaman>.json + konsol özeti
@@ -35,6 +37,7 @@ const { createSettings } = require('./infoSettings');
 const { withRetry } = require('./binanceClient');
 
 const DAY = 86_400_000;
+const KANIT = { rsiMin: 70, resetRsi: 60 };   // --kanit
 const PAGE = 1000;
 const REQ_DELAY_MS = Number(process.env.BACKTEST_REQ_DELAY_MS ?? 350);
 const SEED_TFS = ['1d', '4h', '1h', '15m', '5m', '3m'];
@@ -194,8 +197,15 @@ async function main() {
   const DAYS = Number(a.days ?? 30);
   if (!(DAYS >= 1 && DAYS <= 365)) throw new Error(`Geçersiz --days: ${a.days}`);
 
-  const settings = createSettings({ persist: Boolean(a['canli-ayar']) });
-  settings.load();
+  // --canli-ayar: canlı ayar dosyasını yalnızca OKU; backtest'teki --kanit / --ayar değişiklikleri
+  // o dosyaya YAZILMAZ (canlı bot etkilenmez)
+  let base = cfg.info;
+  if (a['canli-ayar']) { const live = createSettings(); live.load(); base = { ...live.get() }; }
+  const settings = createSettings({ persist: false, defaults: base });
+  // Kanıt modu: yalnızca bu backtest çalışmasında eşikleri düşür (canlı bot / dosya etkilenmez)
+  if (a.kanit) {
+    for (const [k, v] of Object.entries(KANIT)) settings.set(k, v);
+  }
   if (a.ayar) {
     for (const pair of String(a.ayar).split(',')) {
       const [k, v] = pair.split('=');
@@ -222,7 +232,7 @@ async function main() {
   const p = { start, end, days: DAYS, symbols, universe };
 
   console.log('\n════════════════════════════════════════════');
-  console.log('  Bilgi Botu — Backtest');
+  console.log(`  Bilgi Botu — Backtest${a.kanit ? '  [KANIT MODU: RSI ≥ 70, sıfırlama 60]' : ''}`);
   console.log(`  Semboller : ${symbols.length} (${universe}) — ${symbols.slice(0, 10).join(', ')}${symbols.length > 10 ? ' …' : ''}`);
   console.log(`  Dönem     : ${fmtDate(start)} → ${fmtDate(end)} UTC`);
   console.log(`  Şart      : 3m/5m/15m RSI ≥ ${s.rsiMin} (${s.minTFs}/3)${s.levelRequired ? ` + üstte ≤ %${s.levelMaxPct} seviye` : ''}${s.sepRequired ? ' + ayrışma' : ''}${s.confRequired ? ' + destek' : ''}${s.macdRequired ? ' + MACD' : ''}`);

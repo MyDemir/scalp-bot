@@ -9,23 +9,19 @@
 ## Bilgi Botu
 
 ### Ne izler
-Tüm USDT perpetual pariteler, **24s hacim ≥ 5 milyon $** (stabil coinler hariç). Liste saatte bir
+Tüm USDT perpetual pariteler, **24s hacim ≥ 3 milyon $** (stabil coinler hariç). Liste saatte bir
 yenilenir: yeni coinler eklenir, hacmi eşiğin %80'inin altına düşenler çıkar.
 
 Veri: coin başına **tek WebSocket akışı** (1m kline, yalnızca kapanışlar işlenir). 3m/5m/15m/1h/4h/1d
 mumları botun kendisi 1m'lerden üretir (`src/series.js`) → tüm market tek bağlantıya sığar.
 Başlangıçta her zaman dilimi REST'ten yüklenir (birkaç dakika; hazır olan coin hemen değerlendirilir).
 
-> ⚠️ **Şu an kanıt/test eşikleri açık:** RSI ≥ **70** (normal 90), numara sıfırlama 5m RSI < **60** (normal 75)
-> — botun canlıda kart ürettiğini görmek için. Çok kart gelir. Normale dönmek için Telegram'da:
-> `/ayar rsiMin 90` ve `/ayar resetRsi 75` (kalıcıdır).
-
 ### Kart ne zaman gelir
 Kontrol anı: **3m / 5m / 15m mum kapanışları** + **hacimli her 1m mum kapanışı**. Kart için:
 
 | Şart | Varsayılan |
 |---|---|
-| 3m/5m/15m RSI | en az **2/3** dilimde **≥ 90** (şu an test için 70; kapanmamış dilimde devam eden mumla — kartta `~`) |
+| 3m/5m/15m RSI | en az **2/3** dilimde **≥ 90** (kapanmamış dilimde devam eden mumla hesaplanır) |
 | Seviye (zorunlu) | fiyatın üstünde en fazla **%2.5** uzakta bir seviye: 4h MA200 · 4h EMA200 · 1d MA200 · 1d EMA200 · 30 günlük tepe (son 30 **kapanmış** günün en yüksek 3 tepesinin ortalaması) |
 | Yeni veri | önceki karttan bu yana: RSI dilim sayısı değişti · bir dilim 95'i geçti · hacimli mum · seviye/bölge değişti (DİPTE'ye girdi, seviye kırıldı) · MACD ya da Stoch RSI kesişimi · 1m/3m negatif tepe arttı. **Yeni veri yoksa kart gitmez.** |
 
@@ -92,11 +88,13 @@ node src/infoBacktest.js                                  # tüm evren, son 30 g
 node src/infoBacktest.js --symbol ETH,SOL --days 60 --ornek 5
 node src/infoBacktest.js --ayar rsiMin=95,minTFs=3        # başka ayarla dene
 node src/infoBacktest.js --canli-ayar --telegram          # Telegram'dan değiştirilmiş ayarlarla, sonucu gruba gönder
+node src/infoBacktest.js --kanit --days 1 --max-coins 50  # kanıt modu (RSI 70) — yalnızca backtest
 ```
 Çıktı: kart sayısı (günlük), seri sayısı, sesli/sessiz, Telegram yükü (en yoğun dakika/saat), sınıf
 tablosu (RSI 2/3–3/3, DİPTE/yaklaşıyor, hacim tetikli, seri içi, ayrışma, destek, negatif tepe), listedeki
-coinlerde 1 dk ≥ %2 hareket sayısı ve `backtest-results/info-*.json`. Varsayılan ayarlar canlıyla aynıdır
-(şu an kanıt eşikleri); normal eşiklerle denemek için `--ayar rsiMin=90,resetRsi=75`.
+coinlerde 1 dk ≥ %2 hareket sayısı ve `backtest-results/info-*.json`. Varsayılan ayarlar canlıyla aynıdır.
+**Kanıt modu:** `--kanit` yalnızca o backtest çalışmasında RSI eşiğini 70'e, sıfırlamayı 60'a indirir (çok kart →
+motorun çalıştığı görülür); canlı bota ve ayar dosyasına dokunmaz. `--canli-ayar` ayar dosyasını yalnızca okur.
 Süre: coin başına ~`gün × 0.7` sn veri çekme (30 gün ≈ 20–25 sn/coin).
 
 ### Duraklatma
