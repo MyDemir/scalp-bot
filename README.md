@@ -49,7 +49,7 @@ Seviye kırılırsa (fiyat seviyenin %0.3'ten fazla üstünde) o seviye sayılma
 Aynı coinde kartlar **#1, #2 …** diye numaralanır; kapanmış 5m RSI 75'in altına inince numara sıfırlanır.
 
 ### Kartın içeriği
-Görünen tek satır: **`🔴🔴🔴 #COINUSDT`** — dairelerin **rengi** son 15 dk fiyat yönü (🟢 yükseliş · 🔴 düşüş),
+Görünen tek satır: **`🔴🔴🔴 #COINUSDT — RSI`** (⚡ hacim uyarısında `⚡🔴🔴 #COINUSDT — HACİM`) — dairelerin **rengi** son 15 dk fiyat yönü (🟢 yükseliş · 🔴 düşüş),
 **sayısı** derece (kontrol listesi skoru: 1 / 2 / 3). Aşağıdakilerin hepsi dokununca açılan **bilgi kutusunda**
 (kutu 1024 karakteri aşarsa sondan kırpılır, etiketler korunur):
 - Kart no · 15 dk değişim · saat · 🔔 bu kartı doğuran yeni veri · coin etiketi başlıkta (dokununca o coinin tüm kartları)

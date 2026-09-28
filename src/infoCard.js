@@ -84,11 +84,11 @@ function formatCard(card, s, opt = {}) {
   const dip = snap.level?.zone === 'dip';
   const L = [];
   if (opt.header) L.push(opt.header);
-  // Görünen tek satır: daire RENGİ = son 15 dk fiyat yönü (🟢 yükseliş · 🔴 düşüş), daire SAYISI = derece (kontrol listesi skoru).
+  // Görünen tek satır (tür başlıkta: "— RSI"): daire RENGİ = son 15 dk fiyat yönü (🟢 yükseliş · 🔴 düşüş), daire SAYISI = derece (kontrol listesi skoru).
   // Diğer her şey dokununca açılan bilgi kutusunda.
   L.push(card.seq === '–'
     ? `📋 <b>#${esc(sym)}</b> · Anlık durum`
-    : `${circles(snap.grade ?? 0, dirColor(snap.chg))} <b>#${esc(sym)}</b>`);
+    : `${circles(snap.grade ?? 0, dirColor(snap.chg))} <b>#${esc(sym)} — RSI</b>`);
 
   // Bilgi kutusu — önem sırasıyla (fotoğraf açıklaması 1024 karaktere sığmazsa sondan kırpılır; etiketler korunur)
   const B = [];
@@ -166,7 +166,7 @@ function formatMove(m, s) {
   const up = m.pct > 0;
   // Görünen tek satır: ⚡ + daireler (renk = yön, sayı = hacim derecesi) + coin. Gerisi bilgi kutusunda;
   // kapalı kutuda görünen ilk iki satır: hareket · hacim katı · alış/satış oranı, sonra fiyat.
-  const head = `⚡${circles(m.grade || 1, up ? 'green' : 'red')} <b>#${esc(m.symbol)}</b>`;
+  const head = `⚡${circles(m.grade || 1, up ? 'green' : 'red')} <b>#${esc(m.symbol)} — HACİM</b>`;
   const L = [];
   L.push([`${up ? '▲' : '▼'} <b>${ps(m.pct)}</b> (1 dk)`,
     m.volX != null ? `hacim ${m.volX.toFixed(1)} kat` : null,
