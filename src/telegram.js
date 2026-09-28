@@ -177,8 +177,8 @@ function sendSignalAlert(sig, breakdown) {
 🔹 Rejim: <b>${esc(sig.regime)}</b> ${regime_icon}${emc_line}
 
 📊 <b>RSI Analizi:</b>
-  ⏱ 5m  → ${sig.rsi5m?.toFixed(1) ?? '—'}${sig.rsi5m >= 95 ? '  🔥' : sig.rsi5m >= 90 ? '  ✅' : ''}
-  ⏱ 15m → ${sig.rsi15m?.toFixed(1) ?? '—'}${sig.rsi15m >= 95 ? '  🔥' : sig.rsi15m >= 90 ? '  ✅' : ''}
+  ⏱ 5m  → ${sig.rsi5m?.toFixed(1) ?? '—'}${sig.rsi5m >= 95 ? '  🔥' : sig.rsi5m >= cfg.rsi5mMin ? '  ✅' : ''}
+  ⏱ 15m → ${sig.rsi15m?.toFixed(1) ?? '—'}${sig.rsi15m >= 95 ? '  🔥' : sig.rsi15m >= cfg.rsi15mMin ? '  ✅' : ''}
   ⏱ 1h  → ${sig.rsi1h?.toFixed(1) ?? '—'}  ✅
   ⏱ 4h  → ${sig.rsi4h?.toFixed(1) ?? '—'}  ✅
 

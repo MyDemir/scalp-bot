@@ -12,7 +12,7 @@
  *   Deterministic bir "kesin giriş" değil, ek bir momentum sinyalidir.
  *
  * Giriş tetikleyicisi (trigger) — rsiLow/rsiHigh kapıları buna göre çalışır:
- *   current (canlı, varsayılan) : max(5m, 15m) RSI  cfg.rsiEntryMin–cfg.rsiEntryMax
+ *   current (canlı, varsayılan) : 5m RSI ≥ cfg.rsi5mMin VE 15m RSI ≥ cfg.rsi15mMin, max(5m,15m) ≤ cfg.rsiEntryMax
  *   plan    (yalnızca backtest) : max(3m, 5m)  RSI  cfg.planTrigger.rsiMin–rsiMax, giriş TF 3m
  *   plan5m  (yalnızca backtest) : planın RSI tetikleyicisi, giriş TF 5m (tetikleyici etkisini ayırmak için)
  *   Tetikleyici verilmezse "current" kullanılır → canlı bot davranışı değişmez.
@@ -29,9 +29,19 @@ const cfg = require('./config');
 
 /** Tetikleyici tanımları — eşikler çağrı anında cfg'den okunur */
 function getTriggers() {
-  const mk = (key, t) => ({ key, ...t, tfLabel: t.rsiTFs.join('/'), label: `${t.rsiTFs.join('/')} RSI ${t.rsiMin}–${t.rsiMax}` });
+  const mk = (key, t) => ({
+    key, ...t, tfLabel: t.rsiTFs.join('/'),
+    label: t.rsiMins
+      ? `${Object.entries(t.rsiMins).map(([tf, m]) => `${tf} RSI ≥ ${m}`).join(' + ')} (≤ ${t.rsiMax})`
+      : `${t.rsiTFs.join('/')} RSI ${t.rsiMin}–${t.rsiMax}`,
+  });
   return {
-    current: mk('current', { rsiTFs: ['5m', '15m'], entryTF: '5m', rsiMin: cfg.rsiEntryMin, rsiMax: cfg.rsiEntryMax }),
+    // rsiMins: her TF kendi eşiğini AYRI AYRI geçmeli (VE). rsiMin yalnızca rapor/geri uyumluluk için.
+    current: mk('current', {
+      rsiTFs: ['5m', '15m'], entryTF: '5m',
+      rsiMins: { '5m': cfg.rsi5mMin, '15m': cfg.rsi15mMin },
+      rsiMin: Math.min(cfg.rsi5mMin, cfg.rsi15mMin), rsiMax: cfg.rsiEntryMax,
+    }),
     // Planın RSI tetikleyicisi + mevcut 5m giriş (EMA21/ATR/TP 5m) → yalnızca tetikleyici farkını ölçer
     plan5m:  mk('plan5m',  { ...cfg.planTrigger, entryTF: '5m' }),
     plan:    mk('plan',    { ...cfg.planTrigger }),
@@ -39,8 +49,16 @@ function getTriggers() {
 }
 const defaultTrigger = () => getTriggers().current;
 
-/** Tetikleyici RSI'ı: rsiTFs içindeki en yüksek RSI */
+/** Tetikleyici RSI'ı: rsiTFs içindeki en yüksek RSI (skor ve üst sınır bununla) */
 const primaryRSI = (p, t) => Math.max(...t.rsiTFs.map(tf => p['rsi' + tf] || 0));
+
+/** Eşiğin altında kalan TF'ler: [[tf, rsi, min], ...] — rsiMins yoksa max(RSI) < rsiMin kuralı */
+function rsiShortfalls(p, t) {
+  if (!t.rsiMins) return primaryRSI(p, t) < t.rsiMin ? [[t.tfLabel, primaryRSI(p, t), t.rsiMin]] : [];
+  return Object.entries(t.rsiMins)
+    .filter(([tf, m]) => !(p['rsi' + tf] >= m))
+    .map(([tf, m]) => [tf, p['rsi' + tf], m]);
+}
 
 // Sıra önemlidir: checkGates ilk takılanı raporlar (canlı loglar ve heartbeat bu metni sayar)
 const GATES = [
@@ -70,9 +88,13 @@ const GATES = [
   },
   {
     key:    'rsiLow',
-    label:  t => `${t.tfLabel} RSI < ${t.rsiMin}`,
-    fails:  (p, t) => primaryRSI(p, t) < t.rsiMin,
-    reason: (p, t) => `${t.tfLabel} RSI yetersiz (max: ${primaryRSI(p, t).toFixed(1)} < ${t.rsiMin})`,
+    label:  t => (t.rsiMins
+      ? Object.entries(t.rsiMins).map(([tf, m]) => `${tf} RSI < ${m}`).join(' veya ')
+      : `${t.tfLabel} RSI < ${t.rsiMin}`),
+    fails:  (p, t) => rsiShortfalls(p, t).length > 0,
+    reason: (p, t) => (t.rsiMins
+      ? `${t.tfLabel} RSI yetersiz (${rsiShortfalls(p, t).map(([tf, v, m]) => `${tf} ${v != null ? v.toFixed(1) : '—'} < ${m}`).join(', ')})`
+      : `${t.tfLabel} RSI yetersiz (max: ${primaryRSI(p, t).toFixed(1)} < ${t.rsiMin})`),
   },
   {
     key:    'rsiHigh',
@@ -118,6 +140,6 @@ function gateLabels(trigger = defaultTrigger()) {
 }
 
 module.exports = {
-  checkGates, listFailures, gateLabels, getTriggers, primaryRSI,
+  checkGates, listFailures, gateLabels, getTriggers, primaryRSI, rsiShortfalls,
   GATE_KEYS: GATES.map(g => g.key),
 };

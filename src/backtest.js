@@ -37,7 +37,7 @@ const path = require('path');
 const cfg                = require('./config');
 const { computeAll }     = require('./indicators');
 const { detectRegime }   = require('./regime');
-const { checkGates, listFailures, gateLabels, getTriggers, primaryRSI, GATE_KEYS } = require('./gates');
+const { checkGates, listFailures, gateLabels, getTriggers, primaryRSI, rsiShortfalls, GATE_KEYS } = require('./gates');
 const { calcScore }      = require('./scorer');
 const { calcDailyLevels, nearLevelInfo } = require('./levels');
 const { calcTradePlan }  = require('./tradePlan');
@@ -254,7 +254,7 @@ async function backtestSymbol(symbol, { startTime, endTime, minScore, compare = 
     signals: [],
     stats: {
       trigger: t.key, candles, range,
-      final: { fails: {}, only: {}, rsiDist: {} },
+      final: { fails: {}, only: {}, rsiDist: {}, rsiLowBy: {} },
       decisions: 0, cooldown: 0, nearLevel: 0, rsi1hOk: 0, rsi4hOk: 0, gatePass: 0,
       planInvalid: 0, belowScore: 0, signals: 0,
     },
@@ -349,6 +349,8 @@ async function backtestSymbol(symbol, { startTime, endTime, minScore, compare = 
       const pr = primaryRSI(gateParams, t);
       const bucket = RSI_BUCKETS.find(b => pr < b.max).label;
       stats.final.rsiDist[bucket] = (stats.final.rsiDist[bucket] || 0) + 1;
+      //   rsiLowBy  : RSI eşiğine hangi TF'nin takıldığı (5m / 15m ayrı ayrı; bir aday ikisine de takılabilir)
+      for (const [tf] of rsiShortfalls(gateParams, t)) stats.final.rsiLowBy[tf] = (stats.final.rsiLowBy[tf] || 0) + 1;
 
       const gateResult = checkGates(gateParams, t);
       if (!gateResult.pass) continue;
@@ -462,6 +464,14 @@ async function main() {
 
   const DAYS      = parseInt(args.days || 90, 10);
   const MIN_SCORE = parseInt(args['min-score'] ?? cfg.minScoreToSend, 10);
+
+  // RSI eşiklerini kodu değiştirmeden denemek için (yalnızca bu backtest çalışmasında geçerli)
+  for (const [flag, key] of [['rsi5m', 'rsi5mMin'], ['rsi15m', 'rsi15mMin'], ['rsi1h', 'rsi1hMin'], ['rsi4h', 'rsi4hMin'], ['rsi-max', 'rsiEntryMax']]) {
+    if (args[flag] == null) continue;
+    const v = Number(args[flag]);
+    if (!Number.isFinite(v) || v < 0 || v > 100) throw new Error(`Geçersiz --${flag}: ${args[flag]} (0–100 olmalı)`);
+    cfg[key] = v;
+  }
   const COMPARE   = Boolean(args.compare);
   const FEE_PCT   = Number(args['fee-pct'] ?? DEFAULT_FEE_PCT);
 
@@ -507,6 +517,7 @@ async function main() {
   console.log(`  Semboller  : ${SYMBOLS.length} adet — ${universe}`);
   console.log(`              ${SYMBOLS.slice(0, 12).join(', ')}${SYMBOLS.length > 12 ? ` … (+${SYMBOLS.length - 12})` : ''}`);
   console.log(`  Dönem      : ${fmtDate(startTime)} → ${fmtDate(endTime)} (${DAYS} gün)  |  Min skor: ${MIN_SCORE}`);
+  console.log(`  RSI kuralı : ${rsiRuleText()}`);
   for (const [n, t] of triggers.entries()) console.log(`  Tetikleyici${COMPARE ? ' ' + LETTERS[n] : '  '}: ${describeTrigger(t)}`);
   console.log(`  Komisyon   : %${FEE_PCT} × 2 (giriş+çıkış) — yalnızca "net R" değerlerine yansır`);
   if (COMPARE) console.log('  Not        : 1m veri çekilir (3m/5m kesin kurulur, sonuçlar 1m mumlarla ölçülür) → sembol başına ~3-4 kat uzun sürer');
@@ -547,7 +558,10 @@ async function main() {
   }
   if (COMPARE) printComparison(triggers, stats, results, FEE_PCT);
 
-  const params    = { SYMBOLS, DAYS, MIN_SCORE, startTime, endTime, universe, compare: COMPARE, feePct: FEE_PCT };
+  const params    = {
+    SYMBOLS, DAYS, MIN_SCORE, startTime, endTime, universe, compare: COMPARE, feePct: FEE_PCT,
+    rsi: { m5: cfg.rsi5mMin, m15: cfg.rsi15mMin, h1: cfg.rsi1hMin, h4: cfg.rsi4hMin, max: cfg.rsiEntryMax },
+  };
   const timestamp = new Date().toISOString().replace(/[:T.]/g, '-').slice(0, 19);
   const outFile   = path.join(OUT_DIR, `backtest-${COMPARE ? 'compare-' : ''}${timestamp}.json`);
   const payload   = COMPARE
@@ -686,6 +700,7 @@ function buildCompareTelegramReport(p, triggers, stats, results, esc) {
     '',
     ...triggers.map((t, n) => `<b>${LETTERS[n]})</b> ${esc(t.label)}, giriş ${esc(t.entryTF)} — ${esc(TRIGGER_ROLE[t.key] || t.key)}`),
     `<i>Sonuçlar 1m mumlarla · net R: komisyon %${p.feePct}×2</i>`,
+    `📐 A kuralı: ${esc(rsiRuleText())}`,
     '',
   ];
   const rows = comparisonRows(sums);
@@ -750,6 +765,7 @@ function buildTelegramReport(p, allStats, signals, esc, trigger = getTriggers().
     '',
     `📅 ${fmtDate(p.startTime)} → ${fmtDate(p.endTime)} UTC (${p.DAYS} gün)`,
     `🪙 ${p.SYMBOLS.length} sembol${p.universe ? ` (${esc(p.universe)})` : ''} | min skor ${p.MIN_SCORE}`,
+    `📐 ${esc(rsiRuleText())}`,
     '',
     '<b>Eleme hunisi</b>',
     `  Değerlendirilen ${decisionLabel(trigger)} kapanış: ${sum('decisions')}`,
@@ -769,6 +785,8 @@ function buildTelegramReport(p, allStats, signals, esc, trigger = getTriggers().
     for (const k of FINAL_GATES) {
       lines.push(`  ${esc(labels[k])}: ${f.fails[k] || 0} (${pct(f.fails[k] || 0, f.candidates)}) / ${f.only[k] || 0}`);
     }
+    const by = Object.entries(f.rsiLowBy || {});
+    if (by.length) lines.push(`  RSI eşiğine takılan: ${by.map(([tf, n]) => `${esc(tf)} ${n}`).join(' · ')}`);
     lines.push(`  RSI(max ${esc(trigger.rsiTFs.join(','))}): ${RSI_BUCKETS.map(b => `${esc(b.label)} ${f.rsiDist[b.label] || 0}`).join(' · ')}`);
   }
 
@@ -793,6 +811,11 @@ function buildTelegramReport(p, allStats, signals, esc, trigger = getTriggers().
   return text.length <= 4000 ? text : text.slice(0, 3990) + '\n…';
 }
 
+/** Geçerli RSI eşikleri (bayraklarla değiştirilmiş olabilir) — rapora yazılır */
+function rsiRuleText() {
+  return `5m RSI ≥ ${cfg.rsi5mMin} · 15m ≥ ${cfg.rsi15mMin} · 1h ≥ ${cfg.rsi1hMin} · 4h ≥ ${cfg.rsi4hMin} · üst sınır ≤ ${cfg.rsiEntryMax}`;
+}
+
 function fmtDate(ts) {
   return new Date(ts).toISOString().slice(0, 16).replace('T', ' ');
 }
@@ -808,10 +831,10 @@ const FINAL_GATES = GATE_KEYS.filter(k => !['dailyLevel', 'rsi1h', 'rsi4h'].incl
 
 /** Sembollerin son aşama dökümlerini birleştirir */
 function mergeFinal(allStats) {
-  const out = { candidates: 0, fails: {}, only: {}, rsiDist: {} };
+  const out = { candidates: 0, fails: {}, only: {}, rsiDist: {}, rsiLowBy: {} };
   for (const st of Object.values(allStats)) {
     out.candidates += st.rsi4hOk || 0;
-    for (const part of ['fails', 'only', 'rsiDist']) {
+    for (const part of ['fails', 'only', 'rsiDist', 'rsiLowBy']) {
       for (const [k, v] of Object.entries(st.final?.[part] || {})) out[part][k] = (out[part][k] || 0) + v;
     }
   }
@@ -830,9 +853,11 @@ function printFinalBreakdown(allStats, trigger = getTriggers().current) {
     console.log(`  ${labels[k].padEnd(34)} ${String(v).padStart(9)} ${pct(v).padStart(7)} ${String(f.only[k] || 0).padStart(10)}`);
   }
   console.log('  ("Tek engel": yalnızca bu kapıya takılan aday — bu kapı olmasaydı kapıları geçerdi; TP-A ve skor ayrıca kontrol edilir)');
+  const by = Object.entries(f.rsiLowBy);
+  if (by.length) console.log(`  RSI eşiğine takılan (TF bazında): ${by.map(([tf, n]) => `${tf} ${n} (${pct(n)})`).join(' · ')}`);
   const dist = RSI_BUCKETS.map(b => `${b.label}: ${f.rsiDist[b.label] || 0}`).join(' | ');
   console.log(`\n📊 Adaylarda max(${trigger.rsiTFs.join(',')}) RSI dağılımı: ${dist}`);
-  console.log(`   (giriş aralığı ${trigger.rsiMin}–${trigger.rsiMax})`);
+  console.log(`   (giriş kuralı: ${trigger.label})`);
 }
 
 /**

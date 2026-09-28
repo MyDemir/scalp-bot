@@ -124,7 +124,10 @@ fly ssh console
 |---|---|---|
 | `mode` | `'test'` | `'test'` \| `'production'` |
 | `testSymbols` | `['BTCUSDT',...]` | Test modunda izlenecek coinler |
-| `rsiEntryMin` | `90` | 5m/15m RSI giriş eşiği |
+| `rsi5mMin` | `90` | 5m RSI giriş eşiği (15m ile **birlikte** sağlanmalı) |
+| `rsi15mMin` | `85` | 15m RSI giriş eşiği |
+| `rsiEntryMax` | `98` | Üst sınır: max(5m, 15m) RSI |
+| `rsi1hMin` / `rsi4hMin` | `80` / `70` | Üst zaman dilimi aşırı alım eşikleri |
 | `rsiEMCThreshold` | `95` | Extreme Momentum Condition eşiği (15m) |
 | `ema21DistanceThreshold` | `0.5` | Min EMA21 uzaklığı (ATR cinsinden) |
 | `initialRiskPct` | `0.5` | R-multiple hesabı için risk % |
@@ -224,7 +227,13 @@ tail -f /tmp/backtest.log     # ilerlemeyi izle (Ctrl+C sadece izlemeyi bırakı
 
 Raporda "Son aşama" bölümü günlük seviye + 1h + 4h'yi geçen adayların kalan kapılarda
 nasıl elendiğini gösterir: **takılan** (o kapıya takılan aday), **tek engel** (yalnızca o kapıya
-takılan — o kapı olmasaydı geçerdi) ve adayların 5m/15m RSI dağılımı.
+takılan — o kapı olmasaydı geçerdi), RSI eşiğine 5m mi 15m mi takıldığı ve adayların RSI dağılımı.
+
+RSI eşiklerini kodu değiştirmeden denemek için (yalnızca o çalışmada geçerli; eşikler rapora ve JSON'a yazılır):
+
+```bash
+node src/backtest.js --all --days 90 --rsi5m 90 --rsi15m 85 --rsi1h 80 --rsi4h 70 --telegram
+```
 
 ### Tetikleyici karşılaştırması (`--compare`)
 
@@ -232,7 +241,7 @@ Canlı botun tetikleyicisi ile planın tetikleyicisini **aynı semboller, aynı 
 
 | | RSI tetikleyicisi | Giriş TF (EMA21 uzaklığı/dokunuşu, ATR, TP-A/TP-B, hacim, rejim) | Karar anı |
 |---|---|---|---|
-| **A** | max(5m, 15m) RSI 90–98 — canlı bot | 5m | her 5m kapanış |
+| **A** | 5m RSI ≥ 90 + 15m RSI ≥ 85 (≤ 98) — canlı bot | 5m | her 5m kapanış |
 | **B** | max(3m, 5m) RSI 95–98 — planın tetikleyicisi | 5m | her 3m ve 5m kapanış |
 | **C** | max(3m, 5m) RSI 95–98 — planın tamamı | 3m | her 3m ve 5m kapanış |
 
@@ -272,7 +281,7 @@ başlatmaz (çalışan botla çakışmaz). Grubu görmesin istersen başka bir s
 
 ## Önemli Notlar
 
-- **RSI 90 eşiği** backtest sonuçlarıyla doğrulanacak, gerekirse revize edilecek
+- **RSI eşikleri** (5m ≥ 90, 15m ≥ 85, 1h ≥ 80) backtest sonuçlarıyla doğrulanacak, gerekirse revize edilecek
 - **EMC** (15m RSI 95+) "kesin giriş" değil, ek bir momentum sinyalidir
 - **Momentum Continuation** rejiminde SHORT sinyali üretilmez
 - **2026 Nisan sonrası** kline stream'leri `wss://fstream.binance.com/market` endpoint'inden açılmalı

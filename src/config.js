@@ -40,17 +40,21 @@ module.exports = {
   ema21DistanceThreshold: 0.5,
   ema21TouchLookback:     3,
 
-  rsiEntryMin:      90,
+  // Giriş RSI eşikleri — HEPSİ birden sağlanmalı: 5m ≥ rsi5mMin VE 15m ≥ rsi15mMin
+  // (+ 1h ≥ rsi1hMin, 4h ≥ rsi4hMin). Üst sınır: max(5m, 15m) ≤ rsiEntryMax.
+  // Backtest'te kodu değiştirmeden başka değer denemek için: --rsi5m 90 --rsi15m 85 --rsi1h 80 --rsi4h 70
+  rsi5mMin:         90,
+  rsi15mMin:        85,
   rsiEntryMax:      98,
   rsiEMCThreshold:  95,
 
   // Planın giriş tetikleyicisi — ŞİMDİLİK YALNIZCA BACKTEST'TE (--compare) kullanılır.
-  // Canlı bot yukarıdaki "5m/15m RSI rsiEntryMin–rsiEntryMax" tetikleyicisiyle çalışmaya devam eder.
+  // Canlı bot yukarıdaki 5m/15m RSI eşikleriyle çalışmaya devam eder.
   //   rsiTFs  : RSI'ı bu TF'lerin en yükseği tetikler
   //   entryTF : EMA21 uzaklığı/dokunuşu, ATR, TP-A/TP-B, hacim/CVD ve rejim bu TF'den
   planTrigger: { rsiTFs: ['3m', '5m'], entryTF: '3m', rsiMin: 95, rsiMax: 98 },
 
-  rsi1hMin:         70,
+  rsi1hMin:         80,
   rsi4hMin:         70,
 
   volumeRatioMin:   1.5,
