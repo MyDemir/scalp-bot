@@ -13,12 +13,11 @@
  *
  * Giriş tetikleyicisi (trigger) — rsiLow/rsiHigh kapıları buna göre çalışır:
  *   current (canlı, varsayılan) : 5m RSI ≥ cfg.rsi5mMin VE 15m RSI ≥ cfg.rsi15mMin, max(5m,15m) ≤ cfg.rsiEntryMax
- *   plan    (yalnızca backtest) : max(3m, 5m)  RSI  cfg.planTrigger.rsiMin–rsiMax, giriş TF 3m
- *   plan5m  (yalnızca backtest) : planın RSI tetikleyicisi, giriş TF 5m (tetikleyici etkisini ayırmak için)
+ *   (Mert varyantı ayrı modülde: src/mert.js — yalnızca backtest --compare)
  *   Tetikleyici verilmezse "current" kullanılır → canlı bot davranışı değişmez.
  *
  * Parametreler (p):
- *   rsi3m, rsi5m, rsi15m, rsi1h, rsi4h : RSI değerleri (rsi3m yalnızca plan tetikleyicisinde)
+ *   rsi5m, rsi15m, rsi1h, rsi4h      : RSI değerleri
  *   ema21Distance                    : ATR cinsinden EMA21 uzaklığı
  *   ema21Touched                     : son N mumda EMA21 dokunuşu var mı
  *   nearDailyLevel                   : günlük EMA200 veya majör direnç yakını
@@ -42,9 +41,6 @@ function getTriggers() {
       rsiMins: { '5m': cfg.rsi5mMin, '15m': cfg.rsi15mMin },
       rsiMin: Math.min(cfg.rsi5mMin, cfg.rsi15mMin), rsiMax: cfg.rsiEntryMax,
     }),
-    // Planın RSI tetikleyicisi + mevcut 5m giriş (EMA21/ATR/TP 5m) → yalnızca tetikleyici farkını ölçer
-    plan5m:  mk('plan5m',  { ...cfg.planTrigger, entryTF: '5m' }),
-    plan:    mk('plan',    { ...cfg.planTrigger }),
   };
 }
 const defaultTrigger = () => getTriggers().current;

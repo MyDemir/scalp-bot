@@ -35,6 +35,7 @@ scalp-bot/
 │   ├── levels.js         # Günlük EMA200/direnç + yakınlık (canlı + backtest ortak)
 │   ├── tradePlan.js      # TP-A/TP-B/SL planı (canlı + backtest ortak)
 │   ├── backtest.js       # Look-ahead'siz geçmiş test
+│   ├── mert.js           # Mert varyantı kuralları (yalnızca backtest --compare)
 │   ├── signalEngine.js   # Orkestrasyon — evaluate()
 │   ├── htfPoller.js      # 4h/1D REST polling + OI delta
 │   ├── outcome.js        # WIN/LOSS kuralları (canlı + backtest ortak)
@@ -235,31 +236,35 @@ RSI eşiklerini kodu değiştirmeden denemek için (yalnızca o çalışmada ge�
 node src/backtest.js --all --days 90 --rsi5m 90 --rsi15m 85 --rsi1h 80 --rsi4h 70 --telegram
 ```
 
-### Tetikleyici karşılaştırması (`--compare`)
+### Mert varyantları (`--compare`)
 
-Canlı botun tetikleyicisi ile planın tetikleyicisini **aynı semboller, aynı dönem, aynı veri** üzerinde yan yana test eder:
+Canlı kural (A) ile Mert'in kendi anlattığı kuralları **aynı semboller, aynı dönem, aynı veri** üzerinde test eder.
+Canlı bot **değişmez** — Mert kuralları yalnızca backtest'tedir (`src/mert.js`, ayarlar `config.mert`).
 
-| | RSI tetikleyicisi | Giriş TF (EMA21 uzaklığı/dokunuşu, ATR, TP-A/TP-B, hacim, rejim) | Karar anı |
-|---|---|---|---|
-| **A** | 5m RSI ≥ 90 + 15m RSI ≥ 85 (≤ 98) — canlı bot | 5m | her 5m kapanış |
-| **B** | max(3m, 5m) RSI 95–98 — planın tetikleyicisi | 5m | her 3m ve 5m kapanış |
-| **C** | max(3m, 5m) RSI 95–98 — planın tamamı | 3m | her 3m ve 5m kapanış |
+| | Mert kuralı |
+|---|---|
+| Yer | Fiyat bir direncin dibinde: 4h MA200, 4h EMA200, 1d MA200, 1d EMA200 ya da günlük majör direnç. Seviyenin altında ≤ %0.5, üstünde ≤ %0.3 (fitil payı); seviyeyi aşıp yukarıdaysa sinyal yok |
+| Bağlam | 1h RSI ≥ 70 ve 4h RSI ≥ 70 |
+| Karar | 3m / 5m / 15m RSI'lardan en az N tanesi ≥ eşik; 3m ve 5m RSI ≤ 98 |
+| Ayrışma | Fiyat 3m **ve** 5m EMA21'den ≥ 0.5 ATR uzakta, son 3 mumda dokunuş yok |
+| TP | TP-A = 3m EMA21, TP-B = 5m EMA21 (izlenir) |
+| Stop | Giriş × (1 + %SL) |
+| Yönetim | Aynı coinde açık işlem varken yeni işlem yok (bir hareket = bir işlem) |
 
-A↔B farkı yalnızca RSI tetikleyicisinin etkisidir; B↔C farkı girişin 3m'e alınmasının etkisidir.
-Günlük seviye, 1h/4h RSI, rejim kuralı, SL %0.5, skor ve cooldown üçünde de aynıdır; EMC her üçünde 15m RSI 95+.
+8 kombinasyon denenir: RSI eşiği 90 / 95 × en az 2 / 3 zaman dilimi × stop %1.0 / %1.5.
+
+**Walk-forward:** Dönemin ilk 2/3'ü **seçim**, son 1/3'ü **doğrulama**dır. En iyi kombinasyon yalnızca seçim
+döneminde (en az 10 sinyal şartıyla, en yüksek toplam net R) seçilir; doğrulama sütunu onun görmediği veridir —
+asıl kanıt odur.
 
 ```bash
-nohup node src/backtest.js --compare --days 90 --telegram > /tmp/backtest.log 2>&1 &
 nohup node src/backtest.js --compare --all --days 90 --telegram > /tmp/backtest.log 2>&1 &
 ```
 
-- 1m veri çekilir; 3m/5m/15m/1h/4h'nin devam eden mumları 1m'den **kesin** kurulur (look-ahead yok),
-  3m mumlar 1m'den türetilir (REST'ten ayrıca çekilmez).
-- Sonuçlar üç tetikleyicide de **1m mumlarla** ölçülür (adil karşılaştırma; canlı takibe de daha yakın).
-  Bu yüzden A'nın sonuç etiketleri normal moddan (5m mumla ölçülen) az da olsa farklı çıkabilir;
-  A'nın kararları (hangi anda, hangi fiyattan sinyal) normal modla birebir aynıdır.
-- Sembol başına ~3–4 kat uzun sürer (90 günde ~170 istek, ~1 dk).
-- Canlı bot **değişmez**: plan tetikleyicisi yalnızca backtest'tedir (`config.planTrigger`).
+- 1m veri çekilir; 3m/5m/15m/1h/4h'nin devam eden mumları 1m'den **kesin** kurulur (look-ahead yok).
+- Sonuçlar hepsinde **1m mumlarla** ölçülür. A'nın kararları normal modla birebir aynıdır; sonuç etiketleri
+  (5m yerine 1m çözünürlük yüzünden) az da olsa farklı çıkabilir.
+- Sembol başına ~1 dk (90 günde); tüm market ~1 saat.
 
 `--fee-pct 0.05` (varsayılan): raporlardaki **net R**, giriş+çıkış komisyonu (2 × %0.05) düşülerek
 hesaplanır. %0.5 SL ile bu işlem başına ≈ 0.2R eder. Brüt R ve WIN/LOSS etiketleri değişmez.

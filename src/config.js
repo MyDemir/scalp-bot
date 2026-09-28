@@ -48,11 +48,20 @@ module.exports = {
   rsiEntryMax:      98,
   rsiEMCThreshold:  95,
 
-  // Planın giriş tetikleyicisi — ŞİMDİLİK YALNIZCA BACKTEST'TE (--compare) kullanılır.
-  // Canlı bot yukarıdaki 5m/15m RSI eşikleriyle çalışmaya devam eder.
-  //   rsiTFs  : RSI'ı bu TF'lerin en yükseği tetikler
-  //   entryTF : EMA21 uzaklığı/dokunuşu, ATR, TP-A/TP-B, hacim/CVD ve rejim bu TF'den
-  planTrigger: { rsiTFs: ['3m', '5m'], entryTF: '3m', rsiMin: 95, rsiMax: 98 },
+  // Mert varyantı — ŞİMDİLİK YALNIZCA BACKTEST'TE (--compare). Kurallar src/mert.js başında.
+  mert: {
+    rsiTFs:        ['3m', '5m', '15m'],   // karar: bunlardan en az minTFs tanesi ≥ rsiMin
+    capTFs:        ['3m', '5m'],          // üst sınır (Mert: "3–5 dk 95–98 aralığı")
+    rsiCap:        98,
+    rsi1hMin:      70,                    // "1s ve 4s RSI de şişmişse"
+    rsi4hMin:      70,
+    levelBelowPct: 0.5,                   // fiyat seviyenin altında en fazla %0.5
+    levelAbovePct: 0.3,                   // üstünde en fazla %0.3 (fitil payı); daha yukarıdaysa sinyal yok
+    separationATR: 0.5,                   // 3m ve 5m EMA21'den en az 0.5 ATR uzak
+    h4History:     600,                   // 4h EMA200'ün oturması için geçmiş (mum)
+    grid: { rsiMin: [90, 95], minTFs: [2, 3], slPct: [1.0, 1.5] },
+    selectionFraction: 2 / 3,             // walk-forward: dönemin ilk 2/3'ü seçim, son 1/3'ü doğrulama
+  },
 
   rsi1hMin:         80,
   rsi4hMin:         70,
