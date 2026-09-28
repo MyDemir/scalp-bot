@@ -8,8 +8,10 @@
  *                 (TELEGRAM_ADMIN_IDS tanımlıysa o liste, değilse grubun yöneticileri)
  */
 
-const { formatCard, summaryText, esc, px } = require('./infoCard');
+const { formatCard, summaryText, esc, px, pct, dayTime } = require('./infoCard');
 const { evaluate } = require('./infoEngine');
+const { classTable, median } = require('./infoStats');
+const { rowToStat } = require('./cardStore');
 
 const HOUR = 3_600_000;
 
@@ -27,8 +29,9 @@ function normSym(x) {
  * @param {function} p.getSeries (sym) → Series | undefined
  * @param {function} p.ctx       değerlendirme bağlamı { funding, btc1h }
  * @param {function} p.status    () → durum metni
+ * @param {object}   [p.store]   kart geçmişi (cardStore)
  */
-function installInfoTelegram({ telegram, settings, tracker, getSeries, ctx, status }) {
+function installInfoTelegram({ telegram, settings, tracker, store = null, getSeries, ctx, status }) {
   const defs = settings.defs;
 
   function menu() {
@@ -95,10 +98,12 @@ function installInfoTelegram({ telegram, settings, tracker, getSeries, ctx, stat
 /sustur ETH [dk] — coini sustur (varsayılan 60 dk) · /ac ETH
 /sessiz — susturulanlar
 /takip [ETH] — takip listesi / ekle-çıkar (takip edilenlerin kartları sesli gelir)
+/gecmis ETH [adet] — coinin son kartları ve sonrasında fiyat
+/istatistik [gün] — kart sınıfları ve sonrasında fiyat (varsayılan 7 gün)
 /durum — bot durumu
 /benkimim — Telegram kullanıcı ID'n
 
-Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesinde RSI ≥ <b>${settings.get().rsiMin}</b>${settings.get().levelRequired ? ` ve fiyatın üstünde en fazla <b>%${settings.get().levelMaxPct}</b> uzakta bir seviye (4h/1d MA200 · EMA200 · günlük direnç)` : ''}. Kontrol: 3m/5m/15m kapanışları + hacimli her 1m mum. Önceki karttan bu yana yeni veri yoksa kart gitmez.${settings.get().seriesBursts ? ' Seri sürerken (5m RSI ' + settings.get().resetRsi + ' altına inmeden) gelen hacimli mumlar şart aranmadan kart olur (#SERI).' : ''}`.trim();
+Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesinde RSI ≥ <b>${settings.get().rsiMin}</b>${settings.get().levelRequired ? ` ve fiyatın üstünde en fazla <b>%${settings.get().levelMaxPct}</b> uzakta bir seviye (4h/1d MA200 · EMA200 · günlük direnç)` : ''}. Kontrol: 3m/5m/15m kapanışları + hacimli her 1m mum. Önceki karttan bu yana yeni veri yoksa kart gitmez.${settings.get().seriesBursts ? ' Seri sürerken (5m RSI ' + settings.get().resetRsi + ' altına inmeden) gelen hacimli mumlar şart aranmadan kart olur (#SERI).' : ''}${settings.get().moveAlertPct > 0 ? `\n\n⚡ ${settings.get().moveAlertAll ? 'Herhangi bir' : 'İzlenen'} paritede 1 dakikada ≥ %${settings.get().moveAlertPct} fiyat değişimi → ayrı uyarı.` : ''}`.trim();
 
   const commands = {
     help, yardim: help, start: help,
@@ -161,6 +166,46 @@ Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesin
       }
       if (!(await telegram.isAdmin(msg.from?.id))) return 'Bu komut için grup yöneticisi olmalısın.';
       return settings.toggleFollow(sym) ? `⭐ ${esc(sym)} takibe alındı.` : `☆ ${esc(sym)} takipten çıkarıldı.`;
+    },
+
+    gecmis: (args) => {
+      if (!store || !store.enabled()) return 'Kart geçmişi kapalı (veritabanı açılamadı).';
+      const [x, nArg] = args.split(/\s+/);
+      const sym = normSym(x);
+      if (!sym) return 'Kullanım: /gecmis ETH [adet]';
+      const n = Math.max(1, Math.min(30, Number(nArg) || 10));
+      const rows = store.recent(sym, n).map(rowToStat);
+      if (!rows.length) return `${esc(sym)} için kayıtlı kart yok.`;
+      const lines = rows.map(r => {
+        const w = r.fwd[60] ? `60dk: ${pct(r.fwd[60].low, 1)} / ${pct(r.fwd[60].high, 1)} · sonra ${pct(r.fwd[60].close, 1)}` : r.partial ? '60dk: eksik (yeniden başlatma)' : '60dk: bekleniyor';
+        if (r.kind === 'move') return `${dayTime(r.t)} ⚡ ${pct(r.movePct)} → ${w}`;
+        const cls = [`RSI ${r.hits}/3`, r.level?.zone === 'dip' ? 'DİPTE' : r.level ? 'yaklaşıyor' : null, r.burst ? `${r.burst.dir === 'sell' ? '▼' : r.burst.dir === 'buy' ? '▲' : '◆'}patlama` : null, r.inSeries ? 'seri içi' : null].filter(Boolean).join(' · ');
+        return `${dayTime(r.t)} #${r.seq} ${cls} → ${w}`;
+      });
+      return `🗂 <b>${esc(sym)}</b> — son ${rows.length} kayıt (fiyat değişimi karttaki fiyata göre: en düşük / en yüksek · 60 dk sonra)\n${lines.join('\n')}`;
+    },
+
+    istatistik: (args) => {
+      if (!store || !store.enabled()) return 'Kart geçmişi kapalı (veritabanı açılamadı).';
+      const days = Math.max(1, Math.min(90, Number(args) || 7));
+      const rows = store.since(Date.now() - days * 86_400_000).map(rowToStat);
+      const cards = rows.filter(r => r.kind === 'card'), moves = rows.filter(r => r.kind === 'move');
+      if (!rows.length) return `Son ${days} günde kayıt yok.`;
+      const cls = classTable(cards).filter(r => r.n > 0).map(r =>
+        `${esc(r.name.trim())}: <b>${r.n}</b> · 60dk en düşük ${pct(r.low60)} · en yüksek ${pct(r.high60)} · sonra ${pct(r.close60)}`);
+      const mv = [['▲ yükseliş', moves.filter(m => m.movePct > 0)], ['▼ düşüş', moves.filter(m => m.movePct < 0)]].map(([k, a]) => {
+        const f = a.filter(m => m.fwd[60]);
+        return `${k}: <b>${a.length}</b> · 60dk sonra medyan ${pct(median(f.map(m => m.fwd[60].close)))} (en düşük ${pct(median(f.map(m => m.fwd[60].low)))} / en yüksek ${pct(median(f.map(m => m.fwd[60].high)))})`;
+      });
+      const pending = cards.filter(c => !c.fwd[60]).length;
+      return `📊 <b>Son ${days} gün</b> · ${cards.length} kart · ${moves.length} hareket uyarısı
+<i>Karttan sonraki 60 dk'da fiyat, kart anındaki fiyata göre (medyan). Kazanç/kayıp değildir.${pending ? ` 60 dk'sı dolmamış ${pending} kart hariç.` : ''}</i>
+
+<b>Kart sınıfları</b>
+${cls.join('\n') || '—'}
+
+<b>⚡ 1 dk hareket uyarıları</b>
+${mv.join('\n')}`.slice(0, 4000);
     },
 
     durum: () => status(),

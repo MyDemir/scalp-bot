@@ -77,9 +77,18 @@ function formatCard(card, s, opt = {}) {
     L.push(`🧱 %${s.levelMaxPct} içinde seviye yok`);
   }
 
+  // EMA21: fiyatı ve fiyata göre uzaklığı (% ve ATR) — 3m/5m EMA21 geri çekilme hedefleri
   const sp = snap.sep;
-  const sepTxt = ['3m', '5m'].map(tf => (sp[tf] ? `${tf} ${sp[tf].dist.toFixed(1)}${sp[tf].touched ? '(dokundu)' : ''}` : `${tf} —`)).join(' · ');
-  L.push(`📐 Ayrışma ${sepTxt} ATR ${ok(snap.sepOk)}`);
+  const emaTxt = ['3m', '5m'].map(tf => {
+    const e = sp[tf];
+    if (!e) return `${tf} —`;
+    const d = (e.ema - card.price) / card.price * 100;
+    return `${tf} <code>${px(e.ema)}</code> ${pct(d, 1)} (${e.dist.toFixed(1)} ATR${e.touched ? ', dokundu' : ''})`;
+  }).join(' · ');
+  L.push(`📐 EMA21 ${emaTxt} ${ok(snap.sepOk)}`);
+  const ng = snap.neg || {};
+  const n1 = ng['1m']?.count ?? 0, n3 = ng['3m']?.count ?? 0;
+  L.push(`〽️ Negatif tepe ${n1 || n3 ? `1m <b>${n1}</b> · 3m <b>${n3}</b>` : 'yok'}`);
   L.push(`🧭 Destek 1h ${r1(snap.conf.h1)} ${ok(snap.conf.h1 >= s.confRsi)} · 4h ${r1(snap.conf.h4)} ${ok(snap.conf.h4 >= s.confRsi)}`);
 
   const [wl, ws] = snap.windows;
@@ -124,6 +133,49 @@ function formatCard(card, s, opt = {}) {
   return { text: L.join('\n'), keyboard };
 }
 
+/**
+ * 1 dakikalık fiyat hareketi uyarısı.
+ * @param {object} m  { symbol, t, from, to, pct, volX, taker, vol24, followed, snap? }  snap: evaluate(force) çıktısı (izlenen coinlerde)
+ */
+function formatMove(m, s) {
+  const up = m.pct > 0;
+  const L = [];
+  L.push(`⚡ <b>${esc(m.symbol)}</b> 1 dakikada <b>${pct(m.pct)}</b> ${up ? '▲' : '▼'} · <code>${px(m.from)} → ${px(m.to)}</code> · ${hhmm(m.t)}`);
+  const tk = m.taker == null ? null : m.taker > s.takerBuyPct ? `taker %${Math.round(m.taker)} alım` : m.taker < s.takerSellPct ? `taker %${Math.round(m.taker)} satış` : `taker %${Math.round(m.taker)} nötr`;
+  const bits = [m.volX != null ? `hacim ${m.volX.toFixed(1)}× (önceki 20 dk ort.)` : null, tk, m.vol24 != null ? `24s hacim ${usd(m.vol24).replace('+', '')} $` : null].filter(Boolean);
+  if (bits.length) L.push(`📦 ${bits.join(' · ')}`);
+  const sn = m.snap;
+  if (sn) {
+    L.push(`📊 RSI ${rsiPart(sn, s)} · ${sn.hits}/3 ≥ ${s.rsiMin}`);
+    if (sn.level) L.push(`🧱 ${esc(sn.level.name)} <code>${px(sn.level.value)}</code> · ${pct(sn.level.dist)} ${sn.level.zone === 'dip' ? '⭐ DİPTE' : '↗ yaklaşıyor'}`);
+  } else {
+    L.push('<i>İzlenen evren dışında (24s hacim eşiğin altında) — RSI/seviye yok</i>');
+  }
+  L.push([`#${esc(m.symbol)}`, '#HAREKET', up ? '#YUKSELIS' : '#DUSUS', m.followed ? '#TAKIP' : null].filter(Boolean).join(' '));
+  const sym = m.symbol;
+  const keyboard = [
+    [
+      { text: '📈 TradingView', url: `https://www.tradingview.com/chart/?symbol=BINANCE:${encodeURIComponent(sym)}.P` },
+      { text: '🟡 Binance', url: `https://www.binance.com/tr/futures/${encodeURIComponent(sym)}` },
+    ],
+    [
+      { text: '🔕 1s sustur', callback_data: `m:${sym}` },
+      { text: m.followed ? '⭐ Takipte' : '☆ Takip', callback_data: `f:${sym}` },
+    ],
+  ];
+  return { text: L.join('\n'), keyboard };
+}
+
+let dmFmt = null;
+function dayTime(t) {
+  try {
+    dmFmt = dmFmt || new Intl.DateTimeFormat('tr-TR', { timeZone: TZ, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+    return dmFmt.format(new Date(t)).replace(',', '');
+  } catch {
+    return new Date(t).toISOString().slice(5, 16).replace('T', ' ');
+  }
+}
+
 /** "Özet" açılır penceresi (Telegram sınırı 200 karakter) */
 function summaryText(sym, log, price, now = Date.now()) {
   const day = log.filter(x => x.t >= now - 86_400_000);
@@ -142,4 +194,4 @@ function toPlain(html) {
     .replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 }
 
-module.exports = { formatCard, summaryText, toPlain, esc, hhmm, px, pct, usd };
+module.exports = { formatCard, formatMove, summaryText, toPlain, esc, hhmm, dayTime, px, pct, usd };

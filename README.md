@@ -16,14 +16,18 @@ Veri: coin başına **tek WebSocket akışı** (1m kline, yalnızca kapanışlar
 mumları botun kendisi 1m'lerden üretir (`src/series.js`) → tüm market tek bağlantıya sığar.
 Başlangıçta her zaman dilimi REST'ten yüklenir (birkaç dakika; hazır olan coin hemen değerlendirilir).
 
+> ⚠️ **Şu an kanıt/test eşikleri açık:** RSI ≥ **70** (normal 90), numara sıfırlama 5m RSI < **60** (normal 75)
+> — botun canlıda kart ürettiğini görmek için. Çok kart gelir. Normale dönmek için Telegram'da:
+> `/ayar rsiMin 90` ve `/ayar resetRsi 75` (kalıcıdır).
+
 ### Kart ne zaman gelir
 Kontrol anı: **3m / 5m / 15m mum kapanışları** + **hacimli her 1m mum kapanışı**. Kart için:
 
 | Şart | Varsayılan |
 |---|---|
-| 3m/5m/15m RSI | en az **2/3** dilimde **≥ 90** (kapanmamış dilimde devam eden mumla — kartta `~`) |
+| 3m/5m/15m RSI | en az **2/3** dilimde **≥ 90** (şu an test için 70; kapanmamış dilimde devam eden mumla — kartta `~`) |
 | Seviye (zorunlu) | fiyatın üstünde en fazla **%2.5** uzakta bir seviye: 4h MA200 · 4h EMA200 · 1d MA200 · 1d EMA200 · günlük direnç (son 30 **kapanmış** günün en yüksek 3 tepesi) |
-| Yeni veri | önceki karttan bu yana: RSI dilim sayısı değişti · bir dilim 95'i geçti · hacimli mum · seviye/bölge değişti (DİPTE'ye girdi, seviye kırıldı) · MACD ya da Stoch RSI kesişimi. **Yeni veri yoksa kart gitmez.** |
+| Yeni veri | önceki karttan bu yana: RSI dilim sayısı değişti · bir dilim 95'i geçti · hacimli mum · seviye/bölge değişti (DİPTE'ye girdi, seviye kırıldı) · MACD ya da Stoch RSI kesişimi · 1m/3m negatif tepe arttı. **Yeni veri yoksa kart gitmez.** |
 
 **Seri içi patlama:** bir coinde kart gittikten sonra seri sürerken (kapanmış 5m RSI 75'in altına inmeden)
 gelen hacimli 1m mum **şart aranmadan** kart olur (`#SERI`, kartta "Seri içi · şart dışı (RSI 1/3)" gibi).
@@ -35,14 +39,31 @@ Aynı coinde kartlar **#1, #2 …** diye numaralanır; kapanmış 5m RSI 75'in a
 ### Kartın içeriği
 - Başlık: coin, kart no, fiyat, RSI x/3, saat · **🆕** bu kartı doğuran yeni veri
 - RSI 3m/5m/15m · seviye + mesafe (**⭐ DİPTE**: seviyenin %0.5 altı–%0.3 üstü, ya da **↗ yaklaşıyor**)
-- EMA21 ayrışması (3m/5m, ATR) · destek RSI (1h/4h ≥ 70)
+- **EMA21** 3m/5m: fiyatı, fiyata uzaklığı (%) ve ATR cinsinden ayrışma (geri çekilme hedefleri) · destek RSI (1h/4h ≥ 70)
+- **〽️ Negatif tepe** (1m/3m): fiyat eşit ya da daha yüksek tepe yaparken RSI daha düşük tepe — ardışık sayı
+  ("2–3 tepe negatif yapıp çakarsa"). Son tepe 6 mumdan eskiyse gösterilmez. ≥2 ise `#NEGTEPE`.
 - **Hacim sayacı** (60 dk ve 15 dk): 1m gövde ≥ %1 / ≥ %1.5 ve hacim ≥ 2× (önceki 20 mum ortalaması);
   taker alış > %55 → ▲ alım, < %45 → ▼ satış, arası ◆ nötr. Art arda gelen patlama mumları tek patlama sayılır.
 - Taker net akış (USDT) · **Detaylar** (dokununca açılır): MACD 5m/15m, Stoch RSI 5m, günlük VWAP ±σ,
   yakındaki tüm seviyeler, funding + sonraki funding zamanı, OI 1h değişimi, BTC 1h değişimi
-- Hashtag'ler (dokununca o sınıftaki tüm kartlar listelenir): `#COIN #RSI2/#RSI3 #DIPTE/#YAKLASIYOR #HACIM #SERI #AYRISMA #TAKIP`
+- Hashtag'ler (dokununca o sınıftaki tüm kartlar listelenir): `#COIN #RSI2/#RSI3 #DIPTE/#YAKLASIYOR #HACIM #SERI #NEGTEPE #AYRISMA #TAKIP`
 - Butonlar: 📈 TradingView · 🟡 Binance · ℹ️ Özet (açılır pencere: bu serideki kart sayısı, ilk karttan beri fiyat) · 🔕 1s sustur · ⭐ Takip
 - **Sesli bildirim** yalnızca RSI 3/3 + DİPTE ya da takipteki coin; diğerleri sessiz gelir.
+
+### ⚡ 1 dakikalık hareket uyarısı
+**Tüm** USDT perpetual paritelerde (hacim filtresi yok, stabil coinler hariç) 1m mum kapanışı, bir önceki
+1m kapanışa göre **≥ %2** değişirse ayrı bir ⚡ uyarı gelir: yön, eski → yeni fiyat, hacim katı (önceki 20 dk
+ortalaması), taker oranı, 24s hacim; coin izlenen evrendeyse RSI ve seviye de. `#HAREKET #YUKSELIS/#DUSUS`.
+Evren dışı pariteler de WebSocket'e eklenir ama yalnızca son kapanış + hacim tutulur (hafif).
+Ayarlar: `moveAlertPct` (0 = kapalı), `moveAlertAll` (tüm pariteler / yalnızca evren), `moveAlertSound`.
+
+### Kart geçmişi
+Her kart ve ⚡ uyarı `/data/cards.db`'ye (SQLite) yazılır; sonrasında fiyat 15 / 60 / 240 dk izlenir
+(en düşük / en yüksek / kapanış değişimi, kart anındaki fiyata göre — kazanç/kayıp değil). 90 gün saklanır.
+Yeniden başlatmada yarım kalan takipler "eksik" işaretlenir.
+- `/gecmis ETH [adet]` — coinin son kartları + sonrasında fiyat
+- `/istatistik [gün]` — kart sınıfları (RSI 2/3–3/3, DİPTE, hacim, seri içi, negatif tepe …) ve ⚡ uyarılar için
+  "sonraki 60 dk" medyanları — backtest'teki tablonun canlı hali
 
 ### Telegram komutları
 | Komut | Kim | |
@@ -52,6 +73,7 @@ Aynı coinde kartlar **#1, #2 …** diye numaralanır; kapanmış 5m RSI 75'in a
 | `/coin ETH` | herkes | coinin anlık durumu (şart aranmadan) |
 | `/sustur ETH [dk]` · `/ac ETH` · `/sessiz` | yönetici / herkes | susturma |
 | `/takip [ETH]` | liste herkes, ekle-çıkar yönetici | takipteki coinlerin kartları her zaman sesli |
+| `/gecmis ETH [adet]` · `/istatistik [gün]` | herkes | kart geçmişi ve sınıf istatistiği |
 | `/durum` · `/benkimim` · `/yardim` | herkes | |
 
 Yönetici: `TELEGRAM_ADMIN_IDS` (virgüllü kullanıcı ID'leri; `/benkimim` ile öğrenilir) tanımlıysa o liste,
@@ -72,7 +94,9 @@ node src/infoBacktest.js --ayar rsiMin=95,minTFs=3        # başka ayarla dene
 node src/infoBacktest.js --canli-ayar --telegram          # Telegram'dan değiştirilmiş ayarlarla, sonucu gruba gönder
 ```
 Çıktı: kart sayısı (günlük), seri sayısı, sesli/sessiz, Telegram yükü (en yoğun dakika/saat), sınıf
-tablosu (RSI 2/3–3/3, DİPTE/yaklaşıyor, hacim tetikli, ayrışma, destek) ve `backtest-results/info-*.json`.
+tablosu (RSI 2/3–3/3, DİPTE/yaklaşıyor, hacim tetikli, seri içi, ayrışma, destek, negatif tepe), listedeki
+coinlerde 1 dk ≥ %2 hareket sayısı ve `backtest-results/info-*.json`. Varsayılan ayarlar canlıyla aynıdır
+(şu an kanıt eşikleri); normal eşiklerle denemek için `--ayar rsiMin=90,resetRsi=75`.
 Süre: coin başına ~`gün × 0.7` sn veri çekme (30 gün ≈ 20–25 sn/coin).
 
 ### Duraklatma
@@ -90,6 +114,8 @@ src/
 ├── infoCard.js       # Kart metni (Telegram HTML) + butonlar + özet
 ├── infoTelegram.js   # /ayarlar, /coin, /sustur, /takip … + buton işleyicileri
 ├── infoSettings.js   # Ayarlar (varsayılan config.info, değişiklikler /data/info-settings.json)
+├── infoStats.js      # Kart sınıfları + "sonrası" medyanları (backtest ve /istatistik ortak)
+├── cardStore.js      # Kart geçmişi (SQLite /data/cards.db) + 15/60/240 dk takip
 ├── infoBacktest.js   # Bilgi botu backtest'i
 ├── levels.js         # 4h/1d MA200 · EMA200 · günlük direnç
 ├── ta.js             # RSI/EMA/ATR/MACD/Stoch RSI/VWAP

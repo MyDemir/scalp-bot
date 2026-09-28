@@ -6,7 +6,10 @@ module.exports = {
   // Buradakiler VARSAYILAN değerler. Telegram'dan /ayarlar ile değiştirilenler /data/info-settings.json'a
   // yazılır ve bunların önüne geçer (deploy sonrası korunur). Anlamları: src/infoSettings.js
   info: {
-    rsiMin:        90,     // 3m/5m/15m RSI eşiği
+    // ⚠️ KANIT/TEST DEĞERLERİ: botun canlıda kart ürettiğini görmek için RSI eşiği düşük (70) ve
+    //    numara sıfırlama 60. Normal kullanım: rsiMin 90, resetRsi 75 → Telegram'da
+    //    /ayar rsiMin 90  ve  /ayar resetRsi 75  (ya da buradaki değerleri geri al)
+    rsiMin:        70,     // 3m/5m/15m RSI eşiği
     minTFs:        2,      // eşiği geçmesi gereken dilim sayısı (3 üzerinden)
     strongRsi:     95,     // "RSI 95↑" yeniliği ve kartta vurgu
     levelMaxPct:   2.5,    // ZORUNLU: fiyatın üstünde en fazla bu kadar uzakta bir seviye
@@ -21,7 +24,7 @@ module.exports = {
     takerSellPct:  45,     // < %45 → satış (arası nötr)
     windowMin:     60,     // sayaç penceresi (dk)
     shortWindowMin: 15,    // kısa sayaç penceresi (dk)
-    resetRsi:      75,     // 5m RSI bunun altında kapanınca kart numarası sıfırlanır (#1'den başlar)
+    resetRsi:      60,     // 5m RSI bunun altında kapanınca kart numarası sıfırlanır (#1'den başlar) — normal: 75
     seriesBursts:  true,   // seri sürerken (numara sıfırlanmadan) gelen hacimli mum şart aranmadan kart olur
     sepATR:        0.5,    // EMA21 ayrışması (3m & 5m, ATR cinsinden)
     sepRequired:   false,
@@ -29,6 +32,10 @@ module.exports = {
     confRequired:  false,  // açıksa 1h veya 4h'ten en az biri ≥ confRsi olmalı
     macdRequired:  false,  // açıksa 5m MACD histogramı zayıflıyor (düşüyor ya da ≤ 0) olmalı
     minVolumeM:    5,      // izlenen evren: 24s hacim ≥ 5 milyon USDT
+    // Hareket uyarısı: herhangi bir paritede 1m kapanış, bir önceki 1m kapanışa göre ≥ %moveAlertPct
+    moveAlertPct:  2,      // 0 = kapalı
+    moveAlertAll:  true,   // true: TÜM USDT perpetual'lar (hacim filtresi yok) · false: yalnızca izlenen evren
+    moveAlertSound: true,  // hareket uyarıları sesli
   },
 
   // Evrenden hariç tutulan baz varlıklar (stabil coinler) — TAM eşleşme

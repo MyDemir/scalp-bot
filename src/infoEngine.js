@@ -11,6 +11,7 @@
  *                 + isteğe bağlı: ayrışma / destek / MACD şartları
  *   Yeni kart   : şart sağlanıyor VE önceki karttan bu yana yeni veri var (patlama, RSI dilim sayısı,
  *                 güçlü RSI, seviye/bölge, MACD ya da Stoch RSI kesişimi). Yeni veri yoksa kart yok.
+ *   Negatif tepe: 1m/3m'de fiyat ≥ önceki tepe, RSI < önceki tepe (ardışık sayı) — artış yeni veri sayılır.
  *   Seri içi    : (seriesBursts) seri sürerken gelen hacimli mum ŞART ARANMADAN kart olur (#SERI).
  *   Numara      : aynı coinde kartlar #1, #2 … diye artar; kapanmış 5m RSI < resetRsi olunca sıfırlanır.
  *
@@ -157,6 +158,36 @@ function stochState(series, tf) {
   return { k: q.k, d: q.d, cross, crossKey: cross ? `${tf}:${cross}:${series.lastT(tf)}` : null };
 }
 
+/**
+ * Negatif tepe (düşüş uyumsuzluğu) — fiyat eşit ya da daha yüksek tepe yaparken RSI daha düşük tepe.
+ *   Tepe (pivot): high[i] > high[i-1] ve high[i] ≥ high[i+1] (sağında 1 kapanmış mumla teyitli).
+ *   Son `lookback` kapanmış mumdaki tepeler sırayla karşılaştırılır; ardışık negatif tepe sayısı
+ *   son tepede biten seridir (arada RSI'ı yükselen ya da fiyatı alçalan tepe gelirse sıfırlanır).
+ *   Son tepe 6 mumdan eskiyse sayı 0 (bayat uyumsuzluk gösterilmez).
+ * @returns {{count:number, key:string|null, lastAgo:number|null}|null}
+ */
+function negPeaks(series, tf, lookback = 40) {
+  const h = series.col(tf, 'h', false), c = series.col(tf, 'c', false), t = series.col(tf, 't', false);
+  const n = c.length;
+  if (n < 30) return null;
+  const r = ta.rsiSeries(c, 14);
+  const off = n - r.length;                               // r[j] ↔ c[j + off]
+  const piv = [];
+  for (let i = Math.max(off + 1, n - lookback); i < n - 1; i++) {
+    if (h[i] > h[i - 1] && h[i] >= h[i + 1]) piv.push({ i, h: h[i], r: r[i - off] });
+  }
+  let cnt = 0;
+  for (let k = 1; k < piv.length; k++) {
+    const a = piv[k - 1], b = piv[k];
+    if (b.h >= a.h * 0.999 && b.r < a.r - 0.5) cnt++;
+    else cnt = 0;
+  }
+  const last = piv[piv.length - 1];
+  const lastAgo = last ? n - 1 - last.i : null;
+  const fresh = last && lastAgo <= 6;
+  return { count: fresh ? cnt : 0, key: last ? `${tf}:${t[last.i]}` : null, lastAgo };
+}
+
 function vwapState(series, price) {
   const t = series.col('5m', 't');
   if (!t.length) return null;
@@ -222,6 +253,7 @@ function evaluate(series, s, ctx = {}, force = false) {
   snap.levelOk = !!level;
 
   snap.sep = { '3m': separation(series, '3m', price), '5m': separation(series, '5m', price) };
+  snap.neg = { '1m': negPeaks(series, '1m'), '3m': negPeaks(series, '3m') };
   snap.sepOk = ['3m', '5m'].every(tf => snap.sep[tf] && snap.sep[tf].dist >= s.sepATR && !snap.sep[tf].touched);
 
   const r1h = ta.rsiLast(series.col('1h', 'c')), r4h = ta.rsiLast(series.col('4h', 'c'));
@@ -306,6 +338,12 @@ function createTracker() {
       }
       const sk = snap.stoch?.crossKey;
       if (sk && sk !== L.stochKey) out.push(`Stoch RSI 5m ${snap.stoch.cross === 'down' ? '↓' : '↑'} kesişim`);
+      for (const tf of ['1m', '3m']) {
+        const ng = snap.neg?.[tf];
+        if (ng && ng.count >= 1 && (ng.count > (L.neg?.[tf] ?? 0) || (ng.count === (L.neg?.[tf] ?? 0) && ng.key !== L.negKey?.[tf]))) {
+          out.push(`〽️ ${tf} negatif tepe ${ng.count}`);
+        }
+      }
       return out;
     },
 
@@ -321,6 +359,8 @@ function createTracker() {
         zone: snap.level ? snap.level.zone : null,
         macdKeys: { '5m': snap.macd['5m']?.crossKey ?? (m.last?.macdKeys['5m'] ?? null), '15m': snap.macd['15m']?.crossKey ?? (m.last?.macdKeys['15m'] ?? null) },
         stochKey: snap.stoch?.crossKey ?? (m.last?.stochKey ?? null),
+        neg: { '1m': snap.neg?.['1m']?.count ?? 0, '3m': snap.neg?.['3m']?.count ?? 0 },
+        negKey: { '1m': snap.neg?.['1m']?.key ?? null, '3m': snap.neg?.['3m']?.key ?? null },
       };
       m.log.push({ t: snap.t, price: snap.price, seq: m.seq });
       while (m.log.length && m.log[0].t < snap.t - DAY) m.log.shift();
@@ -376,6 +416,7 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
     snap.level ? (dip ? '#DIPTE' : '#YAKLASIYOR') : null,
     burst ? '#HACIM' : null,
     inSeries ? '#SERI' : null,
+    Math.max(snap.neg?.['1m']?.count ?? 0, snap.neg?.['3m']?.count ?? 0) >= 2 ? '#NEGTEPE' : null,
     snap.sepOk ? '#AYRISMA' : null,
     followed ? '#TAKIP' : null,
   ].filter(Boolean);
@@ -387,4 +428,13 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
   };
 }
 
-module.exports = { evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, RSI_TFS };
+/**
+ * 1 dakikalık fiyat hareketi: kapanış, bir önceki 1m kapanışa göre (önceki yoksa açılışa göre).
+ * @returns {number|null} yüzde değişim
+ */
+function movePct(prevClose, prevT, c) {
+  const base = prevClose > 0 && prevT === c.t - MIN ? prevClose : c.o;
+  return base > 0 ? (c.c - base) / base * 100 : null;
+}
+
+module.exports = { evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, negPeaks, movePct, RSI_TFS };

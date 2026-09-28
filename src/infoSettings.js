@@ -37,6 +37,9 @@ const DEFS = [
   { key: 'confRsi', short: 'Destek RSI',       label: 'Destek RSI (1h/4h ≥)',    type: 'int', min: 50, max: 95, step: 1 },
   { key: 'confRequired', short: 'Destek şartı',  label: 'Destek şartı (1h/4h biri)', type: 'bool' },
   { key: 'macdRequired', short: 'MACD şartı',  label: 'MACD 5m zayıflama şartı', type: 'bool' },
+  { key: 'moveAlertPct', short: 'Hareket %', label: 'Hareket uyarısı: 1 dk ≥ % (0 = kapalı)', type: 'num', min: 0, max: 20, step: 0.5 },
+  { key: 'moveAlertAll', short: 'Hrk. tüm pariteler', label: 'Hareket uyarısı: tüm pariteler', type: 'bool' },
+  { key: 'moveAlertSound', short: 'Hrk. sesli', label: 'Hareket uyarısı sesli', type: 'bool' },
   { key: 'minVolumeM', short: 'Hacim M$',    label: 'Evren: 24s hacim ≥ (milyon $)', type: 'num', min: 0, max: 500, step: 1 },
 ];
 const DEF_BY_KEY = Object.fromEntries(DEFS.map(d => [d.key, d]));

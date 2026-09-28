@@ -98,10 +98,15 @@ async function runSymbol(symbol, { start, end, s, btcClose, keepCards }) {
       return a && b ? (a / b - 1) * 100 : null;
     },
   };
-  const cards = [];
+  const cards = [], moves = [];
   let gaps = 0;
   for (let i = first; i < m1.length; i++) {
     if (i > first && m1[i].t - m1[i - 1].t > MIN) gaps++;
+    if (s.moveAlertPct > 0) {                                 // canlıdaki ⚡ hareket uyarısıyla aynı ölçü
+      const pv = m1[i - 1];
+      const mp = eng.movePct(pv ? pv.c : null, pv ? pv.t : null, m1[i]);
+      if (mp != null && Math.abs(mp) >= s.moveAlertPct) moves.push({ symbol, t: m1[i].t + MIN, movePct: +mp.toFixed(3), price: m1[i].c, fwd: forward(m1, i, m1[i].c) });
+    }
     const closed = sr.apply1m(m1[i]);
     const card = eng.step(sr, closed, s, tracker, ctx);
     if (!card) continue;
@@ -109,76 +114,12 @@ async function runSymbol(symbol, { start, end, s, btcClose, keepCards }) {
     if (keepCards) card.text = formatCard(card, s).text;
     cards.push(card);
   }
-  return { symbol, cards, minutes: m1.length - first, gaps };
+  return { symbol, cards, moves, minutes: m1.length - first, gaps };
 }
 
 // ── Rapor ──────────────────────────────────────────────────────────────────
 
-const median = a => { if (!a.length) return null; const b = [...a].sort((x, y) => x - y); const m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
-const pctS = v => (v == null ? '—' : `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(2)}%`);
-const fmtDate = t => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
-
-function compact(c) {
-  const sn = c.snap;
-  return {
-    symbol: c.symbol, t: c.t, time: fmtDate(c.t), seq: c.seq, price: c.price, silent: c.silent, inSeries: Boolean(c.inSeries),
-    news: c.news, tags: c.tags,
-    rsi: Object.fromEntries(eng.RSI_TFS.map(tf => [tf, +sn.rsi[tf].v.toFixed(2)])), hits: sn.hits,
-    level: sn.level ? { name: sn.level.name, value: sn.level.value, dist: +sn.level.dist.toFixed(3), zone: sn.level.zone } : null,
-    burst: c.trig.burst ? { dir: c.trig.burst.dir, body: +c.trig.burst.body.toFixed(2), volX: +c.trig.burst.volX.toFixed(1), taker: Math.round(c.trig.burst.taker) } : null,
-    trigTFs: c.trig.tfs,
-    sepOk: sn.sepOk, conf: sn.conf.score, rsi1h: sn.conf.h1 != null ? +sn.conf.h1.toFixed(1) : null, rsi4h: sn.conf.h4 != null ? +sn.conf.h4.toFixed(1) : null,
-    macd5m: sn.macd['5m']?.text ?? null, macd15m: sn.macd['15m']?.text ?? null,
-    stoch5m: sn.stoch ? { k: +sn.stoch.k.toFixed(1), d: +sn.stoch.d.toFixed(1), cross: sn.stoch.cross } : null,
-    vwapSigma: sn.vwap ? +sn.vwap.pos.toFixed(2) : null,
-    bursts: sn.bursts, btc1h: sn.btc1h != null ? +sn.btc1h.toFixed(2) : null,
-    fwd: c.fwd,
-  };
-}
-
-const CLASSES = [
-  ['Tüm kartlar',          () => true],
-  ['İlk kart (#1)',        c => c.seq === 1],
-  ['RSI 2/3',              c => c.hits === 2],
-  ['RSI 3/3',              c => c.hits === 3],
-  ['DİPTE',                c => c.level?.zone === 'dip'],
-  ['Yaklaşıyor',           c => c.level?.zone === 'near'],
-  ['Hacim tetikli',        c => c.burst != null],
-  ['  ↳ satış patlaması',  c => c.burst?.dir === 'sell'],
-  ['  ↳ alım patlaması',   c => c.burst?.dir === 'buy'],
-  ['  ↳ seri içi (şartsız)', c => c.inSeries],
-  ['    ↳ satış',          c => c.inSeries && c.burst?.dir === 'sell'],
-  ['Ayrışma ✓',            c => c.sepOk],
-  ['Destek 2/2',           c => c.conf === 2],
-  ['3/3 + DİPTE (sesli)',  c => c.hits === 3 && c.level?.zone === 'dip'],
-];
-
-function classTable(cards) {
-  const rows = [];
-  for (const [name, f] of CLASSES) {
-    const sub = cards.filter(f);
-    const ok = sub.filter(c => c.fwd?.[60]);
-    rows.push({
-      name, n: sub.length,
-      low60: median(ok.map(c => c.fwd[60].low)), high60: median(ok.map(c => c.fwd[60].high)), close60: median(ok.map(c => c.fwd[60].close)),
-      low15: median(sub.filter(c => c.fwd?.[15]).map(c => c.fwd[15].low)),
-    });
-  }
-  return rows;
-}
-
-function load(cards) {
-  const perMin = new Map(), perHour = new Map();
-  for (const c of cards) {
-    perMin.set(c.t, (perMin.get(c.t) || 0) + 1);
-    const h = Math.floor(c.t / 3_600_000);
-    perHour.set(h, (perHour.get(h) || 0) + 1);
-  }
-  const maxMin = Math.max(0, ...perMin.values()), maxHour = Math.max(0, ...perHour.values());
-  const over20 = [...perMin.values()].filter(v => v > 20).length;
-  const peakHour = [...perHour.entries()].sort((a, b) => b[1] - a[1])[0];
-  return { maxMin, maxHour, over20, peakHour: peakHour ? { at: fmtDate(peakHour[0] * 3_600_000), n: peakHour[1] } : null };
-}
+const { median, pctS, fmtDate, compact, CLASSES, classTable, load } = require('./infoStats');
 
 function printReport(p, cards, perSym) {
   const days = (p.end - p.start) / DAY;
@@ -203,7 +144,22 @@ function printReport(p, cards, perSym) {
   console.log('     Evren BUGÜNKÜ hacme göre seçildi (dönem içinde listeden çıkan coinler yok). Funding/OI geçmişi kullanılmadı.');
 }
 
-function telegramSummary(p, cards, perSym, s) {
+function moveRows(moves) {
+  return [['▲ yükseliş', moves.filter(m => m.movePct > 0)], ['▼ düşüş', moves.filter(m => m.movePct < 0)]].map(([k, a]) => {
+    const f = a.filter(m => m.fwd?.[60]);
+    return { k, n: a.length, close60: median(f.map(m => m.fwd[60].close)), low60: median(f.map(m => m.fwd[60].low)), high60: median(f.map(m => m.fwd[60].high)) };
+  });
+}
+
+function printMoves(p, moves, s) {
+  const days = (p.end - p.start) / DAY;
+  console.log(`\n⚡ 1 dk hareket ≥ %${s.moveAlertPct} (yalnızca backtest listesindeki coinler): ${moves.length} (günde ~${(moves.length / days).toFixed(1)})`);
+  for (const r of moveRows(moves)) console.log(`  ${r.k.padEnd(12)} ${String(r.n).padStart(5)} · 60dk sonra medyan ${pctS(r.close60)} (en düşük ${pctS(r.low60)} / en yüksek ${pctS(r.high60)})`);
+  const L = load(moves);
+  console.log(`  Yük: en yoğun dakika ${L.maxMin} · en yoğun saat ${L.maxHour} uyarı`);
+}
+
+function telegramSummary(p, cards, perSym, s, moves = []) {
   const days = (p.end - p.start) / DAY;
   const L = load(cards);
   const rows = classTable(cards).map(r => `${esc(r.name.trim())}: <b>${r.n}</b> · 60dk en düşük ${pctS(r.low60)} · en yüksek ${pctS(r.high60)}`);
@@ -218,7 +174,7 @@ Yük: en yoğun dakika ${L.maxMin} · en yoğun saat ${L.maxHour} kart
 <b>Sınıflar</b> (sonraki 60 dk, medyan)
 ${rows.join('\n')}
 ${top ? `\nEn çok kart: ${top}` : ''}
-<i>Kazanç/kayıp testi değildir.</i>`.slice(0, 4000);
+${s.moveAlertPct > 0 ? `\n<b>⚡ 1 dk ≥ %${s.moveAlertPct}</b>: ${moves.length}\n${moveRows(moves).map(r => `${r.k}: ${r.n} · 60dk sonra ${pctS(r.close60)}`).join('\n')}\n` : ''}<i>Kazanç/kayıp testi değildir.</i>`.slice(0, 4000);
 }
 
 // ── CLI ────────────────────────────────────────────────────────────────────
@@ -270,6 +226,7 @@ async function main() {
   console.log(`  Semboller : ${symbols.length} (${universe}) — ${symbols.slice(0, 10).join(', ')}${symbols.length > 10 ? ' …' : ''}`);
   console.log(`  Dönem     : ${fmtDate(start)} → ${fmtDate(end)} UTC`);
   console.log(`  Şart      : 3m/5m/15m RSI ≥ ${s.rsiMin} (${s.minTFs}/3)${s.levelRequired ? ` + üstte ≤ %${s.levelMaxPct} seviye` : ''}${s.sepRequired ? ' + ayrışma' : ''}${s.confRequired ? ' + destek' : ''}${s.macdRequired ? ' + MACD' : ''}`);
+  console.log(`  Hareket   : 1 dk ≥ %${s.moveAlertPct}${s.moveAlertPct > 0 ? '' : ' (kapalı)'}`);
   console.log(`  Patlama   : gövde ≥ %${s.burstPct1}/%${s.burstPct2} · hacim ≥ ${s.volMult}× (${s.volAvgN} mum) · taker >%${s.takerBuyPct} alım / <%${s.takerSellPct} satış`);
   console.log(`  Süre      : coin başına ~${Math.ceil(DAYS * 1.44 * (REQ_DELAY_MS + 150) / 1000)} sn veri çekme (1m, ${Math.ceil(DAYS * 1440 / PAGE)} istek)`);
   console.log('════════════════════════════════════════════\n');
@@ -280,7 +237,7 @@ async function main() {
   const btcClose = new Map(btc1m.map(c => [c.t, c.c]));
 
   const ORNEK = Number(a.ornek ?? 0);
-  const all = [], perSym = [];
+  const all = [], perSym = [], allMoves = [];
   const t0 = Date.now();
   for (const [i, sym] of symbols.entries()) {
     const eta = i ? Math.round((Date.now() - t0) / i * (symbols.length - i) / 60000) : null;
@@ -288,8 +245,9 @@ async function main() {
       const r = await runSymbol(sym, { start, end, s, btcClose, keepCards: ORNEK > 0 || Boolean(a.telegram) });
       const cards = r.cards.map(c => ({ ...compact(c), text: c.text }));
       all.push(...cards);
-      perSym.push({ symbol: sym, n: cards.length, series: cards.filter(c => c.seq === 1).length, minutes: r.minutes, gaps: r.gaps });
-      console.log(`[${i + 1}/${symbols.length}] ${sym}: ${cards.length} kart (${cards.filter(c => c.seq === 1).length} seri)${r.note ? ` — ${r.note}` : ''}${eta != null ? ` · kalan ~${eta} dk` : ''}`);
+      allMoves.push(...(r.moves || []));
+      perSym.push({ symbol: sym, n: cards.length, series: cards.filter(c => c.seq === 1).length, moves: (r.moves || []).length, minutes: r.minutes, gaps: r.gaps });
+      console.log(`[${i + 1}/${symbols.length}] ${sym}: ${cards.length} kart (${cards.filter(c => c.seq === 1).length} seri)${s.moveAlertPct > 0 ? ` · ${(r.moves || []).length} hareket ≥%${s.moveAlertPct}` : ''}${r.note ? ` — ${r.note}` : ''}${eta != null ? ` · kalan ~${eta} dk` : ''}`);
     } catch (err) {
       perSym.push({ symbol: sym, n: 0, error: String(err?.message || err) });
       console.error(`[${i + 1}/${symbols.length}] ${sym}: HATA — ${err?.message || err}`);
@@ -298,6 +256,7 @@ async function main() {
   all.sort((x, y) => x.t - y.t);
 
   printReport(p, all, perSym);
+  if (s.moveAlertPct > 0) printMoves(p, allMoves, s);
 
   if (ORNEK > 0) {
     console.log(`\n── Örnek kartlar (son ${ORNEK}) ──`);
@@ -307,12 +266,12 @@ async function main() {
   const OUT = path.join(__dirname, '..', 'backtest-results');
   fs.mkdirSync(OUT, { recursive: true });
   const file = path.join(OUT, `info-${new Date().toISOString().replace(/[:T.]/g, '-').slice(0, 19)}.json`);
-  fs.writeFileSync(file, JSON.stringify({ params: { ...p, settings: s }, classes: classTable(all), load: load(all), perSymbol: perSym, cards: all.map(({ text, ...c }) => c) }, null, 1));
+  fs.writeFileSync(file, JSON.stringify({ params: { ...p, settings: s }, classes: classTable(all), load: load(all), perSymbol: perSym, cards: all.map(({ text, ...c }) => c), moves: allMoves }, null, 1));
   console.log(`\n📁 Ayrıntılı sonuç: ${file}`);
 
   if (a.telegram) {
     const telegram = require('./telegram');       // komut dinleme başlatılmaz → canlı botla çakışmaz
-    telegram.sendText(telegramSummary(p, all, perSym, s));
+    telegram.sendText(telegramSummary(p, all, perSym, s, allMoves));
     for (const c of all.filter(x => x.burst).slice(-1).concat(all.filter(x => !x.burst).slice(-1))) {
       const kb = [[
         { text: '📈 TradingView', url: `https://www.tradingview.com/chart/?symbol=BINANCE:${encodeURIComponent(c.symbol)}.P` },
@@ -331,4 +290,4 @@ if (require.main === module) {
   main().catch(err => { console.error('[BACKTEST]', err?.stack || err); process.exit(1); });
 }
 
-module.exports = { runSymbol, fetch1m, classTable, load, compact, setKlineSource: src => { klineSource = src; } };
+module.exports = { runSymbol, fetch1m, setKlineSource: src => { klineSource = src; } };
