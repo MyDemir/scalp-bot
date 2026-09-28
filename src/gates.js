@@ -11,8 +11,14 @@
  * EMC = Extreme Momentum Condition (15m RSI 95+)
  *   Deterministic bir "kesin giriş" değil, ek bir momentum sinyalidir.
  *
+ * Giriş tetikleyicisi (trigger) — rsiLow/rsiHigh kapıları buna göre çalışır:
+ *   current (canlı, varsayılan) : max(5m, 15m) RSI  cfg.rsiEntryMin–cfg.rsiEntryMax
+ *   plan    (yalnızca backtest) : max(3m, 5m)  RSI  cfg.planTrigger.rsiMin–rsiMax, giriş TF 3m
+ *   plan5m  (yalnızca backtest) : planın RSI tetikleyicisi, giriş TF 5m (tetikleyici etkisini ayırmak için)
+ *   Tetikleyici verilmezse "current" kullanılır → canlı bot davranışı değişmez.
+ *
  * Parametreler (p):
- *   rsi5m, rsi15m, rsi1h, rsi4h      : RSI değerleri
+ *   rsi3m, rsi5m, rsi15m, rsi1h, rsi4h : RSI değerleri (rsi3m yalnızca plan tetikleyicisinde)
  *   ema21Distance                    : ATR cinsinden EMA21 uzaklığı
  *   ema21Touched                     : son N mumda EMA21 dokunuşu var mı
  *   nearDailyLevel                   : günlük EMA200 veya majör direnç yakını
@@ -21,7 +27,20 @@
 
 const cfg = require('./config');
 
-const primaryRSI = p => Math.max(p.rsi5m || 0, p.rsi15m || 0);
+/** Tetikleyici tanımları — eşikler çağrı anında cfg'den okunur */
+function getTriggers() {
+  const mk = (key, t) => ({ key, ...t, tfLabel: t.rsiTFs.join('/'), label: `${t.rsiTFs.join('/')} RSI ${t.rsiMin}–${t.rsiMax}` });
+  return {
+    current: mk('current', { rsiTFs: ['5m', '15m'], entryTF: '5m', rsiMin: cfg.rsiEntryMin, rsiMax: cfg.rsiEntryMax }),
+    // Planın RSI tetikleyicisi + mevcut 5m giriş (EMA21/ATR/TP 5m) → yalnızca tetikleyici farkını ölçer
+    plan5m:  mk('plan5m',  { ...cfg.planTrigger, entryTF: '5m' }),
+    plan:    mk('plan',    { ...cfg.planTrigger }),
+  };
+}
+const defaultTrigger = () => getTriggers().current;
+
+/** Tetikleyici RSI'ı: rsiTFs içindeki en yüksek RSI */
+const primaryRSI = (p, t) => Math.max(...t.rsiTFs.map(tf => p['rsi' + tf] || 0));
 
 // Sıra önemlidir: checkGates ilk takılanı raporlar (canlı loglar ve heartbeat bu metni sayar)
 const GATES = [
@@ -51,15 +70,15 @@ const GATES = [
   },
   {
     key:    'rsiLow',
-    label:  () => `5m/15m RSI < ${cfg.rsiEntryMin}`,
-    fails:  p => primaryRSI(p) < cfg.rsiEntryMin,
-    reason: p => `5m/15m RSI yetersiz (max: ${primaryRSI(p).toFixed(1)} < ${cfg.rsiEntryMin})`,
+    label:  t => `${t.tfLabel} RSI < ${t.rsiMin}`,
+    fails:  (p, t) => primaryRSI(p, t) < t.rsiMin,
+    reason: (p, t) => `${t.tfLabel} RSI yetersiz (max: ${primaryRSI(p, t).toFixed(1)} < ${t.rsiMin})`,
   },
   {
     key:    'rsiHigh',
-    label:  () => `5m/15m RSI > ${cfg.rsiEntryMax}`,
-    fails:  p => primaryRSI(p) > cfg.rsiEntryMax,
-    reason: p => `5m/15m RSI sınır aşıldı (${primaryRSI(p).toFixed(1)} > ${cfg.rsiEntryMax})`,
+    label:  t => `${t.tfLabel} RSI > ${t.rsiMax}`,
+    fails:  (p, t) => primaryRSI(p, t) > t.rsiMax,
+    reason: (p, t) => `${t.tfLabel} RSI sınır aşıldı (${primaryRSI(p, t).toFixed(1)} > ${t.rsiMax})`,
   },
   {
     key:    'emaDist',
@@ -80,22 +99,25 @@ const GATES = [
 /**
  * @returns {{ pass: boolean, reason?: string, key?: string, hasEMC?: boolean }}
  */
-function checkGates(p) {
+function checkGates(p, trigger = defaultTrigger()) {
   for (const g of GATES) {
-    if (g.fails(p)) return { pass: false, reason: g.reason(p), key: g.key };
+    if (g.fails(p, trigger)) return { pass: false, reason: g.reason(p, trigger), key: g.key };
   }
   const hasEMC = !!(p.rsi15m && p.rsi15m >= cfg.rsiEMCThreshold);
   return { pass: true, hasEMC };
 }
 
 /** Takılan tüm kapıların anahtarları (tablo sırasıyla) */
-function listFailures(p) {
-  return GATES.filter(g => g.fails(p)).map(g => g.key);
+function listFailures(p, trigger = defaultTrigger()) {
+  return GATES.filter(g => g.fails(p, trigger)).map(g => g.key);
 }
 
 /** Rapor etiketleri: { key → okunur ad } (cfg eşikleri çağrı anında okunur) */
-function gateLabels() {
-  return Object.fromEntries(GATES.map(g => [g.key, g.label()]));
+function gateLabels(trigger = defaultTrigger()) {
+  return Object.fromEntries(GATES.map(g => [g.key, g.label(trigger)]));
 }
 
-module.exports = { checkGates, listFailures, gateLabels, GATE_KEYS: GATES.map(g => g.key) };
+module.exports = {
+  checkGates, listFailures, gateLabels, getTriggers, primaryRSI,
+  GATE_KEYS: GATES.map(g => g.key),
+};

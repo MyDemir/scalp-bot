@@ -22,6 +22,9 @@
  *   node src/backtest.js
  *   node src/backtest.js --symbol BTCUSDT --days 90
  *   node src/backtest.js --symbol ETHUSDT,SOLUSDT --days 30 --min-score 55
+ *   node src/backtest.js --compare --days 90     # A: 5m/15m RSI 90–98 (canlı) · B: 3m/5m RSI 95–98 giriş 5m
+ *                                                # · C: 3m/5m RSI 95–98 giriş 3m (planın tamamı) — aynı veride
+ *   --fee-pct 0.05  → raporlardaki "net R" komisyon (giriş+çıkış) düşülmüş R
  *
  * Çıktı: backtest-results/ klasörüne JSON + konsol özeti
  */
@@ -34,24 +37,23 @@ const path = require('path');
 const cfg                = require('./config');
 const { computeAll }     = require('./indicators');
 const { detectRegime }   = require('./regime');
-const { checkGates, listFailures, gateLabels, GATE_KEYS } = require('./gates');
+const { checkGates, listFailures, gateLabels, getTriggers, primaryRSI, GATE_KEYS } = require('./gates');
 const { calcScore }      = require('./scorer');
 const { calcDailyLevels, nearLevelInfo } = require('./levels');
 const { calcTradePlan }  = require('./tradePlan');
-const { createTrade, applyBar, toRecord } = require('./outcome');
+const { createTrade, applyBar, toRecord, HOLD_MS } = require('./outcome');  // sonuç penceresi 4 saat
 const { withRetry }      = require('./binanceClient');
 
 // ── Sabitler ────────────────────────────────────────────────────────────────
 
 const MIN = 60 * 1000;
-const TF_MS = { '5m': 5 * MIN, '15m': 15 * MIN, '1h': 60 * MIN, '4h': 240 * MIN, '1d': 1440 * MIN };
+const TF_MS = { '1m': MIN, '3m': 3 * MIN, '5m': 5 * MIN, '15m': 15 * MIN, '1h': 60 * MIN, '4h': 240 * MIN, '1d': 1440 * MIN };
 
 const BUFFER       = 200;  // canlı candleStore tampon boyu (BUFFER_SIZE) ile aynı
 const MIN_CANDLES  = 50;   // canlı candleStore.isReady() eşiği ile aynı
 const DAILY_WINDOW = 220;  // canlı htfPoller 1d limit=220 ile aynı
-const HOLD_CANDLES = 48;   // sonuç penceresi: 4 saat = 48 × 5m (eventTracker MAX_HOLD ile aynı)
 
-// Son aşama adaylarında max(5m,15m) RSI dağılımı
+// Son aşama adaylarında tetikleyici RSI dağılımı (max(5m,15m) ya da max(3m,5m))
 const RSI_BUCKETS = [
   { max: 70,       label: '<70'   },
   { max: 80,       label: '70–80' },
@@ -182,183 +184,243 @@ function dailyLevelsAt(B, dailyCandles, c5, i) {
 
 // ── Sembol Backtest ─────────────────────────────────────────────────────────
 
+/** Tetikleyicinin karar anları: RSI TF'leri ve giriş TF'inin kapanışları (5m/15m → her 5m; 3m/5m → her 3m ve 5m) */
+function decisionTFs(trig) {
+  return [...new Set([...trig.rsiTFs, trig.entryTF])];
+}
+
+/** 1m mumlardan KAPANMIŞ 3m mumları üretir (REST'ten ayrıca 3m çekmemek için; Binance'in 3m'i ile aynı) */
+function aggregateClosed(c1, tfMs, endTime) {
+  const out = [];
+  let cur = null;
+  const flush = () => { if (cur) out.push(cur); };
+  for (const c of c1) {
+    const ps = Math.floor(c.openTime / tfMs) * tfMs;
+    if (!cur || cur.openTime !== ps) {
+      flush();
+      cur = { openTime: ps, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume, closeTime: ps + tfMs - 1, _last: c.closeTime };
+    } else {
+      if (c.high > cur.high) cur.high = c.high;
+      if (c.low  < cur.low)  cur.low  = c.low;
+      cur.close = c.close; cur.volume += c.volume; cur._last = c.closeTime;
+    }
+  }
+  flush();
+  // Yalnızca süresi dolmuş periyotlar (son periyot 1m verisinin ötesine taşıyorsa henüz kapanmamıştır)
+  const lastEnd = c1.length ? c1[c1.length - 1].closeTime : -Infinity;
+  return out.filter(c => c.closeTime <= lastEnd && c.closeTime < endTime).map(({ _last, ...c }) => c);
+}
+
 /**
- * @returns {{ signals: object[], stats: object }}
+ * Bir sembolü bir ya da birden çok giriş tetikleyicisiyle, AYNI veri üzerinde test eder.
+ *
+ *   Normal mod  : taban 5m, tek tetikleyici (canlı: 5m/15m RSI 90–98) — eski davranışın aynısı
+ *   --compare   : taban 1m → 3m/5m/15m/1h/4h yarım mumları 1m'den kesin kurulur (look-ahead yok);
+ *                 iki tetikleyici kendi karar anlarında değerlendirilir, sonuçlar 1m mumlarla ölçülür
+ *                 (her iki tetikleyici için aynı çözünürlük → adil karşılaştırma)
+ *
+ * @returns {{ signals: object[], stats: object, variants: Object<string,{signals:object[], stats:object}> }}
+ *          signals/stats = ilk tetikleyici (geriye uyumluluk)
  */
-async function backtestSymbol(symbol, { startTime, endTime, minScore }) {
-  // Isınma: canlı bot 200 mumluk tamponla başlıyor → her TF için başlangıçtan önce 200 mum
-  const ranges = {
-    '5m':  startTime - BUFFER * TF_MS['5m'],
-    '15m': startTime - BUFFER * TF_MS['15m'],
-    '1h':  startTime - BUFFER * TF_MS['1h'],
-    '4h':  startTime - BUFFER * TF_MS['4h'],
-    '1d':  startTime - DAILY_WINDOW * TF_MS['1d'],
-  };
+async function backtestSymbol(symbol, { startTime, endTime, minScore, compare = false, feePct = 0 }) {
+  const trig     = getTriggers();
+  const triggers = compare ? [trig.current, trig.plan5m, trig.plan] : [trig.current];
+  const baseTf   = compare ? '1m' : '5m';
+  const baseMs   = TF_MS[baseTf];
+  const viewTfs  = compare ? ['3m', '5m', '15m', '1h', '4h'] : ['5m', '15m', '1h', '4h'];
+
+  // Isınma: canlı bot 200 mumluk tamponla başlıyor → her TF için başlangıçtan önce 200 mum.
+  // Taban TF en az 1 gün geriden başlar (günlük seviyedeki "bugünkü yarım gün" eksiksiz kurulsun).
+  const ranges = { [baseTf]: startTime - Math.max(BUFFER * TF_MS[compare ? '3m' : '5m'], TF_MS['1d']) };
+  for (const tf of ['5m', '15m', '1h', '4h']) if (!(tf in ranges)) ranges[tf] = startTime - BUFFER * TF_MS[tf];
+  ranges['1d'] = startTime - DAILY_WINDOW * TF_MS['1d'];
 
   // Sıralı çek (paralel değil) — rate limit koruması
   const data = {};
   for (const tf of Object.keys(ranges)) {
     data[tf] = await fetchRange(symbol, tf, ranges[tf], endTime);
   }
+  if (compare) data['3m'] = aggregateClosed(data['1m'], TF_MS['3m'], endTime);
 
-  const c5 = data['5m'];
-  const stats = {
-    candles: Object.fromEntries(Object.entries(data).map(([tf, arr]) => [tf, arr.length])),
-    range: c5.length ? [c5[0].openTime, c5[c5.length - 1].closeTime + 1] : null,
-    final: { fails: {}, only: {}, rsiDist: {} },
-    decisions: 0, cooldown: 0, nearLevel: 0, rsi1hOk: 0, rsi4hOk: 0, gatePass: 0,
-    planInvalid: 0, belowScore: 0, signals: 0,
-  };
-  let lastSignalT = null;   // canlıdaki lastSignalAt ile aynı cooldown kuralı
+  const base = data[baseTf];
+  const candles = Object.fromEntries(Object.entries(data).map(([tf, arr]) => [tf, arr.length]));
+  const range   = base.length ? [base[0].openTime, base[base.length - 1].closeTime + 1] : null;
 
-  if (c5.length < BUFFER) {
-    console.warn(`  [${symbol}] Yetersiz 5m veri (${c5.length} mum) — atlandı`);
-    return { signals: [], stats };
+  const runs = triggers.map(t => ({
+    trig:  t,
+    tfs:   decisionTFs(t),
+    need:  [...new Set([...t.rsiTFs, t.entryTF, '15m', '1h'])],   // canlı isReady(): 5m, 15m, 1h (+ plan: 3m)
+    lastSignalT: null,                                              // canlıdaki lastSignalAt ile aynı cooldown kuralı
+    signals: [],
+    stats: {
+      trigger: t.key, candles, range,
+      final: { fails: {}, only: {}, rsiDist: {} },
+      decisions: 0, cooldown: 0, nearLevel: 0, rsi1hOk: 0, rsi4hOk: 0, gatePass: 0,
+      planInvalid: 0, belowScore: 0, signals: 0,
+    },
+  }));
+  const result = () => ({
+    signals: runs[0].signals, stats: runs[0].stats,
+    variants: Object.fromEntries(runs.map(r => [r.trig.key, { signals: r.signals, stats: r.stats }])),
+  });
+
+  if (base.length < BUFFER) {
+    console.warn(`  [${symbol}] Yetersiz ${baseTf} veri (${base.length} mum) — atlandı`);
+    return result();
   }
 
-  const views = {
-    '15m': makeHtfView(data['15m'], TF_MS['15m']),
-    '1h':  makeHtfView(data['1h'],  TF_MS['1h']),
-    '4h':  makeHtfView(data['4h'],  TF_MS['4h']),
-  };
+  const views = Object.fromEntries(viewTfs.map(tf => [tf, makeHtfView(tf === baseTf ? base : data[tf], TF_MS[tf])]));
+  const holdBars = HOLD_MS / baseMs;
 
-  const signals = [];
   let dailyKey = null;
   let daily    = null;
 
-  for (let i = 0; i < c5.length; i++) {
-    const cur = c5[i];
-    // Yarım HTF mumları her 5m mumla güncellenmeli — aşağıdaki "continue"lardan ÖNCE
-    views['15m'].push(cur);
-    views['1h'].push(cur);
-    views['4h'].push(cur);
+  for (let i = 0; i < base.length; i++) {
+    const cur = base[i];
+    // Yarım mumlar her taban mumla güncellenmeli — aşağıdaki "continue"lardan ÖNCE
+    for (const tf of viewTfs) views[tf].push(cur);
 
-    const T = cur.openTime + TF_MS['5m'];                       // karar anı: 5m mum kapanışı
-    if (cur.openTime < startTime) continue;                     // ısınma bölgesi
-    if (T + HOLD_CANDLES * TF_MS['5m'] > endTime) break;        // sonucu ölçecek tam 4 saat yok
-    if (i + 1 < MIN_CANDLES) continue;
-    stats.decisions++;
+    const T = cur.openTime + baseMs;                             // karar anı: taban mum kapanışı
+    if (cur.openTime < startTime) continue;                      // ısınma bölgesi
+    if (T + HOLD_MS > endTime) break;                            // sonucu ölçecek tam 4 saat yok
 
-    // Cooldown — canlı signalEngine ile aynı kural (cfg.cooldownMs)
-    if (lastSignalT != null && T - lastSignalT < cfg.cooldownMs) { stats.cooldown++; continue; }
+    const active = runs.filter(r => r.tfs.some(tf => T % TF_MS[tf] === 0));
+    if (!active.length) continue;
 
-    // ── Günlük seviye (4 saatlik blok başına bir kez, canlı htfPoller gibi) ──
-    const block = Math.floor(T / TF_MS['4h']) * TF_MS['4h'];
-    if (block !== dailyKey) {
-      daily    = dailyLevelsAt(block, data['1d'], c5, i);
-      dailyKey = block;
+    // Bu T için ortak hesaplar (tembel, önbellekli) — iki tetikleyici aynı veriyi görür
+    const sliceCache = {}, indCache = {};
+    const slice = tf => (sliceCache[tf] ??= views[tf].slice(T));
+    const ind   = tf => (indCache[tf]   ??= computeAll(slice(tf)));
+
+    for (const run of active) {
+      const { trig: t, stats } = run;
+      stats.decisions++;
+
+      // Cooldown — canlı signalEngine ile aynı kural (cfg.cooldownMs)
+      if (run.lastSignalT != null && T - run.lastSignalT < cfg.cooldownMs) { stats.cooldown++; continue; }
+
+      // ── Günlük seviye (4 saatlik blok başına bir kez, canlı htfPoller gibi) ──
+      const block = Math.floor(T / TF_MS['4h']) * TF_MS['4h'];
+      if (block !== dailyKey) {
+        daily    = dailyLevelsAt(block, data['1d'], base, i);
+        dailyKey = block;
+      }
+
+      const price = cur.close;
+      const { nearDailyLevel, dailyProximity } = nearLevelInfo(price, daily);
+
+      // Aşağıdaki erken "continue"lar yalnızca hız içindir: gates.js'teki tüm kapılar VE ile
+      // bağlı olduğundan, bir kapı kalırsa sonuç zaten "reddedildi" olur. Son karar yine
+      // checkGates() ile birebir verilir.
+      if (!nearDailyLevel) continue;
+      stats.nearLevel++;
+
+      if (run.need.some(tf => slice(tf).length < MIN_CANDLES)) continue;   // canlı isReady()
+
+      const ind1h = ind('1h');
+      if (!ind1h.rsi || ind1h.rsi < cfg.rsi1hMin) continue;
+      stats.rsi1hOk++;
+
+      const ind4h = slice('4h').length >= MIN_CANDLES ? ind('4h') : null;
+      if (!ind4h?.rsi || ind4h.rsi < cfg.rsi4hMin) continue;
+      stats.rsi4hOk++;
+
+      const indE = ind(t.entryTF);   // giriş TF'i: EMA21 uzaklığı/dokunuşu, ATR, TP, hacim, rejim
+      const regime = detectRegime({ indicators: indE, oiDeltaPct: null, fundingRate: null, candles: slice(t.entryTF) });
+
+      const gateParams = {
+        rsi15m:        ind('15m').rsi,          // EMC (15m RSI 95+) her iki tetikleyicide de 15m'den
+        rsi1h:         ind1h.rsi,
+        rsi4h:         ind4h.rsi,
+        ema21Distance: indE.distance,
+        ema21Touched:  indE.touched,
+        nearDailyLevel,
+        regime,
+      };
+      for (const tf of t.rsiTFs) gateParams['rsi' + tf] = ind(tf).rsi;
+
+      // ── Son aşama dökümü (günlük seviye + 1h + 4h'yi geçen adaylar) ──
+      //   fails[k]  : bu kapıya takılan aday sayısı (başka kapılara da takılmış olabilir)
+      //   only[k]   : YALNIZCA bu kapıya takılan aday → bu kapı olmasaydı sinyal olurdu
+      //   rsiDist   : tetikleyici RSI dağılımı → giriş eşiğinin ne kadar seçici olduğu
+      const failed = listFailures(gateParams, t);
+      for (const k of failed) stats.final.fails[k] = (stats.final.fails[k] || 0) + 1;
+      if (failed.length === 1) stats.final.only[failed[0]] = (stats.final.only[failed[0]] || 0) + 1;
+      const pr = primaryRSI(gateParams, t);
+      const bucket = RSI_BUCKETS.find(b => pr < b.max).label;
+      stats.final.rsiDist[bucket] = (stats.final.rsiDist[bucket] || 0) + 1;
+
+      const gateResult = checkGates(gateParams, t);
+      if (!gateResult.pass) continue;
+      stats.gatePass++;
+
+      // ── İşlem planı — canlı ile aynı sıra: kapı → plan → skor ──
+      const plan = calcTradePlan({
+        entryPrice:     price,
+        ema21:          indE.ema21,
+        atr:            indE.atr,
+        initialRiskPct: cfg.initialRiskPct,
+      });
+      if (!plan.valid) { stats.planInvalid++; continue; }
+
+      const { score, grade, breakdown } = calcScore({
+        rsi:           pr,
+        ema21Distance: indE.distance,
+        dailyProximity,
+        volRatio:      indE.volRatio,
+        cvdDir:        indE.cvdDir,
+        oiDeltaPct:    null,
+        negPeaks:      indE.negPeaks,
+        hasEMC:        gateResult.hasEMC,
+      });
+      if (score < minScore) { stats.belowScore++; continue; }
+
+      const futureCandles = base.slice(i + 1, i + 1 + holdBars);
+      const outcome = simulateOutcome({
+        entryPrice: price, tpA: plan.tpA, tpB: plan.tpB, slLevel: plan.slLevel,
+        initialRiskPct: cfg.initialRiskPct, sentAt: T,
+      }, futureCandles, baseMs);
+
+      run.lastSignalT = T;
+      stats.signals++;
+      const r2 = x => (x != null ? +x.toFixed(2) : null);
+      run.signals.push({
+        symbol,
+        trigger: t.key,
+        entryTF: t.entryTF,
+        ts:     T,
+        date:   new Date(T).toISOString(),
+        grade,
+        score,
+        regime,
+        hasEMC: gateResult.hasEMC ? 1 : 0,
+        entryPrice: price,
+        tpA:     plan.tpA,
+        tpB:     plan.tpB,
+        slLevel: plan.slLevel,
+        ...(t.rsiTFs.includes('3m') ? { rsi3m: r2(gateParams.rsi3m) } : {}),
+        rsi5m:   r2(ind('5m').rsi),
+        rsi15m:  r2(gateParams.rsi15m),
+        rsi1h:   r2(ind1h.rsi),
+        rsi4h:   r2(ind4h.rsi),
+        ema21Distance:  +indE.distance.toFixed(3),
+        volumeRatio:    +indE.volRatio.toFixed(2),
+        cvdDir:         indE.cvdDir,
+        dailyProximity: +dailyProximity.toFixed(3),
+        ...outcome,
+        netR: netR(outcome.pnlPct, feePct),
+        scoreBreakdown: breakdown,
+      });
     }
-
-    const price = cur.close;
-    const { nearDailyLevel, dailyProximity } = nearLevelInfo(price, daily);
-
-    // Aşağıdaki erken "continue"lar yalnızca hız içindir: gates.js'teki tüm kapılar VE ile
-    // bağlı olduğundan, bir kapı kalırsa sonuç zaten "reddedildi" olur. Son karar yine
-    // checkGates() ile birebir verilir.
-    if (!nearDailyLevel) continue;
-    stats.nearLevel++;
-
-    const s15 = views['15m'].slice(T);
-    const s1h = views['1h'].slice(T);
-    if (s15.length < MIN_CANDLES || s1h.length < MIN_CANDLES) continue;   // canlı isReady()
-
-    const ind1h = computeAll(s1h);
-    if (!ind1h.rsi || ind1h.rsi < cfg.rsi1hMin) continue;
-    stats.rsi1hOk++;
-
-    const s4h   = views['4h'].slice(T);
-    const ind4h = s4h.length >= MIN_CANDLES ? computeAll(s4h) : null;
-    if (!ind4h?.rsi || ind4h.rsi < cfg.rsi4hMin) continue;
-    stats.rsi4hOk++;
-
-    const s5     = c5.slice(Math.max(0, i - BUFFER + 1), i + 1);
-    const ind5m  = computeAll(s5);
-    const ind15m = computeAll(s15);
-
-    const regime = detectRegime({ indicators: ind5m, oiDeltaPct: null, fundingRate: null, candles: s5 });
-
-    const gateParams = {
-      rsi5m:         ind5m.rsi,
-      rsi15m:        ind15m.rsi,
-      rsi1h:         ind1h.rsi,
-      rsi4h:         ind4h.rsi,
-      ema21Distance: ind5m.distance,
-      ema21Touched:  ind5m.touched,
-      nearDailyLevel,
-      regime,
-    };
-
-    // ── Son aşama dökümü (günlük seviye + 1h + 4h'yi geçen adaylar) ──
-    //   fails[k]  : bu kapıya takılan aday sayısı (başka kapılara da takılmış olabilir)
-    //   only[k]   : YALNIZCA bu kapıya takılan aday → bu kapı olmasaydı sinyal olurdu
-    //   rsiDist   : max(5m,15m) RSI dağılımı → giriş eşiğinin ne kadar seçici olduğu
-    const failed = listFailures(gateParams);
-    for (const k of failed) stats.final.fails[k] = (stats.final.fails[k] || 0) + 1;
-    if (failed.length === 1) stats.final.only[failed[0]] = (stats.final.only[failed[0]] || 0) + 1;
-    const pr = Math.max(ind5m.rsi || 0, ind15m.rsi || 0);
-    const bucket = RSI_BUCKETS.find(b => pr < b.max).label;
-    stats.final.rsiDist[bucket] = (stats.final.rsiDist[bucket] || 0) + 1;
-
-    const gateResult = checkGates(gateParams);
-    if (!gateResult.pass) continue;
-    stats.gatePass++;
-
-    // ── İşlem planı — canlı ile aynı sıra: kapı → plan → skor ──
-    const plan = calcTradePlan({
-      entryPrice:     price,
-      ema21:          ind5m.ema21,
-      atr:            ind5m.atr,
-      initialRiskPct: cfg.initialRiskPct,
-    });
-    if (!plan.valid) { stats.planInvalid++; continue; }
-
-    const primaryRSI = Math.max(ind5m.rsi ?? 0, ind15m.rsi ?? 0);
-    const { score, grade, breakdown } = calcScore({
-      rsi:           primaryRSI,
-      ema21Distance: ind5m.distance,
-      dailyProximity,
-      volRatio:      ind5m.volRatio,
-      cvdDir:        ind5m.cvdDir,
-      oiDeltaPct:    null,
-      negPeaks:      ind5m.negPeaks,
-      hasEMC:        gateResult.hasEMC,
-    });
-    if (score < minScore) { stats.belowScore++; continue; }
-
-    const futureCandles = c5.slice(i + 1, i + 1 + HOLD_CANDLES);
-    const outcome = simulateOutcome({
-      entryPrice: price, tpA: plan.tpA, tpB: plan.tpB, slLevel: plan.slLevel,
-      initialRiskPct: cfg.initialRiskPct, sentAt: T,
-    }, futureCandles);
-
-    lastSignalT = T;
-    stats.signals++;
-    signals.push({
-      symbol,
-      ts:     T,
-      date:   new Date(T).toISOString(),
-      grade,
-      score,
-      regime,
-      hasEMC: gateResult.hasEMC ? 1 : 0,
-      entryPrice: price,
-      tpA:     plan.tpA,
-      tpB:     plan.tpB,
-      slLevel: plan.slLevel,
-      rsi5m:   ind5m.rsi  != null ? +ind5m.rsi.toFixed(2)  : null,
-      rsi15m:  ind15m.rsi != null ? +ind15m.rsi.toFixed(2) : null,
-      rsi1h:   +ind1h.rsi.toFixed(2),
-      rsi4h:   +ind4h.rsi.toFixed(2),
-      ema21Distance:  +ind5m.distance.toFixed(3),
-      volumeRatio:    +ind5m.volRatio.toFixed(2),
-      cvdDir:         ind5m.cvdDir,
-      dailyProximity: +dailyProximity.toFixed(3),
-      ...outcome,
-      scoreBreakdown: breakdown,
-    });
   }
 
-  return { signals, stats };
+  return result();
+}
+
+/** Komisyon dahil R: giriş + çıkış (2 × feePct) pnl'den düşülür. Yalnızca raporlama içindir. */
+function netR(pnlPct, feePct) {
+  if (pnlPct == null) return null;
+  return +((pnlPct - 2 * feePct) / cfg.initialRiskPct).toFixed(3);
 }
 
 // ── Gelecek mum simülasyonu ─────────────────────────────────────────────────
@@ -371,23 +433,25 @@ async function backtestSymbol(symbol, { startTime, endTime, minScore }) {
  *
  * Her mum bir fiyat çubuğudur (ts = mumun kapanışı) → mum içi sıra bilinmediğinden
  * aynı mumda hem SL hem TP-A görülürse muhafazakâr olarak LOSS sayılır.
+ * barMs: çubuk boyu (normal mod 5m, --compare 1m). *Candle alanları bu çubuk cinsindendir.
  */
-function simulateOutcome(trade, futureCandles) {
+function simulateOutcome(trade, futureCandles, barMs = TF_MS['5m']) {
   const t = createTrade(trade);
   let bars = 0;
-  for (const c of futureCandles.slice(0, HOLD_CANDLES)) {
+  for (const c of futureCandles.slice(0, HOLD_MS / barMs)) {
     applyBar(t, { ts: c.closeTime + 1, high: c.high, low: c.low, close: c.close });
     bars++;
     if (t.finalizedAt != null) break;
   }
   const rec = toRecord(t);
-  const barIndex = ts => (ts == null ? null : Math.round((ts - trade.sentAt) / TF_MS['5m']) - 1);
+  const barIndex = ts => (ts == null ? null : Math.round((ts - trade.sentAt) / barMs) - 1);
   return {
     ...rec,
     tpHitCandle:  barIndex(rec.tpHitAt),
     tpBHitCandle: barIndex(rec.tpBHitAt),
     slHitCandle:  barIndex(rec.slHitAt),
     holdingCandles: bars,
+    barMinutes: barMs / 60000,
   };
 }
 
@@ -398,8 +462,11 @@ async function main() {
 
   const DAYS      = parseInt(args.days || 90, 10);
   const MIN_SCORE = parseInt(args['min-score'] ?? cfg.minScoreToSend, 10);
+  const COMPARE   = Boolean(args.compare);
+  const FEE_PCT   = Number(args['fee-pct'] ?? DEFAULT_FEE_PCT);
 
   if (!Number.isFinite(DAYS) || DAYS < 1) throw new Error(`Geçersiz --days: ${args.days}`);
+  if (!Number.isFinite(FEE_PCT) || FEE_PCT < 0 || FEE_PCT > 1) throw new Error(`Geçersiz --fee-pct: ${args['fee-pct']}`);
 
   // Sembol listesi: --symbol A,B | --all (hacim filtreli tüm USDT perpetual'lar) | config.testSymbols
   let SYMBOLS;
@@ -429,55 +496,72 @@ async function main() {
   const endTime   = Math.floor(Date.now() / TF_MS['5m']) * TF_MS['5m'];
   const startTime = endTime - DAYS * TF_MS['1d'];
 
+  const trig     = getTriggers();
+  const triggers = COMPARE ? [trig.current, trig.plan5m, trig.plan] : [trig.current];
+
   const OUT_DIR = path.join(__dirname, '..', 'backtest-results');
   if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
 
   console.log('\n════════════════════════════════════════════');
-  console.log('  Scalp Bot — Backtest Motoru');
+  console.log(`  Scalp Bot — Backtest Motoru${COMPARE ? ' (tetikleyici karşılaştırması)' : ''}`);
   console.log(`  Semboller  : ${SYMBOLS.length} adet — ${universe}`);
   console.log(`              ${SYMBOLS.slice(0, 12).join(', ')}${SYMBOLS.length > 12 ? ` … (+${SYMBOLS.length - 12})` : ''}`);
   console.log(`  Dönem      : ${fmtDate(startTime)} → ${fmtDate(endTime)} (${DAYS} gün)  |  Min skor: ${MIN_SCORE}`);
+  for (const [n, t] of triggers.entries()) console.log(`  Tetikleyici${COMPARE ? ' ' + LETTERS[n] : '  '}: ${describeTrigger(t)}`);
+  console.log(`  Komisyon   : %${FEE_PCT} × 2 (giriş+çıkış) — yalnızca "net R" değerlerine yansır`);
+  if (COMPARE) console.log('  Not        : 1m veri çekilir (3m/5m kesin kurulur, sonuçlar 1m mumlarla ölçülür) → sembol başına ~3-4 kat uzun sürer');
   if (args.all) console.log('  Not        : liste BUGÜNKÜ hacme göre seçildi — dönem içinde listeden çıkan coinler yok (survivorship).');
   console.log('════════════════════════════════════════════\n');
 
-  const allResults = [];
-  const allStats   = {};
-  const tStart     = Date.now();
+  const results = Object.fromEntries(triggers.map(t => [t.key, []]));
+  const stats   = Object.fromEntries(triggers.map(t => [t.key, {}]));
+  const tStart  = Date.now();
 
   for (const [idx, symbol] of SYMBOLS.entries()) {
     const done = idx;
     const eta  = done > 0 ? Math.round((Date.now() - tStart) / done * (SYMBOLS.length - done) / 60000) : null;
     console.log(`\n[${idx + 1}/${SYMBOLS.length}] ${symbol} — veri çekiliyor...${eta != null ? ` (tahmini kalan ~${eta} dk)` : ''}`);
     try {
-      const { signals, stats } = await backtestSymbol(symbol, { startTime, endTime, minScore: MIN_SCORE });
-      allResults.push(...signals);
-      allStats[symbol] = stats;
-      printCoverage(symbol, stats);
-      printSymbolSummary(symbol, signals);
+      const res = await backtestSymbol(symbol, { startTime, endTime, minScore: MIN_SCORE, compare: COMPARE, feePct: FEE_PCT });
+      printCoverage(symbol, res.stats);
+      for (const [n, t] of triggers.entries()) {
+        const v = res.variants[t.key];
+        results[t.key].push(...v.signals);
+        stats[t.key][symbol] = v.stats;
+        printSymbolSummary(COMPARE ? `${symbol} ${LETTERS[n]}` : symbol, v.signals);
+      }
     } catch (err) {
       console.error(`  [${symbol}] Hata — atlandı:`, err?.message || err?.body || err);
     }
   }
 
-  console.log('\n\n════════════════════════════════════════════');
-  console.log('  GENEL RAPOR');
-  console.log('════════════════════════════════════════════');
+  for (const [n, t] of triggers.entries()) {
+    console.log('\n\n════════════════════════════════════════════');
+    console.log(COMPARE ? `  RAPOR ${LETTERS[n]} — ${describeTrigger(t)}` : '  GENEL RAPOR');
+    console.log('════════════════════════════════════════════');
+    printFunnel(stats[t.key], t);
+    printGradeBreakdown(results[t.key]);
+    printRegimeBreakdown(results[t.key]);
+    printEMCBreakdown(results[t.key]);
+    printScoreCalibration(results[t.key]);
+  }
+  if (COMPARE) printComparison(triggers, stats, results, FEE_PCT);
 
-  printFunnel(allStats);
-  printGradeBreakdown(allResults);
-  printRegimeBreakdown(allResults);
-  printEMCBreakdown(allResults);
-  printScoreCalibration(allResults);
-
+  const params    = { SYMBOLS, DAYS, MIN_SCORE, startTime, endTime, universe, compare: COMPARE, feePct: FEE_PCT };
   const timestamp = new Date().toISOString().replace(/[:T.]/g, '-').slice(0, 19);
-  const outFile   = path.join(OUT_DIR, `backtest-${timestamp}.json`);
-  fs.writeFileSync(outFile, JSON.stringify({ params: { SYMBOLS, DAYS, MIN_SCORE, startTime, endTime, universe }, stats: allStats, signals: allResults }, null, 2));
+  const outFile   = path.join(OUT_DIR, `backtest-${COMPARE ? 'compare-' : ''}${timestamp}.json`);
+  const payload   = COMPARE
+    ? { params, variants: Object.fromEntries(triggers.map(t => [t.key, { trigger: t, stats: stats[t.key], signals: results[t.key] }])) }
+    : { params, stats: stats.current, signals: results.current };
+  fs.writeFileSync(outFile, JSON.stringify(payload, null, 2));
   console.log(`\n📁 Detaylı sonuçlar: ${outFile}\n`);
 
   if (SEND_TG) {
     // telegram.js yalnızca burada yüklenir; komut dinleme (polling) BAŞLATILMAZ → canlı botla çakışmaz
     const telegram = require('./telegram');
-    const text = buildTelegramReport({ SYMBOLS, DAYS, MIN_SCORE, startTime, endTime, universe }, allStats, allResults, telegram.esc);
+    const text = COMPARE
+      ? buildCompareTelegramReport(params, triggers, stats, results, telegram.esc)
+      : buildTelegramReport(params, stats.current, results.current, telegram.esc);
     telegram.sendText(text);
     const flushed = await telegram.flush(90_000);
     const st = telegram.takeStats();
@@ -492,15 +576,157 @@ async function main() {
 
 // ── Raporlama ────────────────────────────────────────────────────────────────
 
+const LETTERS = ['A', 'B', 'C', 'D'];
+// Binance USDⓈ-M taker komisyonu (VIP 0, BNB indirimi yok) — --fee-pct ile değiştirilebilir
+const DEFAULT_FEE_PCT = 0.05;
+
+const TRIGGER_ROLE = {
+  current: 'canlı bot',
+  plan5m:  'planın tetikleyicisi, giriş mevcut gibi 5m',
+  plan:    'planın tamamı, giriş 3m',
+};
+
+function describeTrigger(t) {
+  return `${t.label} (${TRIGGER_ROLE[t.key] || t.key}; EMA21/ATR/TP ${t.entryTF}, karar: her ${decisionLabel(t)} kapanış)`;
+}
+
+/** Karar anı etiketi: diğerinin katı olan TF'ler gösterilmez (5m/15m → "5m", 3m/5m → "3m/5m") */
+function decisionLabel(t) {
+  const tfs = decisionTFs(t);
+  return tfs.filter(tf => !tfs.some(o => o !== tf && TF_MS[tf] % TF_MS[o] === 0)).join('/');
+}
+
+/** Bir tetikleyicinin sonuç özeti — konsol ve Telegram karşılaştırması aynı sayıları kullanır */
+function summarize(signals, allStats) {
+  const sum = key => Object.values(allStats).reduce((s, st) => s + (st[key] || 0), 0);
+  const n   = signals.length;
+  const cnt = o => signals.filter(s => s.outcome === o).length;
+  const holds = signals.map(s => s.holdingTimeMs).filter(v => v != null);
+  return {
+    decisions: sum('decisions'), candidates: sum('rsi4hOk'), gatePass: sum('gatePass'),
+    planInvalid: sum('planInvalid'), belowScore: sum('belowScore'),
+    n, win: cnt('WIN'), loss: cnt('LOSS'), ltr: cnt('LOSS_THEN_RECOVER'), neutral: cnt('NEUTRAL'),
+    winRate: n ? cnt('WIN') / n * 100 : null,
+    avgR:    n ? avg(signals.map(s => s.rMultiple)) : null,
+    avgNetR: n ? avg(signals.map(s => s.netR)) : null,
+    sumNetR: n ? signals.reduce((a, s) => a + (s.netR ?? 0), 0) : null,
+    tpB:     n ? signals.filter(s => s.tpBHitAt != null).length / n * 100 : null,
+    holdMin: holds.length ? avg(holds) / 60000 : null,
+    mfe: n ? avg(signals.map(s => s.mfe)) : null,
+    mae: n ? avg(signals.map(s => s.mae)) : null,
+    coins: new Set(signals.map(s => s.symbol)).size,
+  };
+}
+
+/** B sinyallerinden, aynı coinde ±win dakika içinde A sinyali de olanların sayısı */
+function overlapCount(a, b, winMin = 15) {
+  const bySym = new Map();
+  for (const s of a) { if (!bySym.has(s.symbol)) bySym.set(s.symbol, []); bySym.get(s.symbol).push(s.ts); }
+  return b.filter(s => (bySym.get(s.symbol) || []).some(ts => Math.abs(ts - s.ts) <= winMin * 60000)).length;
+}
+
+function comparisonRows(sums) {
+  const f = (v, d = 2, suf = '') => (v == null ? '—' : v.toFixed(d) + suf);
+  return [
+    ['Karar anı',     ...sums.map(x => String(x.decisions))],
+    ['Son aşama',     ...sums.map(x => String(x.candidates))],
+    ['Kapıları geçen', ...sums.map(x => String(x.gatePass))],
+    ['TP-A geçersiz', ...sums.map(x => String(x.planInvalid))],
+    ['Sinyal',        ...sums.map(x => String(x.n))],
+    ['Sinyalli coin', ...sums.map(x => String(x.coins))],
+    ['W/L/LTR/N',     ...sums.map(x => `${x.win}/${x.loss}/${x.ltr}/${x.neutral}`)],
+    ['Win rate',      ...sums.map(x => f(x.winRate, 1, '%'))],
+    ['Ort R brüt',    ...sums.map(x => f(x.avgR))],
+    ['Ort R net',     ...sums.map(x => f(x.avgNetR))],
+    ['Toplam R net',  ...sums.map(x => f(x.sumNetR, 1))],
+    ['TP-B ulaşan',   ...sums.map(x => f(x.tpB, 0, '%'))],
+    ['Süre (dk)',     ...sums.map(x => f(x.holdMin, 0))],
+    ['MFE/MAE %',     ...sums.map(x => (x.mfe == null ? '—' : `${x.mfe.toFixed(2)}/${x.mae.toFixed(2)}`))],
+  ];
+}
+
+/** A dışındaki her tetikleyici için: sinyallerinin kaçında aynı coinde ±15 dk içinde A sinyali de var */
+function overlapLines(triggers, results) {
+  const a = results[triggers[0].key];
+  return triggers.slice(1).map((t, n) => {
+    const b = results[t.key];
+    return b.length ? `${LETTERS[n + 1]} sinyallerinin ${overlapCount(a, b)}/${b.length} tanesinde aynı coinde ±15 dk içinde A sinyali de var` : null;
+  }).filter(Boolean);
+}
+
+function printComparison(triggers, stats, results, feePct) {
+  const sums = triggers.map(t => summarize(results[t.key], stats[t.key]));
+  console.log('\n\n════════════════════════════════════════════');
+  console.log('  ⚖️  KARŞILAŞTIRMA — aynı semboller, aynı dönem, aynı veri');
+  console.log('════════════════════════════════════════════');
+  triggers.forEach((t, n) => console.log(`  ${LETTERS[n]}) ${describeTrigger(t)}`));
+  console.log(`  Sonuçlar 1m mumlarla ölçüldü · net R = komisyon %${feePct} × 2 düşülmüş\n`);
+  const W = 16;
+  console.log(`  ${''.padEnd(20)}${triggers.map((_, n) => LETTERS[n].padStart(W)).join('')}`);
+  for (const [label, ...vals] of comparisonRows(sums)) {
+    console.log(`  ${label.padEnd(20)}${vals.map(v => v.padStart(W)).join('')}`);
+  }
+  const ov = overlapLines(triggers, results);
+  if (ov.length) console.log('\n' + ov.map(l => '  ' + l).join('\n'));
+  console.log('\n  Okuma: A↔B farkı = yalnızca RSI tetikleyicisinin etkisi; B↔C farkı = girişin 3m\'e alınmasının etkisi');
+  console.log('  (Az sinyalle win rate yanıltıcıdır — toplam net R ve sinyal sayısına birlikte bak)');
+}
+
+/**
+ * Karşılaştırma modu Telegram raporu (tek mesaj, ≤ 4096 karakter)
+ */
+function buildCompareTelegramReport(p, triggers, stats, results, esc) {
+  const sums = triggers.map(t => summarize(results[t.key], stats[t.key]));
+  const lines = [
+    '🧪 <b>BACKTEST — TETİKLEYİCİ KARŞILAŞTIRMASI</b>',
+    '<i>Geçmiş veri simülasyonu — canlı sinyal DEĞİLDİR</i>',
+    '',
+    `📅 ${fmtDate(p.startTime)} → ${fmtDate(p.endTime)} UTC (${p.DAYS} gün)`,
+    `🪙 ${p.SYMBOLS.length} sembol${p.universe ? ` (${esc(p.universe)})` : ''} | min skor ${p.MIN_SCORE}`,
+    '',
+    ...triggers.map((t, n) => `<b>${LETTERS[n]})</b> ${esc(t.label)}, giriş ${esc(t.entryTF)} — ${esc(TRIGGER_ROLE[t.key] || t.key)}`),
+    `<i>Sonuçlar 1m mumlarla · net R: komisyon %${p.feePct}×2</i>`,
+    '',
+  ];
+  const rows = comparisonRows(sums);
+  const L = 15, W = 10;
+  const table = [
+    ''.padEnd(L) + triggers.map((_, n) => LETTERS[n].padStart(W)).join(''),
+    ...rows.map(([label, ...vals]) => label.slice(0, L - 1).padEnd(L) + vals.map(v => v.padStart(W)).join('')),
+  ].join('\n');
+  lines.push(`<pre>${esc(table)}</pre>`);
+
+  lines.push(...overlapLines(triggers, results).map(esc));
+  if (triggers.length === 3) lines.push('<i>A↔B: yalnızca tetikleyici etkisi · B↔C: girişin 3m\'e alınması</i>');
+
+  // Son aşama: tetikleyici RSI dağılımı + en çok tek başına eleyen kapı
+  for (const [n, t] of triggers.entries()) {
+    const f = mergeFinal(stats[t.key]);
+    if (!f.candidates) continue;
+    const labels = gateLabels(t);
+    const top = FINAL_GATES.map(k => [k, f.only[k] || 0]).sort((a, b) => b[1] - a[1])[0];
+    lines.push('',
+      `<b>${LETTERS[n]} son aşama</b> (${f.candidates} aday) RSI max(${esc(t.rsiTFs.join(','))}): ` +
+      RSI_BUCKETS.map(b => `${esc(b.label)} ${f.rsiDist[b.label] || 0}`).join(' · '),
+      top && top[1] ? `  En çok tek başına eleyen: ${esc(labels[top[0]])} (${top[1]})` : '  Tek başına eleyen kapı yok',
+    );
+  }
+
+  lines.push('', '<i>Az sinyalle win rate yanıltıcıdır — toplam net R ve sinyal sayısına birlikte bak.</i>');
+  const text = lines.join('\n');
+  return text.length <= 4000 ? text : text.slice(0, 3990) + '\n…';
+}
+
 /**
  * Telegram özet raporu (tek mesaj, ≤ 4096 karakter). Başında açıkça "canlı sinyal değil" yazar.
  */
-function buildTelegramReport(p, allStats, signals, esc) {
+function buildTelegramReport(p, allStats, signals, esc, trigger = getTriggers().current) {
   const sum  = key => Object.values(allStats).reduce((s, st) => s + (st[key] || 0), 0);
   const pct  = (a, b) => b ? `${(a / b * 100).toFixed(1)}%` : '—';
   const n    = signals.length;
   const cnt  = o => signals.filter(s => s.outcome === o).length;
   const avgR = n ? avg(signals.map(s => s.rMultiple)).toFixed(2) : '—';
+  const netR = n ? avg(signals.map(s => s.netR)).toFixed(2) : '—';
   const tpB  = signals.filter(s => s.tpBHitAt != null).length;
 
   const gradeLines = ['A+', 'A', 'B', 'C'].map(g => {
@@ -526,7 +752,7 @@ function buildTelegramReport(p, allStats, signals, esc) {
     `🪙 ${p.SYMBOLS.length} sembol${p.universe ? ` (${esc(p.universe)})` : ''} | min skor ${p.MIN_SCORE}`,
     '',
     '<b>Eleme hunisi</b>',
-    `  Değerlendirilen 5m kapanış: ${sum('decisions')}`,
+    `  Değerlendirilen ${decisionLabel(trigger)} kapanış: ${sum('decisions')}`,
     `  Günlük seviyeye yakın: ${sum('nearLevel')}`,
     `  + 1h RSI ≥ ${cfg.rsi1hMin}: ${sum('rsi1hOk')}`,
     `  + 4h RSI ≥ ${cfg.rsi4hMin}: ${sum('rsi4hOk')}`,
@@ -538,12 +764,12 @@ function buildTelegramReport(p, allStats, signals, esc) {
   // Son aşama dökümü — hangi kapı ne kadar eliyor
   const f = mergeFinal(allStats);
   if (f.candidates) {
-    const labels = gateLabels();
+    const labels = gateLabels(trigger);
     lines.push('', `<b>Son aşama: ${f.candidates} aday</b> (takılan / tek engel)`);
     for (const k of FINAL_GATES) {
       lines.push(`  ${esc(labels[k])}: ${f.fails[k] || 0} (${pct(f.fails[k] || 0, f.candidates)}) / ${f.only[k] || 0}`);
     }
-    lines.push(`  RSI(max 5m,15m): ${RSI_BUCKETS.map(b => `${esc(b.label)} ${f.rsiDist[b.label] || 0}`).join(' · ')}`);
+    lines.push(`  RSI(max ${esc(trigger.rsiTFs.join(','))}): ${RSI_BUCKETS.map(b => `${esc(b.label)} ${f.rsiDist[b.label] || 0}`).join(' · ')}`);
   }
 
   if (n) {
@@ -552,6 +778,7 @@ function buildTelegramReport(p, allStats, signals, esc) {
       '<b>Sonuçlar</b>',
       `  ✅ Win ${cnt('WIN')} | ❌ Loss ${cnt('LOSS')} | ↩️ ${cnt('LOSS_THEN_RECOVER')} | ➖ ${cnt('NEUTRAL')}`,
       `  Win rate: <b>${pct(cnt('WIN'), n)}</b> | Ort R: <b>${avgR}</b> | TP-B: ${pct(tpB, n)}`,
+      `  Komisyon dahil ort R: <b>${netR}</b> (%${p.feePct ?? DEFAULT_FEE_PCT} × 2)`,
       '',
       '<b>Dereceye göre</b>',
       ...gradeLines,
@@ -573,7 +800,7 @@ function fmtDate(ts) {
 function printCoverage(symbol, stats) {
   const c = stats.candles;
   const r = stats.range ? `${fmtDate(stats.range[0])} → ${fmtDate(stats.range[1])}` : '—';
-  console.log(`  [${symbol}] Veri: ${r} | 5m:${c['5m']} 15m:${c['15m']} 1h:${c['1h']} 4h:${c['4h']} 1d:${c['1d']} mum`);
+  console.log(`  [${symbol}] Veri: ${r} | ${Object.entries(c).map(([tf, n]) => `${tf}:${n}`).join(' ')} mum`);
 }
 
 // Son aşamada anlamlı olan kapılar (günlük seviye / 1h / 4h zaten geçilmiş)
@@ -591,10 +818,10 @@ function mergeFinal(allStats) {
   return out;
 }
 
-function printFinalBreakdown(allStats) {
+function printFinalBreakdown(allStats, trigger = getTriggers().current) {
   const f = mergeFinal(allStats);
   if (!f.candidates) return;
-  const labels = gateLabels();
+  const labels = gateLabels(trigger);
   const pct = v => `${(v / f.candidates * 100).toFixed(1)}%`;
   console.log(`\n🔍 Son aşama: ${f.candidates} aday (seviye + 1h + 4h geçti) — kalan kapılar:`);
   console.log(`  ${'Kapı'.padEnd(34)} ${'Takılan'.padStart(9)} ${''.padStart(7)} ${'Tek engel'.padStart(10)}`);
@@ -604,17 +831,17 @@ function printFinalBreakdown(allStats) {
   }
   console.log('  ("Tek engel": yalnızca bu kapıya takılan aday — bu kapı olmasaydı kapıları geçerdi; TP-A ve skor ayrıca kontrol edilir)');
   const dist = RSI_BUCKETS.map(b => `${b.label}: ${f.rsiDist[b.label] || 0}`).join(' | ');
-  console.log(`\n📊 Adaylarda max(5m,15m) RSI dağılımı: ${dist}`);
-  console.log(`   (giriş aralığı ${cfg.rsiEntryMin}–${cfg.rsiEntryMax})`);
+  console.log(`\n📊 Adaylarda max(${trigger.rsiTFs.join(',')}) RSI dağılımı: ${dist}`);
+  console.log(`   (giriş aralığı ${trigger.rsiMin}–${trigger.rsiMax})`);
 }
 
 /**
  * Sinyallerin hangi aşamada elendiğini gösterir — kapı kalibrasyonu için
  */
-function printFunnel(allStats) {
+function printFunnel(allStats, trigger = getTriggers().current) {
   const sum = key => Object.values(allStats).reduce((s, st) => s + (st[key] || 0), 0);
   const steps = [
-    ['Değerlendirilen 5m kapanış', 'decisions'],
+    [`Değerlendirilen ${decisionLabel(trigger)} kapanış`, 'decisions'],
     ['− Cooldown (elendi)',        'cooldown'],
     ['Günlük seviyeye yakın',      'nearLevel'],
     ['+ 1h RSI ≥ ' + cfg.rsi1hMin, 'rsi1hOk'],
@@ -625,8 +852,8 @@ function printFunnel(allStats) {
     ['= Sinyal',                   'signals'],
   ];
   console.log('\n🔻 Eleme Hunisi (tüm semboller):');
-  for (const [label, key] of steps) console.log(`  ${label.padEnd(28)} ${String(sum(key)).padStart(8)}`);
-  printFinalBreakdown(allStats);
+  for (const [label, key] of steps) console.log(`  ${label.padEnd(30)} ${String(sum(key)).padStart(8)}`);
+  printFinalBreakdown(allStats, trigger);
 }
 
 function printSymbolSummary(symbol, signals) {
@@ -645,28 +872,30 @@ function printSymbolSummary(symbol, signals) {
   const avgMFE  = avg(signals.map(s => s.mfe)).toFixed(2);
   const avgMAE  = avg(signals.map(s => s.mae)).toFixed(2);
   const avgR    = avg(signals.map(s => s.rMultiple)).toFixed(2);
+  const netR    = avg(signals.map(s => s.netR)).toFixed(2);
   const tpB     = signals.filter(s => s.tpBHitAt != null).length;
 
   console.log(`  [${symbol}] ${total} sinyal → Win: ${wins} (${winRate}%)  Loss: ${losses}  Neutral: ${neutral}  LTR: ${ltr}`);
-  console.log(`             Ort R: ${avgR}  Ort MFE: ${avgMFE}%  Ort MAE: ${avgMAE}%  TP-B'ye ulaşan: ${tpB}`);
+  console.log(`             Ort R: ${avgR} (net ${netR})  Ort MFE: ${avgMFE}%  Ort MAE: ${avgMAE}%  TP-B'ye ulaşan: ${tpB}`);
 }
 
 function printGradeBreakdown(signals) {
   if (!signals.length) { console.log('\n  Sinyal yok.'); return; }
 
   console.log('\n📊 Dereceye Göre Win Rate:');
-  console.log('  Grade  | Total  | Win%   | Ort R  | TP-B%  | Ort MFE | Ort MAE');
-  console.log('  -------+--------+--------+--------+--------+---------+--------');
+  console.log('  Grade  | Total  | Win%   | Ort R  | Net R  | TP-B%  | Ort MFE | Ort MAE');
+  console.log('  -------+--------+--------+--------+--------+--------+---------+--------');
 
   for (const grade of ['A+', 'A', 'B', 'C']) {
     const grp = signals.filter(s => s.grade === grade);
     if (!grp.length) continue;
     const wr  = ((grp.filter(s => s.outcome === 'WIN').length / grp.length) * 100).toFixed(1);
     const r   = avg(grp.map(s => s.rMultiple)).toFixed(2);
+    const nr  = avg(grp.map(s => s.netR)).toFixed(2);
     const tpb = ((grp.filter(s => s.tpBHitAt != null).length / grp.length) * 100).toFixed(0);
     const mfe = avg(grp.map(s => s.mfe)).toFixed(2);
     const mae = avg(grp.map(s => s.mae)).toFixed(2);
-    console.log(`  ${grade.padEnd(6)} | ${String(grp.length).padEnd(6)} | ${wr.padEnd(6)}% | ${r.padEnd(6)} | ${tpb.padEnd(5)}% | ${mfe}%   | ${mae}%`);
+    console.log(`  ${grade.padEnd(6)} | ${String(grp.length).padEnd(6)} | ${wr.padEnd(6)}% | ${r.padEnd(6)} | ${nr.padEnd(6)} | ${tpb.padEnd(5)}% | ${mfe}%   | ${mae}%`);
   }
 }
 
@@ -761,7 +990,10 @@ module.exports = {
   makeHtfView,
   dailyLevelsAt,
   simulateOutcome,
+  aggregateClosed,
   buildTelegramReport,
+  buildCompareTelegramReport,
+  summarize,
   setKlineSource,
   TF_MS,
 };

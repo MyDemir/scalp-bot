@@ -226,6 +226,35 @@ Raporda "Son aşama" bölümü günlük seviye + 1h + 4h'yi geçen adayların ka
 nasıl elendiğini gösterir: **takılan** (o kapıya takılan aday), **tek engel** (yalnızca o kapıya
 takılan — o kapı olmasaydı geçerdi) ve adayların 5m/15m RSI dağılımı.
 
+### Tetikleyici karşılaştırması (`--compare`)
+
+Canlı botun tetikleyicisi ile planın tetikleyicisini **aynı semboller, aynı dönem, aynı veri** üzerinde yan yana test eder:
+
+| | RSI tetikleyicisi | Giriş TF (EMA21 uzaklığı/dokunuşu, ATR, TP-A/TP-B, hacim, rejim) | Karar anı |
+|---|---|---|---|
+| **A** | max(5m, 15m) RSI 90–98 — canlı bot | 5m | her 5m kapanış |
+| **B** | max(3m, 5m) RSI 95–98 — planın tetikleyicisi | 5m | her 3m ve 5m kapanış |
+| **C** | max(3m, 5m) RSI 95–98 — planın tamamı | 3m | her 3m ve 5m kapanış |
+
+A↔B farkı yalnızca RSI tetikleyicisinin etkisidir; B↔C farkı girişin 3m'e alınmasının etkisidir.
+Günlük seviye, 1h/4h RSI, rejim kuralı, SL %0.5, skor ve cooldown üçünde de aynıdır; EMC her üçünde 15m RSI 95+.
+
+```bash
+nohup node src/backtest.js --compare --days 90 --telegram > /tmp/backtest.log 2>&1 &
+nohup node src/backtest.js --compare --all --days 90 --telegram > /tmp/backtest.log 2>&1 &
+```
+
+- 1m veri çekilir; 3m/5m/15m/1h/4h'nin devam eden mumları 1m'den **kesin** kurulur (look-ahead yok),
+  3m mumlar 1m'den türetilir (REST'ten ayrıca çekilmez).
+- Sonuçlar üç tetikleyicide de **1m mumlarla** ölçülür (adil karşılaştırma; canlı takibe de daha yakın).
+  Bu yüzden A'nın sonuç etiketleri normal moddan (5m mumla ölçülen) az da olsa farklı çıkabilir;
+  A'nın kararları (hangi anda, hangi fiyattan sinyal) normal modla birebir aynıdır.
+- Sembol başına ~3–4 kat uzun sürer (90 günde ~170 istek, ~1 dk).
+- Canlı bot **değişmez**: plan tetikleyicisi yalnızca backtest'tedir (`config.planTrigger`).
+
+`--fee-pct 0.05` (varsayılan): raporlardaki **net R**, giriş+çıkış komisyonu (2 × %0.05) düşülerek
+hesaplanır. %0.5 SL ile bu işlem başına ≈ 0.2R eder. Brüt R ve WIN/LOSS etiketleri değişmez.
+
 `--telegram`: backtest bitince `TELEGRAM_CHAT_ID` sohbetine **tek** bir özet mesaj gönderir
 ("canlı sinyal değildir" etiketli). Canlı botun gönderim kodunu kullanır, komut dinlemeyi
 başlatmaz (çalışan botla çakışmaz). Grubu görmesin istersen başka bir sohbete yönlendir:

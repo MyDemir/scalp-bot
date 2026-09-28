@@ -43,6 +43,13 @@ module.exports = {
   rsiEntryMin:      90,
   rsiEntryMax:      98,
   rsiEMCThreshold:  95,
+
+  // Planın giriş tetikleyicisi — ŞİMDİLİK YALNIZCA BACKTEST'TE (--compare) kullanılır.
+  // Canlı bot yukarıdaki "5m/15m RSI rsiEntryMin–rsiEntryMax" tetikleyicisiyle çalışmaya devam eder.
+  //   rsiTFs  : RSI'ı bu TF'lerin en yükseği tetikler
+  //   entryTF : EMA21 uzaklığı/dokunuşu, ATR, TP-A/TP-B, hacim/CVD ve rejim bu TF'den
+  planTrigger: { rsiTFs: ['3m', '5m'], entryTF: '3m', rsiMin: 95, rsiMax: 98 },
+
   rsi1hMin:         70,
   rsi4hMin:         70,
 
