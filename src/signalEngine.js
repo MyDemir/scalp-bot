@@ -14,7 +14,7 @@
 const cfg          = require('./config');
 const { computeAll }    = require('./indicators');
 const { detectRegime, shouldBlockSignal } = require('./regime');
-const { checkGates }    = require('./gates');
+const { checkGates, listFailures, gateLabels } = require('./gates');
 const { calcScore }     = require('./scorer');
 const { sendSignalAlert } = require('./telegram');
 const db           = require('./db');
@@ -22,6 +22,9 @@ const tracker      = require('./eventTracker');
 const candleStore  = require('./candleStore');
 const { nearLevelInfo } = require('./levels');
 const { calcTradePlan } = require('./tradePlan');
+
+// RSI şartını oluşturan kapılar ([RSI] log satırı için)
+const RSI_GATES = ['rsi1h', 'rsi4h', 'rsiLow', 'rsiHigh'];
 
 // Cooldown: son sinyal zamanı { symbol → ts }
 const lastSignalAt = new Map();
@@ -44,7 +47,7 @@ const LOG_GATE = cfg.logGateRejects ?? (cfg.mode === 'test');
 // ── Heartbeat sayaçları ──────────────────────────────────
 let counters = newCounters();
 function newCounters() {
-  return { evaluated: 0, notReady: 0, cooldown: 0, rejects: {}, planInvalid: 0, belowScore: 0, signals: 0 };
+  return { evaluated: 0, notReady: 0, cooldown: 0, rsiOk: 0, rejects: {}, planInvalid: 0, belowScore: 0, signals: 0 };
 }
 /** Sayaçları döndürür ve sıfırlar */
 function takeCounters() {
@@ -109,7 +112,7 @@ async function evaluate(symbol, oiDeltaPct = null, fundingRate = null) {
   });
 
   // ── 3A Kapıları ───────────────────────────────────────
-  const gateResult = checkGates({
+  const gateParams = {
     rsi5m,
     rsi15m,
     rsi1h,
@@ -119,7 +122,19 @@ async function evaluate(symbol, oiDeltaPct = null, fundingRate = null) {
     nearDailyLevel,
     fundingRate,
     regime,
-  });
+  };
+  const gateResult = checkGates(gateParams);
+
+  // ── RSI şartı sağlandıysa (diğer kapılara takılsa bile) tek satır log ──
+  //    Örn: [RSI] ETHUSDT 5m 92.1 · 15m 88.4 · 1h 83.0 · 4h 74.2 → takıldı: EMA21 uzaklığı < 0.5 ATR
+  const fails = listFailures(gateParams);
+  if (!fails.some(k => RSI_GATES.includes(k))) {
+    counters.rsiOk++;
+    const labels = gateLabels();
+    const f = x => (x != null ? x.toFixed(1) : '—');
+    console.log(`[RSI] ${symbol} 5m ${f(rsi5m)} · 15m ${f(rsi15m)} · 1h ${f(rsi1h)} · 4h ${f(rsi4h)} → ` +
+      (fails.length ? `takıldı: ${fails.map(k => labels[k]).join(', ')}` : 'tüm kapılar geçti'));
+  }
 
   if (!gateResult.pass) {
     reject(symbol, gateResult.reason);

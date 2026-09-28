@@ -166,7 +166,7 @@ function heartbeat() {
   console.log(
     `[HEARTBEAT] WS ${ws?.open ?? 0}/${ws?.connections ?? 0} bağlı (${ws?.streams ?? 0} stream)` +
     ` | son ${mins}dk: ${ws?.messages ?? 0} mesaj, ${c5} kapanış(5m) → ${ev.evaluated} değerlendirme` +
-    ` (${ev.notReady} veri hazır değil), ${ev.signals} sinyal` +
+    ` (${ev.notReady} veri hazır değil), ${ev.rsiOk} RSI şartı, ${ev.signals} sinyal` +
     ` | red: ${topRejects}` +
     ` | açık sinyal: ${tracker.openCount()}` +
     ` | telegram: ${tg.sent} gönderildi, ${tg.queued} kuyrukta${tg.failed ? `, ${tg.failed} BAŞARISIZ` : ''}` +

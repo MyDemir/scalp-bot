@@ -236,6 +236,27 @@ RSI eşiklerini kodu değiştirmeden denemek için (yalnızca o çalışmada ge�
 node src/backtest.js --all --days 90 --rsi5m 90 --rsi15m 85 --rsi1h 80 --rsi4h 70 --telegram
 ```
 
+### RSI olay çalışması (her çalışmada otomatik)
+
+Canlı kuralın **RSI şartı** (5m ≥ 90 · 15m ≥ 85 · 1h ≥ 80 · 4h ≥ 70 · üst sınır 98 — `--rsi*` bayraklarıyla
+değiştirilebilir) sağlanan **her an**, diğer kapılardan (günlük seviye, rejim, EMA21) ve cooldown'dan bağımsız
+kaydedilir. Aynı coinde 30 dk içinde tekrar eden anlar tek **olay** sayılır.
+
+Her an için: coin, zaman, 4 RSI, **takıldığı diğer kapılar** (boşsa sinyal olurdu), o an short açılsaydı
+15 dk / 1 saat / 4 saat sonraki getiri, 4 saatlik en iyi/en kötü hareket (MFE/MAE) ve canlı planla (TP-A/SL)
+varsayımsal sonuç. Raporda her kapı için "takılan" ve "geçen" olayların ortalama sonucu yan yana gösterilir:
+kapı işe yarıyor mu, yoksa iyi fırsatları mı eliyor. Kayıtlar JSON'da `rsiEvents` altında.
+
+Canlı bot da aynı şartı sağlayan her coin için log yazar (diğer kapılara takılsa bile):
+
+```
+[RSI] ETHUSDT 5m 92.1 · 15m 88.4 · 1h 83.0 · 4h 74.2 → takıldı: EMA21 uzaklığı < 0.5 ATR
+```
+
+```bash
+fly logs | grep '\[RSI\]'
+```
+
 ### Mert varyantları (`--compare`)
 
 Canlı kural (A) ile Mert'in kendi anlattığı kuralları **aynı semboller, aynı dönem, aynı veri** üzerinde test eder.

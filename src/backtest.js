@@ -35,7 +35,7 @@ const fs   = require('fs');
 const path = require('path');
 
 const cfg                = require('./config');
-const { computeAll }     = require('./indicators');
+const { computeAll, calcRSI } = require('./indicators');
 const { detectRegime }   = require('./regime');
 const { checkGates, listFailures, gateLabels, getTriggers, primaryRSI, rsiShortfalls, GATE_KEYS } = require('./gates');
 const { calcScore }      = require('./scorer');
@@ -64,6 +64,9 @@ const RSI_BUCKETS = [
   { max: 98,       label: '95–98' },
   { max: Infinity, label: '≥98'   },
 ];
+
+// RSI olay çalışması: aynı coinde bu süreden kısa aralıkla tekrar eden anlar tek olay sayılır
+const EVENT_GAP_MS = 30 * MIN;
 
 const PAGE_LIMIT   = 1000; // Binance futures klines: limit 500–1000 → weight 5
 // ≈ 860 weight/dk — 2400/dk limitinin çok altında (kendi IP'n korunur). Testlerde 0 yapılabilir.
@@ -273,9 +276,11 @@ async function backtestSymbol(symbol, { startTime, endTime, minScore, compare = 
         planInvalid: 0, belowScore: 0, signals: 0,
       },
   }));
+  const rsiEvents = [];   // RSI olay çalışması (yalnızca canlı kural) — aşağıda
   const result = () => ({
     signals: runs[0].signals, stats: runs[0].stats,
     variants: Object.fromEntries(runs.map(r => [r.trig.key, { signals: r.signals, stats: r.stats }])),
+    rsiEvents,
   });
 
   if (base.length < BUFFER) {
@@ -288,6 +293,18 @@ async function backtestSymbol(symbol, { startTime, endTime, minScore, compare = 
 
   let dailyKey = null;
   let daily    = null;
+  const dailyAt = (T, i) => {   // 4 saatlik blok başına bir kez (canlı htfPoller gibi)
+    const block = Math.floor(T / TF_MS['4h']) * TF_MS['4h'];
+    if (block !== dailyKey) {
+      daily    = dailyLevelsAt(block, data['1d'], base, i);
+      dailyKey = block;
+    }
+    return daily;
+  };
+
+  // RSI olayı: aynı coinde EVENT_GAP içinde tekrar eden anlar tek olay (episode) sayılır
+  let lastEventT = null, episodeNo = 0;
+  const RSI_GATES = ['rsi1h', 'rsi4h', 'rsiLow', 'rsiHigh'];
 
   // Mert seviyeleri — 4 saatlik blok başına bir kez, o ana kadar KAPANMIŞ 4h mumlar + günlük liste ile
   let mertKey = null, mertLevels = [], p4 = 0;
@@ -319,6 +336,59 @@ async function backtestSymbol(symbol, { startTime, endTime, minScore, compare = 
     const sliceCache = {}, indCache = {};
     const slice = tf => (sliceCache[tf] ??= views[tf].slice(T));
     const ind   = tf => (indCache[tf]   ??= computeAll(slice(tf)));
+    const rsiCache = {};
+    const rsiQ  = tf => (rsiCache[tf] ??= (indCache[tf]?.rsi ?? calcRSI(slice(tf).map(c => c.close))));
+
+    // RSI şartı sağlandıysa olayı kaydet: takıldığı diğer kapılar, ileri getiriler, canlı planla varsayımsal sonuç
+    const recordRsiEvent = (i, T, price) => {
+      // Ucuzdan pahalıya: 1h → 4h → 5m → 15m (çoğu an 1h'de elenir)
+      if (!(rsiQ('1h') >= cfg.rsi1hMin)) return;
+      const r4h = slice('4h').length >= MIN_CANDLES ? rsiQ('4h') : null;
+      if (!(r4h >= cfg.rsi4hMin) || !(rsiQ('5m') >= cfg.rsi5mMin) || !(rsiQ('15m') >= cfg.rsi15mMin)) return;
+
+      const i5 = ind('5m');
+      const { nearDailyLevel } = nearLevelInfo(price, dailyAt(T, i));
+      const regime = detectRegime({ indicators: i5, oiDeltaPct: null, fundingRate: null, candles: slice('5m') });
+      const gp = {
+        rsi5m: i5.rsi, rsi15m: ind('15m').rsi, rsi1h: ind('1h').rsi, rsi4h: ind('4h').rsi,
+        ema21Distance: i5.distance, ema21Touched: i5.touched, nearDailyLevel, regime,
+      };
+      // Tanım gates.js'ten: RSI kapılarından hiçbirine takılmamalı (üst sınır dahil)
+      const fails = listFailures(gp);
+      if (fails.some(k => RSI_GATES.includes(k))) return;
+
+      if (lastEventT == null || T - lastEventT > EVENT_GAP_MS) episodeNo++;
+      const first = lastEventT == null || T - lastEventT > EVENT_GAP_MS;
+      lastEventT = T;
+
+      // İleri getiriler (SHORT yönünde: + = fiyat düştü) ve 4 saatlik MFE/MAE
+      const at = ms => base[i + ms / baseMs]?.close;
+      const ret = c => (c != null ? +((price - c) / price * 100).toFixed(3) : null);
+      let mfe = 0, mae = 0;
+      for (const c of base.slice(i + 1, i + 1 + holdBars)) {
+        mfe = Math.max(mfe, (price - c.low) / price * 100);
+        mae = Math.max(mae, (c.high - price) / price * 100);
+      }
+      const plan = calcTradePlan({ entryPrice: price, ema21: i5.ema21, atr: i5.atr, initialRiskPct: cfg.initialRiskPct });
+      const oc = plan.valid ? simulateOutcome({
+        entryPrice: price, tpA: plan.tpA, tpB: plan.tpB, slLevel: plan.slLevel,
+        initialRiskPct: cfg.initialRiskPct, sentAt: T,
+      }, base.slice(i + 1, i + 1 + holdBars), baseMs) : null;
+
+      const r2 = x => (x != null && Number.isFinite(x) ? +x.toFixed(2) : null);
+      rsiEvents.push({
+        symbol, ts: T, date: new Date(T).toISOString(), period: T < splitT ? 'IS' : 'OOS',
+        episode: `${symbol}#${episodeNo}`, first,
+        price, rsi5m: r2(gp.rsi5m), rsi15m: r2(gp.rsi15m), rsi1h: r2(gp.rsi1h), rsi4h: r2(gp.rsi4h),
+        fails,                                  // takıldığı DİĞER kapılar (boş = sinyal olurdu; skor/cooldown hariç)
+        regime, nearDailyLevel, ema21Distance: r2(i5.distance),
+        ret15m: ret(at(15 * MIN)), ret1h: ret(at(60 * MIN)), ret4h: ret(at(HOLD_MS)),
+        mfe4h: +mfe.toFixed(3), mae4h: +mae.toFixed(3),
+        planValid: plan.valid,
+        outcome: oc?.outcome ?? null, pnlPct: oc?.pnlPct ?? null,
+        netR: oc ? netR(oc.pnlPct, feePct) : null,
+      });
+    };
 
     for (const run of active) {
       const { trig: t, stats } = run;
@@ -365,15 +435,17 @@ async function backtestSymbol(symbol, { startTime, endTime, minScore, compare = 
         continue;
       }
 
+      // ── RSI olay çalışması: canlı kuralın RSI şartları (5m/15m/1h/4h + üst sınır) sağlanan HER an ──
+      //    Diğer kapılardan ve cooldown'dan BAĞIMSIZ kaydedilir; mevcut sinyal akışını değiştirmez.
+      if (t.key === 'current' && run.need.every(tf => slice(tf).length >= MIN_CANDLES)) {
+        recordRsiEvent(i, T, cur.close);
+      }
+
       // Cooldown — canlı signalEngine ile aynı kural (cfg.cooldownMs)
       if (run.lastSignalT != null && T - run.lastSignalT < cfg.cooldownMs) { stats.cooldown++; continue; }
 
       // ── Günlük seviye (4 saatlik blok başına bir kez, canlı htfPoller gibi) ──
-      const block = Math.floor(T / TF_MS['4h']) * TF_MS['4h'];
-      if (block !== dailyKey) {
-        daily    = dailyLevelsAt(block, data['1d'], base, i);
-        dailyKey = block;
-      }
+      dailyAt(T, i);
 
       const price = cur.close;
       const { nearDailyLevel, dailyProximity } = nearLevelInfo(price, daily);
@@ -608,6 +680,7 @@ async function main() {
 
   const results = Object.fromEntries(triggers.map(t => [t.key, []]));
   const stats   = Object.fromEntries(triggers.map(t => [t.key, {}]));
+  const rsiEvents = [];
   const tStart  = Date.now();
 
   for (const [idx, symbol] of SYMBOLS.entries()) {
@@ -623,6 +696,9 @@ async function main() {
         stats[t.key][symbol] = v.stats;
       }
       printSymbolSummary(COMPARE ? `${symbol} A` : symbol, res.variants.current.signals);
+      rsiEvents.push(...res.rsiEvents);
+      const eps = new Set(res.rsiEvents.map(e => e.episode)).size;
+      if (res.rsiEvents.length) console.log(`  [${symbol}] RSI şartı: ${res.rsiEvents.length} an, ${eps} olay`);
       if (COMPARE) {
         const counts = mertTs.map(t => [t.short, res.variants[t.key].signals.length]).filter(([, n]) => n);
         console.log(`  [${symbol}] Mert sinyalleri: ${counts.length ? counts.map(([k, n]) => `${k}: ${n}`).join(' · ') : 'yok'}`);
@@ -640,6 +716,7 @@ async function main() {
   printRegimeBreakdown(results.current);
   printEMCBreakdown(results.current);
   printScoreCalibration(results.current);
+  printRsiEvents(rsiEvents);
   const selection = COMPARE ? selectMert(mertTs, results) : null;
   if (COMPARE) printMertReport({ triggers, stats, results, selection, startTime, endTime, splitT, feePct: FEE_PCT });
 
@@ -650,8 +727,8 @@ async function main() {
   const timestamp = new Date().toISOString().replace(/[:T.]/g, '-').slice(0, 19);
   const outFile   = path.join(OUT_DIR, `backtest-${COMPARE ? 'compare-' : ''}${timestamp}.json`);
   const payload   = COMPARE
-    ? { params, mert: cfg.mert, selection, variants: Object.fromEntries(triggers.map(t => [t.key, { trigger: t, stats: stats[t.key], signals: results[t.key] }])) }
-    : { params, stats: stats.current, signals: results.current };
+    ? { params, mert: cfg.mert, selection, variants: Object.fromEntries(triggers.map(t => [t.key, { trigger: t, stats: stats[t.key], signals: results[t.key] }])), rsiEvents }
+    : { params, stats: stats.current, signals: results.current, rsiEvents };
   fs.writeFileSync(outFile, JSON.stringify(payload, null, 2));
   console.log(`\n📁 Detaylı sonuçlar: ${outFile}\n`);
 
@@ -659,8 +736,8 @@ async function main() {
     // telegram.js yalnızca burada yüklenir; komut dinleme (polling) BAŞLATILMAZ → canlı botla çakışmaz
     const telegram = require('./telegram');
     const text = COMPARE
-      ? buildCompareTelegramReport(params, triggers, stats, results, selection, telegram.esc)
-      : buildTelegramReport(params, stats.current, results.current, telegram.esc);
+      ? buildCompareTelegramReport(params, triggers, stats, results, selection, telegram.esc, rsiEvents)
+      : buildTelegramReport(params, stats.current, results.current, telegram.esc, undefined, rsiEvents);
     telegram.sendText(text);
     const flushed = await telegram.flush(90_000);
     const st = telegram.takeStats();
@@ -780,7 +857,7 @@ function printMertReport({ triggers, stats, results, selection, startTime, endTi
 /**
  * Karşılaştırma modu Telegram raporu (tek mesaj, ≤ 4096 karakter) — telefonda okunur
  */
-function buildCompareTelegramReport(p, triggers, stats, results, selection, esc) {
+function buildCompareTelegramReport(p, triggers, stats, results, selection, esc, rsiEvents = []) {
   const days = (a, b) => Math.round((b - a) / TF_MS['1d']);
   const lines = [
     '🧪 <b>BACKTEST — MERT VARYANTLARI</b>',
@@ -826,6 +903,7 @@ function buildCompareTelegramReport(p, triggers, stats, results, selection, esc)
     if (selection.lowSample) lines.push(`⚠️ Hiçbir kombinasyon seçim döneminde ${MIN_SELECTION_N} sinyale ulaşmadı — seçim zayıf`);
     if (o.n < MIN_SELECTION_N) lines.push(`⚠️ Doğrulamada ${o.n} sinyal — kesin sonuç için az`);
   }
+  lines.push(...rsiEventTelegramLines(rsiEvents, esc));
   lines.push('', '<i>Asıl kanıt Doğrulama sütunudur; seçim dönemi sadece ayar içindir.</i>');
   const text = lines.join('\n');
   return text.length <= 4000 ? text : text.slice(0, 3990) + '\n…';
@@ -834,7 +912,7 @@ function buildCompareTelegramReport(p, triggers, stats, results, selection, esc)
 /**
  * Telegram özet raporu (tek mesaj, ≤ 4096 karakter). Başında açıkça "canlı sinyal değil" yazar.
  */
-function buildTelegramReport(p, allStats, signals, esc, trigger = getTriggers().current) {
+function buildTelegramReport(p, allStats, signals, esc, trigger = getTriggers().current, rsiEvents = []) {
   const sum  = key => Object.values(allStats).reduce((s, st) => s + (st[key] || 0), 0);
   const pct  = (a, b) => b ? `${(a / b * 100).toFixed(1)}%` : '—';
   const n    = signals.length;
@@ -905,6 +983,7 @@ function buildTelegramReport(p, allStats, signals, esc, trigger = getTriggers().
   } else {
     lines.push('', 'Bu dönemde tüm kapıları geçen sinyal yok — hangi aşamada elendiğini huniden görebilirsin.');
   }
+  lines.push(...rsiEventTelegramLines(rsiEvents, esc));
 
   const text = lines.join('\n');
   return text.length <= 4000 ? text : text.slice(0, 3990) + '\n…';
@@ -913,6 +992,97 @@ function buildTelegramReport(p, allStats, signals, esc, trigger = getTriggers().
 /** Geçerli RSI eşikleri (bayraklarla değiştirilmiş olabilir) — rapora yazılır */
 function rsiRuleText() {
   return `5m RSI ≥ ${cfg.rsi5mMin} · 15m ≥ ${cfg.rsi15mMin} · 1h ≥ ${cfg.rsi1hMin} · 4h ≥ ${cfg.rsi4hMin} · üst sınır ≤ ${cfg.rsiEntryMax}`;
+}
+
+// ── RSI olay çalışması raporu ─────────────────────────────────────────────────
+
+// Diğer kapılar (RSI kapıları olay tanımında zaten sağlanmış)
+const EVENT_GATES = [
+  ['regime',     'Rejim: Momentum Continuation'],
+  ['dailyLevel', 'Günlük EMA200/dirence uzak'],
+  ['emaDist',    'EMA21 uzaklığı < 0.5 ATR'],
+  ['emaTouch',   'Son 3 mumda EMA21 dokunuşu'],
+];
+
+/** Bir olay grubunun (her olayın İLK anı) özeti — + getiri = SHORT lehine */
+function eventStats(evs) {
+  const n = evs.length;
+  const m = k => { const v = evs.map(e => e[k]).filter(x => x != null); return v.length ? avg(v) : null; };
+  const pos = k => { const v = evs.map(e => e[k]).filter(x => x != null); return v.length ? v.filter(x => x > 0).length / v.length * 100 : null; };
+  const planned = evs.filter(e => e.outcome);
+  return {
+    n, ret15m: m('ret15m'), ret1h: m('ret1h'), ret4h: m('ret4h'), pos1h: pos('ret1h'), pos4h: pos('ret4h'),
+    mfe: m('mfe4h'), mae: m('mae4h'),
+    planned: planned.length,
+    win: planned.filter(e => e.outcome === 'WIN').length,
+    loss: planned.filter(e => e.outcome === 'LOSS').length,
+    ltr: planned.filter(e => e.outcome === 'LOSS_THEN_RECOVER').length,
+    neutral: planned.filter(e => e.outcome === 'NEUTRAL').length,
+    netR: planned.length ? avg(planned.map(e => e.netR)) : null,
+  };
+}
+
+const pctS = (v, d = 2) => (v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(d)}%`);
+const numS = (v, d = 2) => (v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(d)}`);
+
+function printRsiEvents(events) {
+  console.log('\n\n════════════════════════════════════════════');
+  console.log('  🎯 RSI OLAY ÇALIŞMASI — canlı RSI şartı sağlanan anlar');
+  console.log('════════════════════════════════════════════');
+  console.log(`  Şart   : ${rsiRuleText()}`);
+  console.log('  Diğer kapılardan (seviye, rejim, EMA21) ve cooldown\'dan BAĞIMSIZ kaydedilir.');
+  const firsts = events.filter(e => e.first);
+  if (!firsts.length) { console.log('\n  Bu dönemde RSI şartı hiç sağlanmadı.'); return; }
+  const coins = new Set(events.map(e => e.symbol)).size;
+  console.log(`  An: ${events.length} · Olay: ${firsts.length} (aynı coinde 30 dk içinde tekrar edenler tek olay) · Coin: ${coins}`);
+  const a = eventStats(firsts);
+  console.log('\n  Olayın ilk anında SHORT açılsaydı (+ = short lehine):');
+  console.log(`    15 dk sonra: ${pctS(a.ret15m)} · 1 saat: ${pctS(a.ret1h)} (lehe: %${a.pos1h?.toFixed(0)}) · 4 saat: ${pctS(a.ret4h)} (lehe: %${a.pos4h?.toFixed(0)})`);
+  console.log(`    4 saatte en iyi / en kötü hareket (ort): MFE ${a.mfe?.toFixed(2)}% / MAE ${a.mae?.toFixed(2)}%`);
+  console.log(`    Canlı planla (TP-A EMA21, SL %${cfg.initialRiskPct}): ${a.planned} işlem · W/L/LTR/N ${a.win}/${a.loss}/${a.ltr}/${a.neutral} · ort net R ${numS(a.netR)}` +
+    (a.planned < a.n ? ` (${a.n - a.planned} olayda TP-A girişin üstündeydi)` : ''));
+
+  console.log('\n  Diğer kapılar bu olayları nasıl ayırıyor? (olayların ilk anı)');
+  console.log(`  ${'Kapı'.padEnd(30)} ${'── Takılan ──────────────'.padEnd(26)} ${'── Geçen ────────────────'}`);
+  console.log(`  ${''.padEnd(30)} ${'   n   1s getiri  net R'.padEnd(26)} ${'   n   1s getiri  net R'}`);
+  const col = x => `${String(x.n).padStart(4)} ${pctS(x.ret1h).padStart(10)} ${numS(x.netR).padStart(7)}`;
+  for (const [k, label] of EVENT_GATES) {
+    const f = eventStats(firsts.filter(e => e.fails.includes(k)));
+    const p = eventStats(firsts.filter(e => !e.fails.includes(k)));
+    console.log(`  ${label.padEnd(30)} ${col(f).padEnd(26)} ${col(p)}`);
+  }
+  const sig = eventStats(firsts.filter(e => !e.fails.length));
+  console.log(`  ${'Hiçbirine takılmayan (=sinyal)'.padEnd(30)} ${col(sig)}`);
+
+  const bySym = {};
+  for (const e of firsts) bySym[e.symbol] = (bySym[e.symbol] || 0) + 1;
+  console.log(`\n  En çok olay: ${Object.entries(bySym).sort((x, y) => y[1] - x[1]).slice(0, 8).map(([k, v]) => `${k} ${v}`).join(' · ')}`);
+  console.log('  Okuma: bir kapıda "Geçen" grup "Takılan"dan belirgin iyiyse kapı işe yarıyor;');
+  console.log('         benzer ya da kötüyse iyi fırsatları boşuna eliyor olabilir. Olay sayısı azsa kesin hüküm verme.');
+}
+
+function rsiEventTelegramLines(events, esc) {
+  const firsts = events.filter(e => e.first);
+  const out = ['', `🎯 <b>RSI şartı sağlanan anlar</b> (diğer kapılardan bağımsız)`];
+  if (!firsts.length) return [...out, '  Bu dönemde RSI şartı hiç sağlanmadı.'];
+  const a = eventStats(firsts);
+  out.push(
+    `  ${events.length} an · <b>${firsts.length} olay</b> · ${new Set(events.map(e => e.symbol)).size} coin`,
+    `  İlk anda short: 15dk ${pctS(a.ret15m)} · 1s ${pctS(a.ret1h)} (lehe: %${a.pos1h?.toFixed(0)}) · 4s ${pctS(a.ret4h)}`,
+    `  Canlı planla: W/L/LTR/N ${a.win}/${a.loss}/${a.ltr}/${a.neutral} · ort net R ${numS(a.netR)}`,
+  );
+  const rows = [`${'Kapı'.padEnd(10)}${'Takılan'.padEnd(14)}Geçen`, `${''.padEnd(10)}${'  n  1s get.'.padEnd(14)}  n  1s get.`];
+  const short = { regime: 'Rejim', dailyLevel: 'Seviye', emaDist: 'EMA uzak', emaTouch: 'EMA dokun' };
+  const col = x => `${String(x.n).padStart(3)} ${pctS(x.ret1h).padStart(7)}`;
+  for (const [k] of EVENT_GATES) {
+    const f = eventStats(firsts.filter(e => e.fails.includes(k)));
+    const p = eventStats(firsts.filter(e => !e.fails.includes(k)));
+    rows.push(`${short[k].padEnd(10)}${col(f).padEnd(14)}${col(p)}`);
+  }
+  const sig = eventStats(firsts.filter(e => !e.fails.length));
+  rows.push(`${'Sinyal'.padEnd(10)}${col(sig)}`);
+  out.push(`<pre>${esc(rows.join('\n'))}</pre>`, '<i>1s get.: olayın ilk anında short açılsa 1 saat sonraki ort. getiri (+ = lehe)</i>');
+  return out;
 }
 
 function fmtDate(ts) {
@@ -1118,6 +1288,7 @@ module.exports = {
   buildTelegramReport,
   buildCompareTelegramReport,
   perf,
+  eventStats,
   selectMert,
   selectionSplit,
   setKlineSource,

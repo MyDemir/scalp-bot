@@ -33,6 +33,18 @@ async function limited(weight, fn) {
  * Rate limit (Binance kodu -1003 / Retry-After başlığı) gelirse bekleyip tekrar dener.
  * Diğer hatalar olduğu gibi fırlatılır.
  */
+/**
+ * Geçici ağ/sunucu hatası mı? (bağlantı koptu, zaman aşımı, 5xx) — kısa beklemeyle tekrar denenir.
+ * 418 (IP ban) ve diğer 4xx istemci hataları tekrar DENENMEZ.
+ */
+function isTransient(err) {
+  const code = err?.code;
+  if (typeof code === 'string' && /^(ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|EAI_AGAIN|ENOTFOUND|ENETUNREACH|UND_ERR)/.test(code)) return true;
+  if (/socket hang up|network|timeout|ECONNRESET/i.test(String(err?.message ?? err))) return true;
+  const status = Number(err?.status ?? err?.response?.status ?? code);
+  return status >= 500 && status < 600;
+}
+
 async function withRetry(fn, label, maxRetries = 3) {
   for (let attempt = 0; ; attempt++) {
     try {
@@ -40,6 +52,12 @@ async function withRetry(fn, label, maxRetries = 3) {
     } catch (err) {
       const retryAfter  = Number(err?.headers?.['retry-after']);
       const rateLimited = err?.code === -1003 || Number.isFinite(retryAfter);
+      if (!rateLimited && isTransient(err) && attempt < maxRetries) {
+        const waitMs = 2000 * 2 ** attempt;   // 2 sn, 4 sn, 8 sn
+        console.warn(`[REST] ${label}: geçici hata (${err?.code ?? ''} ${err?.message ?? err}) — ${waitMs / 1000} sn sonra tekrar (${attempt + 1}/${maxRetries})`);
+        await sleep(waitMs);
+        continue;
+      }
       if (!rateLimited || attempt >= maxRetries) throw err;
       const waitSec = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60;
       console.warn(`[REST] ${label}: rate limit — ${waitSec} sn bekleniyor (tekrar ${attempt + 1}/${maxRetries})`);
