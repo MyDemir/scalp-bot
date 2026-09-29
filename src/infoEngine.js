@@ -218,6 +218,28 @@ function separation(series, tf, price) {
   return { ema, atr, dist: atr > 0 ? (price - ema) / atr : 0, touched };
 }
 
+/**
+ * EMA21 takip / kopuş (yalnızca Detay'da gösterilir). Kapanmış 3m mumlar:
+ *   değme  : mumun aralığı EMA21'i (±%0.1) içeriyor
+ *   izliyor: son 10 mumun ≥ 6'sında değdi (fiyat EMA21'i trend gibi takip ediyor)
+ *   koptu  : son 3 mumdan önceki 10 mumun ≥ 6'sında değmişti, son 3 mumda değmedi ve fiyat ≥ 1.5 ATR yukarıda
+ */
+const RIDE = { win: 10, min: 6, breakATR: 1.5 };
+function emaRide(series, tf = '3m') {
+  const c = series.col(tf, 'c', false), h = series.col(tf, 'h', false), l = series.col(tf, 'l', false);
+  const e = ta.emaSeries(c, 21), a = ta.atrSeries(h, l, c, 14);
+  const n = c.length;
+  if (e.length < RIDE.win + 3 || !a.length) return null;
+  const off = n - e.length;                                // e[j] ↔ c[j + off]
+  const touch = i => { const ev = e[i - off]; return l[i] <= ev * 1.001 && h[i] >= ev * 0.999; };
+  const count = (from, to) => { let k = 0; for (let i = from; i < to; i++) if (touch(i)) k++; return k; };
+  const recent = count(n - RIDE.win, n), before = count(n - RIDE.win - 3, n - 3), last3 = count(n - 3, n);
+  const atr = a[a.length - 1], dist = atr > 0 ? (c[n - 1] - e[e.length - 1]) / atr : 0;
+  const state = before >= RIDE.min && last3 === 0 && dist >= RIDE.breakATR ? 'break'
+    : recent >= RIDE.min ? 'ride' : 'free';
+  return { tf, state, recent, before, last3, dist, win: RIDE.win };
+}
+
 function macdState(series, tf) {
   const c = series.col(tf, 'c', false);                 // yalnızca kapanmış mumlar (kararlı)
   const m = ta.macdTail(c, 12, 26, 9, 6);
@@ -414,6 +436,7 @@ function evaluate(series, s, ctx = {}, force = false) {
 
   snap.sep = { '3m': separation(series, '3m', price), '5m': separation(series, '5m', price) };
   snap.neg = { '1m': negPeaks(series, '1m', 40, s.rsiPeriod), '3m': negPeaks(series, '3m', 40, s.rsiPeriod) };
+  snap.ride = emaRide(series, '3m');
   snap.sepOk = ['3m', '5m'].every(tf => snap.sep[tf] && snap.sep[tf].dist >= s.sepATR && !snap.sep[tf].touched);
 
   const r1h = ta.rsiLast(series.col('1h', 'c'), s.rsiPeriod), r4h = ta.rsiLast(series.col('4h', 'c'), s.rsiPeriod);
@@ -478,6 +501,22 @@ function burstText(b) {
   return `${circles(b.grade || 1, up ? 'green' : 'red')} Hacimli ${up ? 'yükselen' : 'düşen'} mum: ${ps(b.body, 1)} · hacim ${b.volX.toFixed(1)} kat · ${share}${against}`;
 }
 
+/** 1 dk hareket yeniliği (RSI kartının içinde): "⚡🟢🟢🟢 1 dk +%3.29 · hacim 34.0 kat · alış %70" */
+function moveText(m) {
+  const up = m.pct > 0;
+  const share = m.taker == null ? null : m.taker >= 50 ? `alış ${pa(m.taker, 0)}` : `satış ${pa(100 - m.taker, 0)}`;
+  return [`⚡${circles(m.grade || 1, up ? 'green' : 'red')} 1 dk ${ps(m.pct)}`, m.volX != null ? `hacim ${m.volX.toFixed(1)} kat` : null, share].filter(Boolean).join(' · ');
+}
+
+/** Gün anahtarı (gösterim saat dilimi, varsayılan İstanbul) — günlük hareket sayacı bu günde sıfırlanır */
+let dayFmt = null;
+function dayKey(t) {
+  try {
+    dayFmt = dayFmt || new Intl.DateTimeFormat('en-CA', { timeZone: process.env.DISPLAY_TZ || 'Europe/Istanbul', year: 'numeric', month: '2-digit', day: '2-digit' });
+    return dayFmt.format(new Date(t));
+  } catch { return new Date(t).toISOString().slice(0, 10); }
+}
+
 const GRADE_TXT = { 0: 'şart dışı', 1: 'kart şartı', 2: 'kontrol listesi', 3: 'kontrol listesi' };
 
 function createTracker() {
@@ -506,10 +545,12 @@ function createTracker() {
       if (!L) {
         if (snap.rsiOk !== false) out.push('İlk kart');        // RSI ve direnç zaten kartta ayrı satırlarda
         if (snap.discovery) out.push(discoveryText(snap.discovery));
-        if (trig.burst) out.push(burstText(trig.burst));
+        if (trig.move) out.push(moveText(trig.move));
+        else if (trig.burst) out.push(burstText(trig.burst));
         return out;
       }
-      if (trig.burst) out.push(burstText(trig.burst));
+      if (trig.move) out.push(moveText(trig.move));          // aynı mum hem hareket hem hacimli mumsa yalnız hareket
+      else if (trig.burst) out.push(burstText(trig.burst));
       // RSI eşik geçişleri — aynı olay tek satırda: "RSI 85 üstüne çıktı: 3m 86.1 · 5m 85.4"
       const prevAbove = L.above || [];
       const f1 = tf => `${tf} ${snap.rsi[tf].v.toFixed(1)}`;
@@ -582,6 +623,17 @@ function createTracker() {
     /** Seri devam ediyor mu? (bu coinde kart gitmiş ve 5m RSI henüz resetRsi'nin altında kapanmamış) */
     active: sym => (mem.get(sym)?.seq ?? 0) > 0,
 
+    /** Günlük 1 dk hareket sayacı (bellekte; diske yazılmaz, gün değişince sıfırlanır) */
+    countMove(sym, t, dir) {
+      const m = get(sym), k = dayKey(t);
+      if (!m.mv || m.mv.day !== k) m.mv = { day: k, up: 0, down: 0 };
+      if (dir > 0) m.mv.up++; else m.mv.down++;
+    },
+    moveStats(sym, t) {
+      const mv = mem.get(sym)?.mv;
+      return mv && mv.day === dayKey(t) ? { up: mv.up, down: mv.down } : { up: 0, down: 0 };
+    },
+
     /** Sahte kırılım takip listesi (coin başına, seri sıfırlansa da korunur) */
     sfpWatch(sym) { const m = get(sym); if (!m.sfp) m.sfp = new Map(); return m.sfp; },
 
@@ -613,7 +665,22 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
     if (sfp && w.until && now < w.until) sfp = null;
     else if (sfp) w.until = now + s.sfpBars * 5 * MIN;
   }
-  if (!tfs.length && !burst) return null;
+  // 1 dk hareket (≥ moveAlertPct): günlük sayaca yazılır; RSI şartı sağlanıyorsa karta girer (ayrı uyarı yok)
+  let move = null;
+  if (s.moveAlertPct > 0) {
+    const d = series.d['1m'], i = d.c.length - 1;
+    const pct = i >= 1 ? movePct(d.c[i - 1], d.t[i - 1], { t: d.t[i], o: d.o[i], c: d.c[i] }) : null;
+    if (pct != null && Math.abs(pct) >= s.moveAlertPct) {
+      let sum = 0, k = 0;
+      for (let j = Math.max(0, i - 20); j < i; j++) { sum += d.v[j]; k++; }
+      const volX = k >= 5 && sum > 0 ? d.v[i] / (sum / k) : null;
+      const taker = d.v[i] > 0 ? d.tb[i] / d.v[i] * 100 : null;
+      move = { pct, from: d.t[i - 1] === d.t[i] - MIN ? d.c[i - 1] : d.o[i], to: d.c[i], volX, taker, t: d.t[i] + MIN };
+      move.grade = volGrade(pct, volX, taker, s);
+      tracker.countMove(sym, move.t, pct);
+    }
+  }
+  if (!tfs.length && !burst && !move) return null;
 
   let snap = evaluate(series, s, ctx);
   let inSeries = false;
@@ -621,8 +688,9 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
     // Şart dışı ama yine de kart: (a) sahte kırılım, (b) seri sürerken gelen hacimli mum
     // (ör. tepedeki sert satış mumu RSI'ı 90'ın altına indirse de bildirilir)
     const seriesBurst = Boolean(burst && s.seriesBursts && tracker.active(sym));
-    if (!sfp && !seriesBurst) return null;
-    snap = evaluate(series, s, ctx, true);
+    const moveCard = Boolean(move && snap.rsiOk);           // hareket: yalnızca RSI şartı sağlanan coinlerde kart
+    if (!sfp && !seriesBurst && !moveCard) return null;
+    if (!snap.rsiOk) snap = evaluate(series, s, ctx, true);
     inSeries = seriesBurst;
     if (sfp && !(snap.grade > 0)) {             // SFP kartında derece kontrol listesinden (RSI eşiği aranmaz)
       const sc = snap.check ? snap.check.score : 0;
@@ -631,7 +699,7 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
   }
   if (ctx.isMuted && ctx.isMuted(sym, snap.t)) return null;
 
-  const trig = { tfs, burst, inSeries, sfp };
+  const trig = { tfs, burst, inSeries, sfp, move };
   const news = tracker.news(sym, snap, trig, s);
   if (sfp) news.unshift(sfpText(sfp));
   if (inSeries) {
@@ -647,6 +715,7 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
     `#${sym}`, `#DERECE${snap.grade}`,
     snap.level ? (dip ? '#DIPTE' : '#YAKLASIYOR') : null,
     burst ? '#HACIM' : null,
+    move ? '#HAREKET' : null,
     inSeries ? '#SERI' : null,
     sfp ? '#SAHTEKIRILIM' : null,
     snap.discovery ? '#FIYATKESFI' : null,
@@ -658,6 +727,7 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
   return {
     id: `${sym}-${snap.t}`, symbol: sym, seq, t: snap.t, price: snap.price,
     snap, news, trig, tags, followed, inSeries,
+    moveStats: tracker.moveStats(sym, snap.t),
     grade: snap.grade,
     // Bildirim: cardSound açıksa her kart sesli; kapalıysa yalnız 🔴🔴🔴 ve takipteki coinler
     silent: !(s.cardSound !== false || snap.grade === 3 || followed),
@@ -673,4 +743,4 @@ function movePct(prevClose, prevT, c) {
   return base > 0 ? (c.c - base) / base * 100 : null;
 }
 
-module.exports = { evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, detectSfp, discoveryOf, negPeaks, movePct, volGrade, rsiGrade, checklist, circles, dirColor, RSI_TFS };
+module.exports = { emaRide, moveText, evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, detectSfp, discoveryOf, negPeaks, movePct, volGrade, rsiGrade, checklist, circles, dirColor, RSI_TFS };

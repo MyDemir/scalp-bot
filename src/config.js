@@ -54,14 +54,12 @@ module.exports = {
     confRequired:  false,  // açıksa 1h veya 4h'ten en az biri ≥ confRsi olmalı
     macdRequired:  false,  // açıksa 5m MACD histogramı zayıflıyor (düşüyor ya da ≤ 0) olmalı
     minVolumeM:    3,      // izlenen evren: 24s hacim ≥ 3 milyon USDT
-    // Hareket uyarısı: herhangi bir paritede 1m kapanış, bir önceki 1m kapanışa göre ≥ %moveAlertPct
+    // Hareket: izlenen coinde 1m kapanış, bir önceki 1m kapanışa göre ≥ %moveAlertPct → günlük sayaç (Detay'da);
+    // RSI şartı sağlanıyorsa RSI kartına ⚡ satırı olarak girer (ayrı uyarı kartı yok)
     moveAlertPct:  2,      // 0 = kapalı
-    moveAlertAll:  true,   // true: TÜM USDT perpetual'lar (hacim filtresi yok) · false: yalnızca izlenen evren
-    moveAlertSound: true,  // hareket uyarıları sesli
     cardSound:     true,   // her yeni kart bildirimli (sesli). Kapalıysa yalnız 🔴🔴🔴 ve takipteki coinler sesli
     // Grafik (5m mumlar + Ichimoku + hacim + seviye) — kartlara ve ⚡ uyarılara fotoğraf olarak eklenir
     chart:         true,
-    chartMoves:    true,
     chartTf:       '1h',   // grafik zaman dilimi: 5m / 15m / 1h / 4h
     chartFib:      true,   // grafikte Fibonacci düzeltme seviyeleri (görünen penceredeki dip–tepe)
     chartIchi:     true,   // grafikte Ichimoku (kapatınca yalnız mum + EMA21 3m/5m + seviyeler)

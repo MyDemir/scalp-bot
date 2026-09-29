@@ -12,8 +12,8 @@
  *              böylece düzelir); kopukluk 200 dk'dan uzunsa coin baştan tohumlanır.
  *   Karar    : src/infoEngine.js (backtest ile aynı). Kart biçimi: src/infoCard.js
  *   Funding  : premiumIndex 5 dk'da bir (tek istek). OI: yalnızca kart üretilen coin için, 2 dk önbellek.
- *   Hareket  : TÜM USDT perpetual'larda (moveAlertAll) 1m kapanış bir önceki kapanışa göre ≥ %moveAlertPct
- *              → ⚡ uyarı. Evren dışı pariteler de WS'e eklenir ama yalnızca son kapanış + hacim tutulur.
+ *   Hareket  : izlenen coinde 1m kapanış bir önceki kapanışa göre ≥ %moveAlertPct → motor günlük sayaca yazar;
+ *              RSI şartı sağlanıyorsa RSI kartına ⚡ satırı olarak girer (ayrı uyarı kartı yok). Evren dışı dinlenmez.
  *   Geçmiş   : her kart/uyarı src/cardStore.js ile /data/cards.db'ye yazılır, sonrası 15/60/240 dk izlenir.
  */
 
@@ -22,7 +22,7 @@ const binance  = require('./binanceClient');
 const telegram = require('./telegram');
 const { Series, normKline, KEEP, MIN } = require('./series');
 const eng      = require('./infoEngine');
-const { formatCard, formatMove } = require('./infoCard');
+const { formatCard } = require('./infoCard');
 const { compact } = require('./infoStats');
 const { createCardStore } = require('./cardStore');
 const chart = require('./chart');
@@ -48,9 +48,8 @@ const failed  = new Map();   // sym → deneme sayısı
 let premium   = new Map();
 const oiCache = new Map();
 let vols24    = new Map();   // sym → 24s hacim (USDT) — tüm işlemdeki pariteler
-const lite    = new Map();   // sym → { prevC, prevT, vols[] } — hareket uyarısı için (TÜM pariteler)
 
-const stats = { closes: 0, cards: 0, cardsToday: 0, moves: 0, movesToday: 0, day: null, seeded: 0, seedErrors: 0, gapFills: 0 };
+const stats = { closes: 0, cards: 0, cardsToday: 0, day: null, seeded: 0, seedErrors: 0, gapFills: 0 };
 let startedAt = 0;
 let seedingAll = false;
 
@@ -85,7 +84,7 @@ async function oiChange(sym) {
 
 function rollDay() {
   const day = new Date().toISOString().slice(0, 10);
-  if (stats.day !== day) { stats.day = day; stats.cardsToday = 0; stats.movesToday = 0; }
+  if (stats.day !== day) { stats.day = day; stats.cardsToday = 0; }
 }
 
 async function emitCard(card) {
@@ -146,26 +145,6 @@ const details = {
   get(id) { return this.map.get(id) ?? null; },
 };
 
-// ── Hareket uyarısı (1 dakikada ≥ %moveAlertPct) ─────────────────────────
-
-function checkMove(symbol, c) {
-  let L = lite.get(symbol);
-  if (!L) { L = { prevC: null, prevT: null, vols: [] }; lite.set(symbol, L); }
-  if (L.prevT != null && c.t <= L.prevT) return;         // tekrar / eski mum
-  const s = settings.get();
-  if (s.moveAlertPct > 0 && (s.moveAlertAll || series.has(symbol))) {
-    const pct = eng.movePct(L.prevC, L.prevT, c);
-    if (pct != null && Math.abs(pct) >= s.moveAlertPct && !settings.isMuted(symbol)) {
-      const avg = L.vols.length >= 5 ? L.vols.reduce((a, b) => a + b, 0) / L.vols.length : null;
-      const from = L.prevC > 0 && L.prevT === c.t - MIN ? L.prevC : c.o;
-      emitMove({ symbol, t: c.t + MIN, from, to: c.c, pct, v: c.v, volX: avg > 0 ? c.v / avg : null, taker: c.v > 0 ? c.tb / c.v * 100 : null, vol24: vols24.get(symbol) ?? null });
-    }
-  }
-  L.prevC = c.c; L.prevT = c.t;
-  L.vols.push(c.v);
-  if (L.vols.length > 20) L.vols.shift();
-}
-
 /** Ayarlardaki Ichimoku parametreleri */
 function ichiOf(s) {
   return { tenkan: s.ichiTenkan, kijun: s.ichiKijun, chikou: s.ichiChikou, senkouB: s.ichiSenkouB, shift: s.ichiShift };
@@ -185,94 +164,18 @@ function chartOf(sr, s, level, levels, subtitle, candles = null) {
   });
 }
 
-/** ⚡ uyarı grafiği için mumlar: izlenen coinde bellekten, değilse REST'ten (tek istek) */
-async function moveCandles(sym, tf) {
-  const sr = series.get(sym);
-  if (sr && sr.count(tf) >= 60) return chart.candlesFromSeries(sr, tf);
-  try {
-    const raw = await Promise.race([binance.fetchKlines(sym, tf, 250), new Promise(r => setTimeout(() => r(null), 5000))]);
-    return raw ? raw.map(k => normKline(k)) : null;
-  } catch { return null; }
-}
-
-function emitMove(m) {
-  const prev = chains.get(m.symbol) || Promise.resolve();
-  const next = prev.then(() => emitMoveNow(m)).catch(err => console.error(`[HAREKET] ${m.symbol} gönderilemedi:`, err?.message || err));
-  chains.set(m.symbol, next);
-  next.then(() => { if (chains.get(m.symbol) === next) chains.delete(m.symbol); });
-}
-
-/**
- * Hacim katı bellekte yoksa (bot yeni açıldı / parite yeni eklendi): bu 1m mumun hacmi ÷ önceki 1m mumların
- * (en çok 20, en az 5) ortalaması. Kaynak: izlenen coinde bellekteki 1m mumlar, değilse REST (tek istek).
- */
-async function fillVolX(m) {
-  if (m.volX != null || !(m.v > 0)) return;
-  const t0 = m.t - MIN;                                    // uyarıyı doğuran mumun açılış zamanı
-  const avgOf = vs => (vs.length >= 5 ? vs.reduce((a, b) => a + b, 0) / vs.length : null);
-  const sr = series.get(m.symbol);
-  if (sr) {
-    const d = sr.d['1m'], vs = [];
-    for (let i = d.t.length - 1; i >= 0 && vs.length < 20; i--) if (d.t[i] < t0) vs.push(d.v[i]);
-    const a = avgOf(vs);
-    if (a > 0) { m.volX = m.v / a; return; }
-  }
-  try {
-    const raw = await Promise.race([binance.fetchKlines(m.symbol, '1m', 22), new Promise(r => setTimeout(() => r(null), 4000))]);
-    const a = avgOf((raw || []).map(k => normKline(k)).filter(c => c.t < t0).slice(-20).map(c => c.v));
-    if (a > 0) m.volX = m.v / a;
-  } catch { /* hacim katı olmadan gönderilir */ }
-}
-
-async function emitMoveNow(m) {
-  const s = settings.get();
-  const sr = series.get(m.symbol);
-  if (sr && sr.ready() && !busy.has(m.symbol)) {
-    try { m.snap = eng.evaluate(sr, s, ctx, true); } catch { m.snap = null; }
-  }
-  m.loading = Boolean(sr) && !m.snap;                      // izlenen coin ama geçmiş veri henüz yükleniyor
-  await fillVolX(m);
-  m.followed = settings.isFollowed(m.symbol);
-  m.grade = eng.volGrade(m.pct, m.volX, m.taker, s);
-  stats.moves++;
-  rollDay();
-  stats.movesToday++;
-  const { text, keyboard, details: det } = formatMove(m, s);
-  details.set(`${m.symbol}-${m.t}-move`, det);
-  let photo = null;
-  if (s.chartMoves) {
-    const tf = s.chartTf || '1h';
-    const cs = await moveCandles(m.symbol, tf);
-    if (cs) photo = chart.renderChart({ symbol: m.symbol, candles: cs, tf, level: m.snap?.level ?? null, levels: m.snap?.levels || [], overlays: tf === '5m' && sr && sr.count('5m') >= 60 ? chart.emaOverlays(sr, cs) : [], ichi: ichiOf(s), showIchi: s.chartIchi, fib: s.chartFib, fibDir: m.pct < 0 ? 'down' : 'up', subtitle: `1 dk ${m.pct > 0 ? '+' : '−'}%${Math.abs(m.pct).toFixed(2)}` });
-  }
-  telegram.sendCard({ text, keyboard, silent: !(s.moveAlertSound || m.followed), photo, thread: settings.topic('hareket') });
-  store?.add({
-    id: `${m.symbol}-${m.t}-move`, kind: 'move', symbol: m.symbol, t: m.t, price: m.to,
-    data: { grade: m.grade, movePct: +m.pct.toFixed(3), volX: m.volX != null ? +m.volX.toFixed(2) : null, taker: m.taker != null ? Math.round(m.taker) : null, vol24: m.vol24, hits: m.snap?.hits ?? null },
-  });
-  console.log(`[HAREKET] ${'●'.repeat(m.grade)} ${m.symbol} 1dk ${m.pct > 0 ? '+' : ''}${m.pct.toFixed(2)}% (${m.from} → ${m.to})${m.volX != null ? ` · hacim ${m.volX.toFixed(1)}×` : ''}`);
-}
-
 function onKline(symbol, tf, k, isFinal) {
   if (!isFinal || tf !== '1m') return;
   const c = toCandle(k);
   const sr = series.get(symbol);
-  if (!sr) {                                   // evren dışı parite: yalnızca hareket uyarısı + geçmiş takibi
-    store?.onCandle(symbol, c);
-    checkMove(symbol, c);
-    return;
-  }
+  if (!sr) return;                             // evren dışı (listeden yeni çıkmış) — dinlenmez
   if (busy.has(symbol)) pending.get(symbol)?.push(c);
   else processCandle(sr, c, true);
-  checkMove(symbol, c);                        // seri güncellendikten sonra (kartta güncel RSI)
 }
 
-/** WebSocket'te olması gereken semboller: izlenen evren + (hareket uyarısı tüm paritelerdeyse) tüm pariteler */
+/** WebSocket'te olması gereken semboller: yalnızca izlenen evren */
 function wsSymbols() {
-  const s = settings.get();
-  const set = new Set(series.keys());
-  if (s.moveAlertPct > 0 && s.moveAlertAll) for (const sym of vols24.keys()) set.add(sym);
-  return [...set];
+  return [...series.keys()];
 }
 
 function flushPending(sym) {
@@ -363,7 +266,6 @@ async function refreshUniverse(initial = false) {
     return;
   }
   vols24 = vols;
-  for (const sym of [...lite.keys()]) if (!vols.has(sym)) lite.delete(sym);   // listeden kalkanlar
   const min = settings.get().minVolumeM * 1e6;
   const want = [...vols.entries()].filter(([, v]) => v >= min).sort((a, b) => b[1] - a[1]).map(([s]) => s);
   const keep = [...series.keys()].filter(s => (vols.get(s) ?? 0) >= min * KEEP_BELOW_RATIO || s === 'BTCUSDT');
@@ -407,8 +309,8 @@ function statusText() {
   return `🟢 <b>Bilgi botu</b> · ${Math.floor(up / 60)}s ${up % 60}dk çalışıyor
 Coin: ${series.size} izleniyor · ${readyCount()} hazır${busy.size ? ` · ${busy.size} yükleniyor` : ''}${failed.size ? ` · ${failed.size} hata` : ''}
 Evren: 24s hacim ≥ ${s.minVolumeM}M $
-Bugün: ${stats.cardsToday} kart · ${stats.movesToday} hareket uyarısı · Telegram kuyruğu: ${telegram.queueLength()}
-Hareket uyarısı: ${s.moveAlertPct > 0 ? `1 dk ≥ %${s.moveAlertPct} · ${s.moveAlertAll ? `tüm pariteler (${vols24.size})` : 'yalnızca evren'}` : 'kapalı'}
+Bugün: ${stats.cardsToday} kart · Telegram kuyruğu: ${telegram.queueLength()}
+Hareket: ${s.moveAlertPct > 0 ? `1 dk ≥ %${s.moveAlertPct} → RSI kartına eklenir (RSI şartı varsa)` : 'kapalı'}
 Şart: RSI ≥ ${s.rsiMin} (${s.minTFs}/3)${s.levelRequired ? ` + seviye ≤ %${s.levelMaxPct}` : ''}${s.sepRequired ? ' + ayrışma' : ''}${s.confRequired ? ' + destek' : ''}${s.macdRequired ? ' + MACD' : ''}
 Bellek: ${mem} MB`;
 }
@@ -421,12 +323,12 @@ function heartbeat() {
   const mins = Math.round(cfg.heartbeatMs / 60000);
   const closes = stats.closes - lastCloses;
   lastCloses = stats.closes;
-  const cards = stats.cards, moves = stats.moves;
-  stats.cards = 0; stats.moves = 0;
+  const cards = stats.cards;
+  stats.cards = 0;
   store?.sweep();
   console.log(
     `[HEARTBEAT] WS ${ws?.open ?? 0}/${ws?.connections ?? 0} bağlı (${ws?.streams ?? 0} stream)` +
-    ` | son ${mins}dk: ${closes} 1m kapanış, ${ws?.skipped ?? 0} ara güncelleme atlandı, ${cards} kart, ${moves} hareket` +
+    ` | son ${mins}dk: ${closes} 1m kapanış, ${ws?.skipped ?? 0} ara güncelleme atlandı, ${cards} kart` +
     ` | coin: ${readyCount()}/${series.size} hazır${busy.size ? `, ${busy.size} yükleniyor` : ''}` +
     ` | takipte ${store?.openCount() ?? 0} kart` +
     ` | telegram: ${tg.sent} gönderildi, ${tg.queued} kuyrukta${tg.failed ? `, ${tg.failed} BAŞARISIZ` : ''}` +
@@ -466,7 +368,7 @@ async function main() {
 
   // WebSocket ÖNCE: tohumlama sürerken kapanan mumlar kaçmasın (pending'e yazılır)
   const wsList = wsSymbols();
-  console.log(`WebSocket: ${wsList.length} parite (${list.length} izlenen${wsList.length > list.length ? ` + ${wsList.length - list.length} yalnızca hareket uyarısı` : ''})`);
+  console.log(`WebSocket: ${wsList.length} parite (izlenen)`);
   binance.startWebSocket(wsList, ['1m'], onKline, { onGap: backfillGap, options: { ...cfg.ws, finalOnly: true } });
 
   await pollPremium();
@@ -481,15 +383,14 @@ async function main() {
   setInterval(() => refreshUniverse().catch(err => console.error('[EVREN]', err?.message || err)), UNIVERSE_EVERY_MS);
   settings.onChange((key) => {
     if (key === 'minVolumeM') refreshUniverse().catch(err => console.error('[EVREN]', err?.message || err));
-    if (key === 'moveAlertAll' || key === 'moveAlertPct') binance.setWsSymbols(wsSymbols());
   });
 
   const s2 = settings.get();
   telegram.sendText(`🟢 <b>Bilgi botu hazır</b> — ${readyCount()}/${series.size} coin izleniyor (24s hacim ≥ ${s2.minVolumeM}M $)` +
     ` · kart şartı RSI ≥ ${s2.rsiMin} (${s2.minTFs}/3)` +
-    (s2.moveAlertPct > 0 ? ` · hareket uyarısı 1 dk ≥ %${s2.moveAlertPct} (${s2.moveAlertAll ? `${vols24.size} parite` : 'evren'})` : '') +
+    (s2.moveAlertPct > 0 ? ` · 1 dk ≥ %${s2.moveAlertPct} hareket RSI kartına eklenir` : '') +
     `. Komutlar: /yardim · Ayarlar: /ayarlar`, null, settings.topic('sistem'));
   console.log('\n✅ Bilgi botu çalışıyor.\n');
 }
 
-module.exports = { main, _internal: { series, settings, tracker, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, statusText, stats, busy, pending, lite, details, getStore: () => store } };
+module.exports = { main, _internal: { series, settings, tracker, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, statusText, stats, busy, pending, details, getStore: () => store } };

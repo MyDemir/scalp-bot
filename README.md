@@ -75,8 +75,7 @@ Direnç: 4h MA200 2.3664 (%0.36 kala)
 Fiyat: 2.358
 ⏱: 29.09 09:35
 ```
-**⚡ HACİM kartı** aynı düzende: `⚡🔴🔴 #ARXUSDT — HACİM` · `🔔: 1 dk −%2.01 ▼ · hacim 4.5 kat · satış %68` · RSI alt alta ·
-boş satır · direnç (varsa) · `Fiyat: 0.2689 → 0.2635` · saat.
+1 dk ≥ %2 hareket ayrı kart değildir: RSI şartı sağlanan coinde RSI kartına `⚡…` satırı olarak girer (bkz. aşağıda).
 
 **Butonlar:** 📈 TradingView · 🟡 Binance / **📋 Detay** · 🔕 1s sustur · ☆ Takip.
 **📋 Detay** (herkes basabilir): kartın altına yanıt olarak sessiz bir mesaj gelir — tüm yenilikler, kontrol listesinin 8 maddesi
@@ -104,12 +103,20 @@ Kartlar ve ⚡ uyarılar **grafikli** gelir (fotoğraf + açıklama). Varsayıla
 Evren dışı pariteler için grafik verisi o an REST'ten çekilir. Açıklama 1024 karakteri aşarsa "Detaylar" sondan kırpılır.
 Çizim `@napi-rs/canvas` ile, yazı tipi repo içinde (`src/assets/fonts`, DejaVu); grafikler diske yazılmaz.
 
-### ⚡ 1 dakikalık hareket uyarısı
-**Tüm** USDT perpetual paritelerde (hacim filtresi yok, stabil coinler hariç) 1m mum kapanışı, bir önceki
-1m kapanışa göre **≥ %2** değişirse ayrı bir ⚡ uyarı gelir: yön, eski → yeni fiyat, hacim katı (önceki 20 dk
-ortalaması), taker oranı, 24s hacim; coin izlenen evrendeyse RSI ve seviye de. `#HAREKET #YUKSELIS/#DUSUS`.
-Evren dışı pariteler de WebSocket'e eklenir ama yalnızca son kapanış + hacim tutulur (hafif).
-Ayarlar: `moveAlertPct` (0 = kapalı), `moveAlertAll` (tüm pariteler / yalnızca evren), `moveAlertSound`.
+### ⚡ 1 dakikalık hareket (RSI kartının içinde)
+Ayrı hareket kartı **yok**. Yalnızca **izlenen** coinlerde (24s hacim ≥ 3M $) 1m kapanış, bir önceki 1m kapanışa göre
+**≥ %2** değişirse:
+- **RSI şartı sağlanıyorsa** RSI kartı gelir; 🔔 satırının altında `⚡🟢🟢🟢 1 dk +%3.29 · hacim 34.0 kat · alış %70`
+  (daire sayısı = hacim derecesi, rengi = yön). Aynı mum hacimli mum da sayılıyorsa yalnız ⚡ satırı yazılır. `#HAREKET`
+- **RSI şartı yoksa** kart gelmez; hareket yalnızca günlük sayaca yazılır.
+- **📋 Detay**'da: hareketin ayrıntısı (eski → yeni fiyat, hacim katı, alış/satış) ve
+  `Bugün 1 dk ≥ %2 hareket: ▲ 5 · ▼ 3 · fark +2`. Sayaç bellekte tutulur (diske yazılmaz), gece yarısı (İstanbul) sıfırlanır,
+  bot yeniden başlayınca sıfırdan başlar.
+- İzlenen liste dışındaki pariteler dinlenmez (bildirim yok).
+Ayar: `/ayarlar` → ⚡ Hareket (`moveAlertPct`, 0 = kapalı).
+
+**3dk EMA21 durumu** (yalnız 📋 Detay'da): *izliyor (trend)* — son 10 mumun ≥ 6'sında fiyat EMA21'e değdi;
+*koptu* — önceki 10 mumun ≥ 6'sında değmişken son 3 mumda değmedi ve fiyat ≥ 1.5 ATR yukarıda; aksi *serbest*.
 
 ### Kart geçmişi
 Her kart ve ⚡ uyarı `/data/cards.db`'ye (SQLite) yazılır; sonrasında fiyat 15 / 60 / 240 dk izlenir
@@ -124,7 +131,7 @@ Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı kon
 1. Grup ayarları → **Konular**'ı aç (grup süpergrup olmalı; ID çoğunlukla değişmez). Yeni bir grup kullanacaksan
    botu ekle, gruba bir komut yaz ve `fly logs`'ta `Tanımsız sohbetten mesaj yok sayıldı: … ID -100…` satırındaki
    ID'yi `fly secrets set TELEGRAM_CHAT_ID=-100…` ile tanımla.
-2. İstediğin konunun **içinde** (yönetici olarak) yaz: `/konu kart` · `/konu hareket` · `/konu sistem` ·
+2. İstediğin konunun **içinde** (yönetici olarak) yaz: `/konu kart` · `/konu sistem` ·
    `/konu kart3` (🔴🔴🔴'ler ayrı konuya) · `/konu backtest`. Bağlantı `/data`'da saklanır.
 3. `/konu` listeyi gösterir, `/konu sil kart` kaldırır. Bağlanmamış tür genel akışa gider; konu silinirse mesajlar
    kaybolmaz, genel akışa düşer. Komut yanıtları, komutun yazıldığı konuya gelir.

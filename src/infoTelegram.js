@@ -19,7 +19,6 @@ const HOUR = 3_600_000;
 const TOPICS = {
   kart:     'RSI kartları (tümü)',
   kart3:    '🔴🔴🔴 kartlar (ayrıca bu konuya; boşsa "kart" konusuna)',
-  hareket:  '⚡ 1 dk hareket uyarıları',
   sistem:   'bot mesajları ("hazır" vb.)',
   backtest: 'backtest raporları (--telegram)',
 };
@@ -54,11 +53,11 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
       sum: v => `🔴🔴 ≥ ${v.grade2Min} · 🔴🔴🔴 ≥ ${v.grade3Min} (8 madde)` },
     { id: 'vol', title: '📦 Hacimli mum', keys: ['burstPct1', 'burstPct2', 'volMult', 'volAvgN', 'takerBuyPct', 'takerSellPct', 'volGrade2X', 'dirGrade3Pct', 'windowMin', 'shortWindowMin'],
       sum: v => `gövde ≥ %${v.burstPct1} · hacim ≥ ${v.volMult}×` },
-    { id: 'mov', title: '⚡ Hareket uyarısı', keys: ['moveAlertPct', 'moveAlertAll'],
-      sum: v => (v.moveAlertPct > 0 ? `1 dk ≥ %${v.moveAlertPct} · ${v.moveAlertAll ? 'tüm pariteler' : 'izlenenler'}` : 'kapalı') },
-    { id: 'snd', title: '🔔 Bildirim', keys: ['cardSound', 'moveAlertSound'],
-      sum: v => `kart ${v.cardSound ? 'sesli' : 'sessiz'} · ⚡ ${v.moveAlertSound ? 'sesli' : 'sessiz'}` },
-    { id: 'cht', title: '🖼 Grafik', keys: ['chart', 'chartMoves', 'chartTf', 'chartFib', 'chartIchi'],
+    { id: 'mov', title: '⚡ Hareket', keys: ['moveAlertPct'],
+      sum: v => (v.moveAlertPct > 0 ? `1 dk ≥ %${v.moveAlertPct} → RSI kartına eklenir` : 'kapalı') },
+    { id: 'snd', title: '🔔 Bildirim', keys: ['cardSound'],
+      sum: v => `kart ${v.cardSound ? 'sesli' : 'sessiz'}` },
+    { id: 'cht', title: '🖼 Grafik', keys: ['chart', 'chartTf', 'chartFib', 'chartIchi'],
       sum: v => (v.chart ? `${v.chartTf}${v.chartIchi ? ' · Ichimoku' : ''}${v.chartFib ? ' · Fibonacci' : ''}` : 'kapalı') },
     { id: 'uni', title: '🌐 İzlenen coinler', keys: ['minVolumeM'],
       sum: v => `24s hacim ≥ ${v.minVolumeM}M $` },
@@ -188,7 +187,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
 /takip [ETH] — takip listesi / ekle-çıkar (takip edilenlerin kartları sesli gelir)
 /gecmis ETH [adet] — coinin son kartları ve sonrasında fiyat
 /istatistik [gün] — kart sınıfları ve sonrasında fiyat (varsayılan 7 gün)
-/konu [ad] — konulu grupta yönlendirme (konunun içinde yaz: /konu kart · /konu hareket · /konu sistem · /konu kart3 · /konu backtest)
+/konu [ad] — konulu grupta yönlendirme (konunun içinde yaz: /konu kart · /konu sistem · /konu kart3 · /konu backtest)
 /durum — bot durumu
 /benkimim — Telegram kullanıcı ID'n
 
@@ -197,7 +196,7 @@ Kart: kurulum kontrol listesi skoru (8 madde: günlük direnç, çakışan diren
 Hacimli mum / ⚡: 1 daire temel · 2 daire hacim ≥ ${settings.get().volGrade2X}× · 3 daire + yön uyumu ≥ %${settings.get().dirGrade3Pct} — 🟢 alış/yükseliş · 🔴 satış/düşüş · ⚪ nötr
 RSI periyodu: ${settings.get().rsiPeriod}
 
-Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesinde RSI ≥ <b>${settings.get().rsiMin}</b>${settings.get().levelRequired ? ` ve fiyatın üstünde en fazla <b>%${settings.get().levelMaxPct}</b> uzakta bir seviye (4h/1d MA200 · EMA200 · 30 günlük tepe)` : ''}. Kontrol: 3m/5m/15m kapanışları + hacimli her 1m mum. Önceki karttan bu yana yeni veri yoksa kart gitmez.${settings.get().seriesBursts ? ' Seri sürerken (5m RSI ' + settings.get().resetRsi + ' altına inmeden) gelen hacimli mumlar şart aranmadan kart olur (#SERI).' : ''}${settings.get().moveAlertPct > 0 ? `\n\n⚡ ${settings.get().moveAlertAll ? 'Herhangi bir' : 'İzlenen'} paritede 1 dakikada ≥ %${settings.get().moveAlertPct} fiyat değişimi → ayrı uyarı.` : ''}`.trim();
+Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesinde RSI ≥ <b>${settings.get().rsiMin}</b>${settings.get().levelRequired ? ` ve fiyatın üstünde en fazla <b>%${settings.get().levelMaxPct}</b> uzakta bir seviye (4h/1d MA200 · EMA200 · 30 günlük tepe)` : ''}. Kontrol: 3m/5m/15m kapanışları + hacimli her 1m mum. Önceki karttan bu yana yeni veri yoksa kart gitmez.${settings.get().seriesBursts ? ' Seri sürerken (5m RSI ' + settings.get().resetRsi + ' altına inmeden) gelen hacimli mumlar şart aranmadan kart olur (#SERI).' : ''}${settings.get().moveAlertPct > 0 ? `\n\n⚡ İzlenen coinde 1 dakikada ≥ %${settings.get().moveAlertPct} fiyat değişimi: RSI şartı sağlanıyorsa RSI kartına eklenir; bugünkü ▲/▼ sayısı 📋 Detay'da.` : ''}`.trim();
 
   const commands = {
     help, yardim: help, start: help,
@@ -295,14 +294,14 @@ Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesin
         return `${k}: <b>${a.length}</b> · 60dk sonra medyan ${pct(median(f.map(m => m.fwd[60].close)))} (en düşük ${pct(median(f.map(m => m.fwd[60].low)))} / en yüksek ${pct(median(f.map(m => m.fwd[60].high)))})`;
       });
       const pending = cards.filter(c => !c.fwd[60]).length;
-      return `📊 <b>Son ${days} gün</b> · ${cards.length} kart · ${moves.length} hareket uyarısı
+      return `📊 <b>Son ${days} gün</b> · ${cards.length} kart
 <i>Karttan sonraki 60 dk'da fiyat, kart anındaki fiyata göre (medyan). Kazanç/kayıp değildir.${pending ? ` 60 dk'sı dolmamış ${pending} kart hariç.` : ''}</i>
 
 <b>Kart sınıfları</b>
-${cls.join('\n') || '—'}
+${cls.join('\n') || '—'}${moves.length ? `
 
-<b>⚡ 1 dk hareket uyarıları</b>
-${mv.join('\n')}`.slice(0, 4000);
+<b>⚡ Eski 1 dk hareket uyarıları</b> (artık ayrı kart yok)
+${mv.join('\n')}` : ''}`.slice(0, 4000);
     },
 
     konu: async (args, msg) => {
