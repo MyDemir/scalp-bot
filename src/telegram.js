@@ -163,6 +163,8 @@ async function pump() {
         } else if (item.keyboard) {
           body.reply_markup = { inline_keyboard: item.keyboard };
         }
+        if (item.silent) body.disable_notification = true;
+        if (item.replyTo) body.reply_parameters = { message_id: item.replyTo, allow_sending_without_reply: true };
         if (item.photo) await sendWithPhoto(body, item.photo);
         else await api('sendMessage', body);
         stats.sent++;
@@ -213,6 +215,11 @@ async function pump() {
 }
 
 /** Düz metin mesajı kuyruğa al (HTML) — ör. backtest özet raporu */
+/** Bir mesaja yanıt olarak (altına) sessiz mesaj — 📋 Detay butonu */
+function sendDetail(text, { thread = null, replyTo = null } = {}) {
+  enqueue('reply', CHAT_ID, text, { silent: true, ...(thread ? { thread } : {}), ...(replyTo ? { replyTo } : {}) });
+}
+
 function sendText(text, keyboard = null, thread = null) {
   enqueue('reply', CHAT_ID, text, { ...(keyboard ? { keyboard } : {}), ...(thread ? { thread } : {}) });
 }
@@ -411,6 +418,6 @@ function stop() {
 
 module.exports = {
   start, stop, sendText, sendCard, flush, takeStats, queueLength, esc,
-  setCommands, publishCommands, onCallback, isAdmin, editMessage,
+  sendDetail, setCommands, publishCommands, onCallback, isAdmin, editMessage,
   _internal: { handleUpdate, get commands() { return commands; }, queue },
 };

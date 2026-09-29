@@ -40,7 +40,7 @@ function normSym(x) {
  * @param {function} p.status    () → durum metni
  * @param {object}   [p.store]   kart geçmişi (cardStore)
  */
-function installInfoTelegram({ telegram, settings, tracker, store = null, getSeries, ctx, status, chartFor = null }) {
+function installInfoTelegram({ telegram, settings, tracker, store = null, details = null, getSeries, ctx, status, chartFor = null }) {
   const defs = settings.defs;
 
   // ── /ayarlar: ana sayfa (bölümler + özet) → bölüm (ayar butonları) → tek ayar (− / +) ──
@@ -121,6 +121,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, getSer
   const show = async (cq, m) => { await telegram.editMessage(cq.message.chat.id, cq.message.message_id, m.text, m.keyboard); };
 
   const denied = { text: 'Bu işlem için grup yöneticisi olmalısın.', alert: true };
+  const detailSent = new Map();   // aynı kartın detayı 30 sn içinde tekrar gönderilmesin
 
   async function onCallback(cq) {
     const data = String(cq.data || '');
@@ -128,6 +129,21 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, getSer
     if (data === 'n') return null;
 
     const [kind, a, b] = data.split(':');
+    if (kind === 'd') {
+      // 📋 Detay (herkes): kartın ayrıntıları kartın altına sessiz mesaj olarak
+      const id = data.slice(2);
+      const html = details ? details.get(id) : null;
+      if (!html) return { text: 'Bu kartın ayrıntıları artık yok (bot yeniden başladı).', alert: true };
+      const last = detailSent.get(id) || 0;
+      if (Date.now() - last < 30_000) return { text: 'Ayrıntılar az önce gönderildi — kartın altında.' };
+      detailSent.set(id, Date.now());
+      if (detailSent.size > 500) detailSent.delete(detailSent.keys().next().value);
+      const sym = id.split('-')[0];
+      const sr = getSeries(sym);
+      const serie = id.endsWith('-move') ? '' : `\n\n<b>Seri:</b> ${esc(summaryText(sym, tracker.log(sym), sr ? sr.price() : null))}`;
+      telegram.sendDetail(html + serie, { thread: cq.message?.message_thread_id ?? null, replyTo: cq.message?.message_id ?? null });
+      return { text: '📋 Ayrıntılar kartın altına gönderildi' };
+    }
     if (kind === 'o') {
       const sr = getSeries(a);
       return { text: summaryText(a, tracker.log(a), sr ? sr.price() : null), alert: true };
@@ -207,11 +223,12 @@ Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesin
       const s = settings.get();
       const snap = evaluate(sr, s, ctx(), true);
       const card = {
-        symbol: sym, seq: '–', t: snap.t, price: snap.price, snap,
+        id: `${sym}-${snap.t}-coin`, symbol: sym, seq: '–', t: snap.t, price: snap.price, snap,
         news: [`Anlık durum (kart değil) · şart: ${snap.ok ? 'sağlanıyor ✅' : `sağlanmıyor (${snap.fails.join(', ')})`}`],
         tags: [`#${sym}`], followed: settings.isFollowed(sym),
       };
       const out = formatCard(card, s, { now: Date.now() });
+      details?.set(card.id, out.details);
       const photo = chartFor ? chartFor(sym, snap.level, snap.levels || []) : null;
       return photo ? { ...out, photo } : out;
     },

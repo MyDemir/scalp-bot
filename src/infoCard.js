@@ -2,9 +2,10 @@
 
 /**
  * Bilgi kartı metni (Telegram HTML) + satır içi butonlar.
- * Görsel yok — yalnızca Telegram'ın kendi biçimleri: kalın/kod, açılır "Detaylar" bloğu
- * (<blockquote expandable>), cashtag/hashtag'ler ve butonlar.
- * Okunurluk: her bilgi kendi satırında "Etiket: değer", jargon yerine düz Türkçe, telefonda satır kırılmasın diye kısa satırlar.
+ * Düzen (hızlı okuma — kutu yok, her şey açıkta, kısa):
+ *   başlık (daireler + #COIN — TÜR) · 🔔 neden geldi · RSI alt alta · boşluk · direnç · fiyat · saat
+ * Diğer her şey "📋 Detay" butonunda: basınca kartın altına ayrı (sessiz) mesaj olarak gelir.
+ * formatCard / formatMove → { text, keyboard, details }  (details: Detay mesajının HTML'i)
  *
  * Bu modülün yan etkisi yok.
  */
@@ -46,29 +47,23 @@ const pa = (v, d = 2) => (v == null || !Number.isFinite(v) ? '—' : `%${Math.ab
 const ps = (v, d = 2) => (v == null || !Number.isFinite(v) ? '—' : `${v > 0 ? '+' : v < 0 ? '−' : ''}%${Math.abs(v).toFixed(d)}`);
 const updown = (v, d = 1) => (v == null || !Number.isFinite(v) ? '—' : `${pa(v, d)} ${v >= 0 ? 'yukarıda' : 'aşağıda'}`);
 
-/** RSI satırı işareti: 🔴 ≥ rsiMin (85) · 🔴🔴 ≥ rsiMin2 (90) · 🔴🔴🔴 ≥ strongRsi (95) */
-const mark = (v, s) => (v >= s.strongRsi ? ' 🔴🔴🔴' : v >= s.rsiMin2 ? ' 🔴🔴' : v >= s.rsiMin ? ' 🔴' : '');
 const { circles, dirColor } = require('./infoEngine');
 
-/** Kontrol listesinde eksik maddelerin kısa adları (değerleri RSI satırlarında zaten var) */
-const checkShort = s => ({
-  daily: 'günlük direnç', confluence: 'çakışan direnç', band: `3m/5m RSI ${s.strongRsi}–${s.rsiEntryMax}`, rsi15: `15m ≥ ${s.strongRsi}`,
-  rsi5_15: `5m + 15m ≥ ${s.strongRsi}`, htf: `1h/4h ≥ ${s.confRsi}`, sep: 'EMA21 ayrışma', neg: 'negatif tepe ≥ 2',
-});
 
 /** Direnç tek satır: "Direnç: 4h MA200 0.33664 (%0.26 kala) ⭐" */
 function levelLine(snap, s) {
   const lv = snap.level;
-  if (!lv) return `<b>Direnç:</b> %${s.levelMaxPct} içinde yok${snap.discovery ? ' · 🚀 fiyat keşfi' : ''}`;
-  return `<b>Direnç:</b> ${esc(lv.name)} ${px(lv.value)} (${lv.dist <= 0 ? `${pa(lv.dist)} kala` : `${pa(lv.dist)} üstünde`})${lv.zone === 'dip' ? ' ⭐' : ''}`;
+  if (!lv) return `Direnç: %${s.levelMaxPct} içinde yok`;
+  return `Direnç: ${esc(lv.name)} ${px(lv.value)} (${lv.dist <= 0 ? `${pa(lv.dist)} kala` : `${pa(lv.dist)} üstünde`})${lv.zone === 'dip' ? ' ⭐' : ''}`;
 }
 
-/** RSI alt alta: 3m / 5m / 15m (eşik işaretli) + 1h / 4h */
-function rsiLines(sn, s) {
+/** RSI alt alta: 3dk / 5dk / 15dk / 1s / 4s */
+const TF_TR = { '3m': '3dk', '5m': '5dk', '15m': '15dk' };
+function rsiLines(sn) {
   return [
-    ...['3m', '5m', '15m'].map(tf => `<b>RSI ${tf}:</b> ${r1(sn.rsi[tf].v)}${mark(sn.rsi[tf].v, s)}`),
-    `<b>RSI 1h:</b> ${r1(sn.conf?.h1)}`,
-    `<b>RSI 4h:</b> ${r1(sn.conf?.h4)}`,
+    ...['3m', '5m', '15m'].map(tf => `RSI ${TF_TR[tf]}: ${r1(sn.rsi[tf].v)}`),
+    `RSI 1s: ${r1(sn.conf?.h1)}`,
+    `RSI 4s: ${r1(sn.conf?.h4)}`,
   ];
 }
 
@@ -100,122 +95,127 @@ function formatCard(card, s, opt = {}) {
   const { snap } = card;
   const sym = card.symbol;
   const dip = snap.level?.zone === 'dip';
+  const now = opt.now ?? card.t;
+  const T = card.trig || {};
+
+  // ── Kart (kısa) ──
   const L = [];
   if (opt.header) L.push(opt.header);
-  // Görünen tek satır (tür başlıkta: "— RSI"): daire RENGİ = son 15 dk fiyat yönü (🟢 yükseliş · 🔴 düşüş),
-  // daire SAYISI = derece (kontrol listesi skoru). Altında iki kutu, ikisi de dokununca açılır:
-  //   1) özet — her kartta aynı düzen, "yok" olan satır yazılmaz, tekrar yok
-  //   2) Ayrıntılar — eksik maddeler ve ikincil göstergeler
   L.push(card.seq === '–'
-    ? `📋 <b>#${esc(sym)}</b> · Anlık durum`
+    ? `📋 <b>#${esc(sym)} — Anlık durum</b>`
     : `${circles(snap.grade ?? 0, dirColor(snap.chg))} <b>#${esc(sym)} — RSI</b>`);
+  // 🔔 neden geldi (tek satır) + özel olaylar (sahte kırılım / fiyat keşfi / hacimli mum)
+  const why = card.seq === '–'
+    ? `şart ${snap.ok ? 'sağlanıyor ✅' : `sağlanmıyor (${(snap.fails || []).join(', ') || '—'})`}`
+    : T.sfp ? '⚠️ Sahte kırılım'
+      : snap.rsiOk ? `RSI ${s.rsiMin}+`
+        : card.inSeries ? 'Seri sürüyor (şart dışı)' : `RSI ${s.rsiMin}+`;
+  L.push(`🔔: ${[why, card.seq === '–' ? null : `Kart ${card.seq}`, dip ? '⭐ Dipte' : null].filter(Boolean).join(' · ')}`);
+  const special = card.news.filter(n => /^(⚠️ Sahte kırılım|🚀 Fiyat keşfi|🟢|🔴|⚪)/.test(n));
+  for (const n of special.slice(0, 2)) L.push(esc(n));
+  L.push(...rsiLines(snap));
+  L.push('');
+  L.push(levelLine(snap, s));
+  L.push(`Fiyat: ${px(card.price)}`);
+  L.push(`⏱: ${dayTime(card.t)}`);
 
-  // ── 1) Özet kutusu ──
-  const B = [];
-  const head = [card.seq === '–' ? null : `Kart ${card.seq}`, dip ? '⭐ Dipte' : null, hhmm(card.t)].filter(Boolean);
-  B.push(`<b>${head.join(' · ')}</b>`);
-  for (const n of card.news) B.push(`🔔 ${esc(n)}`);
-
-  B.push('');
-  B.push(`<b>Fiyat:</b> ${px(card.price)}`);
-  B.push(levelLine(snap, s));
-  const dc = snap.discovery;
-  if (dc) {
-    B.push(`<b>Kırılan seviye:</b> ${esc(dc.broken.name)} ${px(dc.broken.value)} (${pa((card.price - dc.broken.value) / dc.broken.value * 100)} aşağıda)`);
-    B.push(dc.above ? `<b>Sonraki direnç:</b> ${esc(dc.above.name)} ${px(dc.above.value)} (${pa((dc.above.value - card.price) / card.price * 100)} yukarıda)` : '<b>Sonraki direnç:</b> yok (üstünde hiç seviye yok)');
-    if (dc.ext.length) B.push(`<b>Fib uzantı:</b> ${dc.ext.map(x => `${x.r} → ${px(x.value)} (+${pa((x.value - card.price) / card.price * 100, 1)})`).join(' · ')}`);
-  }
-
-  B.push('');
-  B.push(...rsiLines(snap, s));
-
-  B.push('');
+  // ── Detay mesajı (📋 Detay butonu) ──
+  const D = [`📋 <b>#${esc(sym)} — ${card.seq === '–' ? 'anlık durum' : `Kart ${card.seq}`} ayrıntıları</b> · ${dayTime(card.t)}`];
+  if (card.news.length) { D.push(''); for (const n of card.news) D.push(`🔔 ${esc(n)}`); }
   const ck = snap.check;
-  const short = checkShort(s);
   if (ck) {
-    const okNames = ck.items.filter(it => it.ok).map(it => `✅ ${short[it.key] || it.key}${it.key === 'confluence' && ck.confluence ? ` (${ck.confluence.name})` : ''}`);
-    B.push(`<b>Kontrol ${ck.score}/${ck.total}:</b>${okNames.length ? ' ' + esc(okNames.join(' · ')) : ' sağlanan madde yok'}`);
-    if (ck.warn) B.push(esc(ck.warn));
+    D.push('');
+    D.push(`<b>Kontrol ${ck.score}/${ck.total}</b>`);
+    for (const it of ck.items) D.push(`${it.ok ? '✅' : '▫️'} ${esc(it.text)}`);
+    if (ck.warn) D.push(esc(ck.warn));
   }
   const tgt = targetLine(snap, card.price);
-  if (tgt) B.push(tgt);
-  const [wl, ws] = snap.windows;
+  const dc = snap.discovery;
+  if (tgt || dc) D.push('');
+  if (tgt) D.push(tgt);
+  if (dc) {
+    D.push(`<b>Kırılan seviye:</b> ${esc(dc.broken.name)} ${px(dc.broken.value)} (${pa((card.price - dc.broken.value) / dc.broken.value * 100)} aşağıda)`);
+    D.push(dc.above ? `<b>Sonraki direnç:</b> ${esc(dc.above.name)} ${px(dc.above.value)} (${pa((dc.above.value - card.price) / card.price * 100)} yukarıda)` : '<b>Sonraki direnç:</b> yok (üstünde hiç seviye yok)');
+    if (dc.ext.length) D.push(`<b>Fib uzantı:</b> ${dc.ext.map(x => `${x.r} → ${px(x.value)} (+${pa((x.value - card.price) / card.price * 100, 1)})`).join(' · ')}`);
+  }
+  D.push('');
+  const [wl, ws] = snap.windows || [];
   const cnt = b => `${b.buy} alış · ${b.sell} satış${b.neutral ? ` · ${b.neutral} nötr` : ''}`;
   const has = b => b && b.buy + b.sell + b.neutral > 0;
-  if (has(snap.bursts[wl]?.p1)) B.push(`<b>Hacimli mum (${wl} dk):</b> ${cnt(snap.bursts[wl].p1)}`);
-  B.push(`<b>Alış − satış (${wl} dk):</b> ${usd(snap.taker[wl])} $`);
-  // Etiketler özet kutusunun sonunda (coin etiketi başlıkta — tekrar edilmez)
-  const rest = card.tags.filter(t => t !== `#${sym}`);
-  if (rest.length) B.push(rest.map(esc).join(' '));
-  L.push(`<blockquote expandable>${B.join('\n')}</blockquote>`);
-
-  // ── 2) Ayrıntılar kutusu (önem sırasıyla; fotoğraf açıklaması sığmazsa önce bu kutu sondan kırpılır) ──
-  const D = ['<b>Ayrıntılar</b>'];
-  if (ck) for (const it of ck.items) if (!it.ok) D.push(`▫️ ${esc(it.text)}`);
-  const m5 = snap.macd['5m'], m15 = snap.macd['15m'];
+  if (snap.bursts) {
+    D.push(`<b>Hacimli mum (${wl} dk):</b> ${has(snap.bursts[wl]?.p1) ? cnt(snap.bursts[wl].p1) : 'yok'}`);
+    if (has(snap.bursts[ws]?.p1)) D.push(`<b>Hacimli mum (${ws} dk):</b> ${cnt(snap.bursts[ws].p1)}`);
+    if (has(snap.bursts[wl]?.p2)) D.push(`<b>Hacimli mum ≥%${s.burstPct2} (${wl} dk):</b> ${cnt(snap.bursts[wl].p2)}`);
+  }
+  if (snap.taker) D.push(`<b>Alış − satış (${wl} dk):</b> ${usd(snap.taker[wl])} $`);
+  const m5 = snap.macd?.['5m'], m15 = snap.macd?.['15m'];
   if (m5 || m15) D.push(`<b>MACD:</b> 5m ${m5 ? esc(m5.text) : '—'} · 15m ${m15 ? esc(m15.text) : '—'}`);
   if (snap.stoch) D.push(`<b>Stoch RSI 5m:</b> ${snap.stoch.k.toFixed(0)}${snap.stoch.cross ? ` (${snap.stoch.cross === 'down' ? 'aşağı' : 'yukarı'} kesti)` : ''}`);
   if (snap.vwap) D.push(`<b>Günlük VWAP:</b> ${px(snap.vwap.vwap)} (fiyat ${updown((card.price - snap.vwap.vwap) / snap.vwap.vwap * 100)})`);
-  // Üstteki diğer dirençler: en yakın 3 (kartın seviyesi ve çakışan seviye zaten yazıldı; Fib/1h tepe hariç)
-  const shown = new Set([snap.level ? `${snap.level.name}@${snap.level.value}` : null,
-    ck?.confluence ? `${ck.confluence.name}@${ck.confluence.value}` : null]);
+  const shown = snap.level ? `${snap.level.name}@${snap.level.value}` : null;
   const others = (snap.levels || [])
-    .filter(l => l.value > card.price && l.kind !== 'fib' && l.name !== '1h tepe' && !shown.has(`${l.name}@${l.value}`) && Math.abs(l.dist) <= 10)
+    .filter(l => l.value > card.price && l.kind !== 'fib' && l.name !== '1h tepe' && `${l.name}@${l.value}` !== shown && Math.abs(l.dist) <= 10)
     .sort((a, b) => a.value - b.value).slice(0, 3);
   if (others.length) D.push(`<b>Üstteki diğer dirençler:</b> ${others.map(l => `${esc(l.name)} ${px(l.value)} (${pa(l.dist, 1)})`).join(' · ')}`);
-  if (has(snap.bursts[ws]?.p1)) D.push(`<b>Hacimli mum (${ws} dk):</b> ${cnt(snap.bursts[ws].p1)}`);
-  if (has(snap.bursts[wl]?.p2)) D.push(`<b>Hacimli mum ≥%${s.burstPct2} (${wl} dk):</b> ${cnt(snap.bursts[wl].p2)}`);
   const f = snap.funding;
-  const now = opt.now ?? card.t;
   if (f) D.push(`<b>Funding:</b> ${ps(f.rate * 100, 4)}${f.next ? ` · ${dur(f.next - now)} sonra` : ''}`);
   if (card.oi && Number.isFinite(card.oi.changePct)) D.push(`<b>Açık pozisyon (1 saat):</b> ${ps(card.oi.changePct, 2)}`);
   if (Number.isFinite(snap.btc1h)) D.push(`<b>BTC (1 saat):</b> ${ps(snap.btc1h, 2)}`);
-  if (D.length > 1) L.push(`<blockquote expandable>${D.join('\n')}</blockquote>`);
+  const tags = (card.tags || []).filter(t => t !== `#${sym}`);
+  if (tags.length) { D.push(''); D.push(tags.map(esc).join(' ')); }
 
-  const keyboard = [
+  return { text: L.join('\n'), keyboard: cardKeyboard(card.id, sym, card.followed), details: D.join('\n') };
+}
+
+/** Butonlar: 📈 TradingView · 🟡 Binance / 📋 Detay · 🔕 1s sustur · ☆ Takip */
+function cardKeyboard(id, sym, followed) {
+  return [
     tgLinks(sym),
     [
-      { text: 'ℹ️ Özet', callback_data: `o:${sym}` },
+      { text: '📋 Detay', callback_data: `d:${id}`.slice(0, 64) },
       { text: '🔕 1s sustur', callback_data: `m:${sym}` },
-      { text: card.followed ? '⭐ Takipte' : '☆ Takip', callback_data: `f:${sym}` },
+      { text: followed ? '⭐ Takipte' : '☆ Takip', callback_data: `f:${sym}` },
     ],
   ];
-  return { text: L.join('\n'), keyboard };
 }
 
 /**
  * 1 dakikalık fiyat hareketi uyarısı.
- * @param {object} m  { symbol, t, from, to, pct, volX, taker, vol24, followed, snap? }  snap: evaluate(force) çıktısı (izlenen coinlerde)
+ * @param {object} m  { symbol, t, from, to, pct, volX, taker, vol24, followed, snap?, loading? }
  */
 function formatMove(m, s) {
   const up = m.pct > 0;
-  // Görünen tek satır: ⚡ + daireler (renk = yön, sayı = hacim derecesi) + coin. Gerisi bilgi kutusunda;
-  // kapalı kutuda görünen ilk iki satır: hareket · hacim katı · alış/satış oranı, sonra fiyat.
-  const head = `⚡${circles(m.grade || 1, up ? 'green' : 'red')} <b>#${esc(m.symbol)} — HACİM</b>`;
-  const L = [];
-  L.push([`${up ? '▲' : '▼'} <b>${ps(m.pct)}</b> (1 dk)`,
+  const sn = m.snap;
+  const L = [`⚡${circles(m.grade || 1, up ? 'green' : 'red')} <b>#${esc(m.symbol)} — HACİM</b>`];
+  L.push(`🔔: ${[`1 dk ${ps(m.pct)} ${up ? '▲' : '▼'}`,
     m.volX != null ? `hacim ${m.volX.toFixed(1)} kat` : null,
     m.taker != null ? (m.taker >= 50 ? `alış ${pa(m.taker, 0)}` : `satış ${pa(100 - m.taker, 0)}`) : null,
-  ].filter(Boolean).join(' · '));
-  L.push(`<b>Fiyat:</b> ${px(m.from)} → ${px(m.to)}`);
-  if (m.vol24 != null) L.push(`<b>24 saatlik hacim:</b> ${usd(m.vol24).replace('+', '')} $`);
-  const sn = m.snap;
-  L.push('');
+  ].filter(Boolean).join(' · ')}`);
   if (sn) {
-    L.push(...rsiLines(sn, s));
-    if (sn.level) { L.push(''); L.push(levelLine(sn, s)); }
+    L.push(...rsiLines(sn));
+    L.push('');
+    if (sn.level) L.push(levelLine(sn, s));
   } else {
-    L.push(m.loading ? '<i>RSI verisi yükleniyor (bot yeni başladı)</i>' : '<i>İzlenen listede değil (24 saatlik hacim eşiğin altında)</i>');
+    L.push(m.loading ? 'RSI: veri yükleniyor (bot yeni başladı)' : 'RSI: izlenen listede değil');
+    L.push('');
   }
-  L.push(['#HAREKET', `#DERECE${m.grade || 1}`, up ? '#YUKSELIS' : '#DUSUS', m.followed ? '#TAKIP' : null].filter(Boolean).join(' '));
-  const keyboard = [
-    tgLinks(m.symbol),
-    [
-      { text: '🔕 1s sustur', callback_data: `m:${m.symbol}` },
-      { text: m.followed ? '⭐ Takipte' : '☆ Takip', callback_data: `f:${m.symbol}` },
-    ],
-  ];
-  return { text: `${head}\n<blockquote expandable>${L.join('\n')}</blockquote>`, keyboard };
+  L.push(`Fiyat: ${px(m.from)} → ${px(m.to)}`);
+  L.push(`⏱: ${dayTime(m.t)}`);
+
+  const id = `${m.symbol}-${m.t}-move`;
+  const D = [`📋 <b>#${esc(m.symbol)} — hareket ayrıntıları</b> · ${dayTime(m.t)}`, ''];
+  D.push(`<b>Hareket:</b> 1 dakikada ${ps(m.pct)} (${px(m.from)} → ${px(m.to)})`);
+  if (m.volX != null) D.push(`<b>Hacim:</b> son 20 dk ortalamasının ${m.volX.toFixed(1)} katı`);
+  if (m.taker != null) D.push(`<b>Alış / satış oranı:</b> alış ${pa(m.taker, 0)} · satış ${pa(100 - m.taker, 0)}`);
+  if (m.vol24 != null) D.push(`<b>24 saatlik hacim:</b> ${usd(m.vol24).replace('+', '')} $`);
+  if (!sn) D.push(m.loading ? '<i>RSI verisi yükleniyor (bot yeni başladı)</i>' : `<i>İzlenen listede değil (24 saatlik hacim ${s.minVolumeM}M $ eşiğinin altında)</i>`);
+  if (sn?.levels?.length) {
+    const near = sn.levels.filter(l => l.value > m.to && l.kind !== 'fib' && Math.abs(l.dist) <= 10).sort((a, b) => a.value - b.value).slice(0, 3);
+    if (near.length) D.push(`<b>Üstteki dirençler:</b> ${near.map(l => `${esc(l.name)} ${px(l.value)} (${pa(l.dist, 1)})`).join(' · ')}`);
+  }
+  D.push('');
+  D.push(['#HAREKET', `#DERECE${m.grade || 1}`, up ? '#YUKSELIS' : '#DUSUS', m.followed ? '#TAKIP' : null].filter(Boolean).join(' '));
+  return { text: L.join('\n'), keyboard: cardKeyboard(id, m.symbol, m.followed), details: D.join('\n') };
 }
 
 let dmFmt = null;

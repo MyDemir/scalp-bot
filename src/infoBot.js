@@ -95,7 +95,8 @@ async function emitCard(card) {
   const oi = await oiChange(card.symbol);
   if (oi != null) card.oi = { changePct: oi };
   const s = settings.get();
-  const { text, keyboard } = formatCard(card, s, { now: Date.now() });
+  const { text, keyboard, details: det } = formatCard(card, s, { now: Date.now() });
+  details.set(card.id, det);
   const sr = series.get(card.symbol);
   let photo = null;
   if (s.chart && sr) photo = chartOf(sr, s, card.snap.level, card.snap.levels || [], `Kart ${card.seq}`);
@@ -136,6 +137,14 @@ function processCandle(sr, c, live) {
   }
 }
 const chains = new Map();
+
+/** 📋 Detay butonunun metinleri (bellekte, son DETAIL_MAX kart; bot yeniden başlayınca eski kartların detayı yok) */
+const DETAIL_MAX = 3000;
+const details = {
+  map: new Map(),
+  set(id, html) { this.map.set(id, html); if (this.map.size > DETAIL_MAX) this.map.delete(this.map.keys().next().value); },
+  get(id) { return this.map.get(id) ?? null; },
+};
 
 // ── Hareket uyarısı (1 dakikada ≥ %moveAlertPct) ─────────────────────────
 
@@ -228,7 +237,8 @@ async function emitMoveNow(m) {
   stats.moves++;
   rollDay();
   stats.movesToday++;
-  const { text, keyboard } = formatMove(m, s);
+  const { text, keyboard, details: det } = formatMove(m, s);
+  details.set(`${m.symbol}-${m.t}-move`, det);
   let photo = null;
   if (s.chartMoves) {
     const tf = s.chartTf || '1h';
@@ -442,7 +452,7 @@ async function main() {
 
   store = createCardStore();
   await telegram.start();
-  installInfoTelegram({ telegram, settings, tracker, store, getSeries: sym => series.get(sym), ctx: () => ctx, status: statusText, chartFor: (sym, level, levels = []) => {
+  installInfoTelegram({ telegram, settings, tracker, store, details, getSeries: sym => series.get(sym), ctx: () => ctx, status: statusText, chartFor: (sym, level, levels = []) => {
     const sr = series.get(sym), s0 = settings.get();
     if (!sr || !s0.chart) return null;
     return chartOf(sr, s0, level, levels, 'Anlık');
@@ -482,4 +492,4 @@ async function main() {
   console.log('\n✅ Bilgi botu çalışıyor.\n');
 }
 
-module.exports = { main, _internal: { series, settings, tracker, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, statusText, stats, busy, pending, lite, getStore: () => store } };
+module.exports = { main, _internal: { series, settings, tracker, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, statusText, stats, busy, pending, lite, details, getStore: () => store } };
