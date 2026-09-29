@@ -292,7 +292,7 @@ Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesin
       const lines = rows.map(r => {
         const w = r.fwd[60] ? `60dk: ${pct(r.fwd[60].low, 1)} / ${pct(r.fwd[60].high, 1)} · sonra ${pct(r.fwd[60].close, 1)}` : r.partial ? '60dk: eksik (yeniden başlatma)' : '60dk: bekleniyor';
         if (r.kind === 'move') return `${dayTime(r.t)} ⚡${circles(r.grade || 1, r.movePct > 0 ? 'green' : 'red')} ${pct(r.movePct)} → ${w}`;
-        const cls = [`RSI ${r.hits}/3`, r.level?.zone === 'dip' ? 'DİPTE' : r.level ? 'yaklaşıyor' : null, r.burst ? `${r.burst.dir === 'sell' ? '▼' : r.burst.dir === 'buy' ? '▲' : '◆'}patlama` : null, r.inSeries ? 'seri içi' : null].filter(Boolean).join(' · ');
+        const cls = [`RSI ${r.hits}/3`, r.level?.zone === 'dip' ? 'dirençte' : r.level ? 'yaklaşıyor' : null, r.burst ? `${r.burst.dir === 'sell' ? '▼' : r.burst.dir === 'buy' ? '▲' : '◆'}patlama` : null, r.inSeries ? 'seri içi' : null].filter(Boolean).join(' · ');
         return `${dayTime(r.t)} ${r.grade != null ? circles(r.grade) + ' ' : ''}#${r.seq} ${cls} → ${w}`;
       });
       return `🗂 <b>${esc(sym)}</b> — son ${rows.length} kayıt (fiyat değişimi karttaki fiyata göre: en düşük / en yüksek · 60 dk sonra)\n${lines.join('\n')}`;

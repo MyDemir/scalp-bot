@@ -13,13 +13,13 @@ module.exports = {
     rsiMin2:       90,     // RSI değerlerinde 🔴🔴 işareti
     rsiEntryMax:   98,     // kontrol: 3m/5m RSI strongRsi–rsiEntryMax (95–98) aralığında; üstü "aşırı"
     confluencePct: 0.5,    // kontrol: iki seviye bu kadar yakınsa "çakışan direnç"
-    grade2Min:     5,      // 🔴🔴 için en az kontrol skoru (8 üzerinden)
-    grade3Min:     7,      // 🔴🔴🔴 için en az kontrol skoru
+    grade2Min:     3,      // 🔴🔴 için en az kontrol skoru (8 üzerinden) — 🔴 0–2 · 🔴🔴 3–5 · 🔴🔴🔴 6–8
+    grade3Min:     6,      // 🔴🔴🔴 için en az kontrol skoru
     minTFs:        2,      // eşiği geçmesi gereken dilim sayısı (3 üzerinden)
     strongRsi:     95,     // kontrol: RSI 95 eşiği · RSI değerlerinde 🔴🔴🔴 · "95 üstüne çıktı" yeniliği
     rsiPeriod:     14,     // RSI periyodu (Binance/TradingView varsayılanı 14; Binance uygulamasındaki RSI(6) daha oynaktır)
     levelMaxPct:   2.5,    // ZORUNLU: fiyatın üstünde en fazla bu kadar uzakta bir seviye
-    dipBelowPct:   0.5,    // DİPTE sınıfı: seviyenin en fazla %0.5 altında …
+    dipBelowPct:   0.5,    // ⭐ Dirençte: seviyenin en fazla %0.5 altında …
     dipAbovePct:   0.3,    // … ya da en fazla %0.3 üstünde (fitil payı). Daha yukarısı = seviye kırıldı
     levelRequired: true,
     // Ek direnç türleri (src/levels.js): 7/30 günlük gerçek en yüksek her zaman; aşağıdakiler aç-kapa

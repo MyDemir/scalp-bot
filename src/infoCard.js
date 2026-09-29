@@ -110,7 +110,7 @@ function formatCard(card, s, opt = {}) {
     : T.sfp ? '⚠️ Sahte kırılım'
       : snap.rsiOk ? `RSI ${s.rsiMin}+`
         : card.inSeries ? 'Seri sürüyor (şart dışı)' : `RSI ${s.rsiMin}+`;
-  L.push(`🔔: ${[why, card.seq === '–' ? null : `Kart ${card.seq}`, dip ? '⭐ Dipte' : null].filter(Boolean).join(' · ')}`);
+  L.push(`🔔: ${[why, card.seq === '–' ? null : `Kart ${card.seq}`, snap.check ? `Kontrol ${snap.check.score}/${snap.check.total}` : null, dip ? '⭐ Dirençte' : null].filter(Boolean).join(' · ')}`);
   const special = card.news.filter(n => /^(⚡|⚠️ Sahte kırılım|🚀 Fiyat keşfi|🟢|🔴|⚪)/.test(n));
   for (const n of special.slice(0, 2)) L.push(esc(n));
   L.push(...rsiLines(snap));
@@ -143,6 +143,14 @@ function formatCard(card, s, opt = {}) {
     const sh = CHECK_SHORT(s), miss = ck.items.filter(it => !it.ok).map(it => sh[it.key] || it.key);
     if (miss.length) D.push(`▫️ Eksik: ${esc(miss.join(' · '))}`);
     if (ck.warn) D.push(esc(ck.warn));
+  }
+  const cs = snap.counter || {};
+  if (cs.hpu || cs.gc) {
+    D.push("⚠️ <b>Short'a karşı:</b>");
+    if (cs.hpu) D.push(`• 4s gizli PU — dip ${px(cs.hpu.low1)} → ${px(cs.hpu.low2)} (yükseldi), RSI ${cs.hpu.rsi1.toFixed(1)} → ${cs.hpu.rsi2.toFixed(1)} (düştü)`);
+    if (cs.gc) D.push(cs.gc.state === 'crossed'
+      ? `• Günlük golden cross oldu — ${cs.gc.ago === 0 ? 'bugün' : `${cs.gc.ago} gün önce`} (SMA50, SMA200'ün üstüne çıktı)`
+      : `• Günlük golden cross yakın — SMA50, SMA200'ün %${cs.gc.gap.toFixed(1)} altında (5 gün önce %${cs.gc.prevGap.toFixed(1)})`);
   }
 
   // 📏 Hedef + EMA21 durumu + fiyat keşfi

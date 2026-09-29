@@ -23,7 +23,7 @@ Kontrol anı: **3m / 5m / 15m mum kapanışları** + **hacimli her 1m mum kapan�
 |---|---|
 | 3m/5m/15m RSI | en az **2/3** dilimde **≥ 85** (kapanmamış dilimde devam eden mumla hesaplanır; RSI periyodu 14) |
 | Seviye (zorunlu) | fiyatın üstünde en fazla **%2.5** uzakta bir seviye: 4h MA200 · 4h EMA200 · 1d MA200 · 1d EMA200 · 30 günlük tepe (son 30 **kapanmış** günün en yüksek 3 tepesinin ortalaması) · **7 / 30 günlük en yüksek** (gerçek tepe) · **1h / 4h tepe** (salınım tepesi: iki yanındaki 3 mumdan yüksek) · **Fib 0.236 / 0.382 / 0.618** (son 1h yükseliş bacağı — grafikteki bacak). Birbirine %0.3'ten yakın seviyeler tek sayılır. Yakında direnç yoksa bkz. **Fiyat keşfi** |
-| Yeni veri | önceki karttan bu yana: RSI dilim sayısı değişti · bir dilim 95'i geçti · hacimli mum · seviye/bölge değişti (DİPTE'ye girdi, seviye kırıldı) · MACD ya da Stoch RSI kesişimi · 1m/3m negatif tepe arttı. **Yeni veri yoksa kart gitmez.** |
+| Yeni veri | önceki karttan bu yana: RSI dilim sayısı değişti · bir dilim 95'i geçti · hacimli mum · seviye/bölge değişti (⭐ Dirençte'ye girdi, seviye kırıldı) · MACD ya da Stoch RSI kesişimi · 1m/3m negatif tepe arttı. **Yeni veri yoksa kart gitmez.** |
 
 **Kurulum kontrol listesi ve derece** (kartta ✅/▫️, başlıkta daireler). 8 madde, yalnızca bilgi (kartı engellemez):
 
@@ -36,8 +36,8 @@ Kontrol anı: **3m / 5m / 15m mum kapanışları** + **hacimli her 1m mum kapan�
 7. 3m ve 5m EMA21'den ayrışmış (≥ 0.5 ATR, son 3 mumda dokunmamış) — değilse "⚠️ RSI 95 üstü ama EMA21'e yakın"
 8. 1m ya da 3m'de ≥ 2 negatif tepe
 
-Altında 🎯 hedef bölgeleri: 3m EMA21 ve 5m EMA21 (fiyat ve uzaklık). **Derece:** 🔴 skor < 5 · 🔴🔴 ≥ 5 ·
-🔴🔴🔴 ≥ 7 (sesli). Skor değişince kart gelir ("Kontrol listesi 5/8 → 7/8"). Eşikler `/ayarlar`:
+Altında 🎯 hedef bölgeleri: 3m EMA21 ve 5m EMA21 (fiyat ve uzaklık). **Derece:** 🔴 skor 0–2 · 🔴🔴 3–5 · 🔴🔴🔴 6–8 (8 madde; `/ayarlar` → Derece). Kartın 🔔 satırında tam skor yazar (`Kontrol 4/8`).
+🔴🔴🔴 sesli (kart sesi kapalıyken bile). Skor değişince kart gelir ("Kontrol listesi 5/8 → 7/8"). Eşikler `/ayarlar`:
 `strongRsi`, `rsiEntryMax`, `confRsi`, `confluencePct`, `grade2Min`, `grade3Min`.
 Hacim/⚡ daireleri: 1 temel · 2 hacim ≥ 3× · 3 + yön uyumu ≥ %65; renk yönü gösterir (🟢 alış/yükseliş · 🔴 satış/düşüş · ⚪ nötr).
 
@@ -64,7 +64,7 @@ Aynı coinde kartlar **#1, #2 …** diye numaralanır; kapanmış 5m RSI 75'in a
 Hızlı okunsun diye kısa ve her şey açıkta (açılır kutu yok):
 ```
 🔴🔴 #CVXUSDT — RSI                 ← daire sayısı = derece (kontrol skoru), rengi = son 15 dk yön (🟢 yükseliş · 🔴 düşüş)
-🔔: RSI 85+ · Kart 3 · ⭐ Dipte       ← neden geldi (sahte kırılımda "⚠️ Sahte kırılım", seri içinde "Seri sürüyor (şart dışı)")
+🔔: RSI 85+ · Kart 3 · Kontrol 5/8 · ⭐ Dirençte   ← neden geldi (sahte kırılımda "⚠️ Sahte kırılım", seri içinde "Seri sürüyor (şart dışı)")
 ⚠️ Sahte kırılım: … / 🚀 Fiyat keşfi: … / 🟢🟢 Hacimli yükselen mum …   ← yalnız özel olay varsa (en fazla 2 satır)
 RSI 3dk: 86.1
 RSI 5dk: 88.4
@@ -95,7 +95,7 @@ Ayrıntılar bellekte tutulur (son 3000 kart); bot yeniden başlayınca eski kar
   ("2–3 tepe negatif yapıp çakarsa"). Son tepe 6 mumdan eskiyse sayılmaz. ≥2 ise `#NEGTEPE`.
 - **Hacim sayacı** (60 dk ve 15 dk): 1m gövde ≥ %1 / ≥ %1.5 ve hacim ≥ 2× (önceki 20 mum ortalaması);
   taker alış > %55 → alım, < %45 → satış, arası nötr. Art arda gelen patlama mumları tek patlama sayılır.
-- Hashtag'ler (Detay mesajında; dokununca o sınıftaki tüm kartlar listelenir): `#COIN #DERECE1/2/3 #DIPTE/#YAKLASIYOR #HACIM #SERI #SAHTEKIRILIM #FIYATKESFI #NEGTEPE #AYRISMA #TAKIP`
+- Hashtag'ler (Detay mesajında; dokununca o sınıftaki tüm kartlar listelenir): `#COIN #DERECE1/2/3 #DIRENCTE/#YAKLASIYOR #HACIM #SERI #SAHTEKIRILIM #FIYATKESFI #NEGTEPE #AYRISMA #TAKIP`
 - **Bildirim:** her yeni kart sesli gelir (`/ayarlar` → "Kart sesli" kapatılırsa yalnız 🔴🔴🔴 ve takipteki coinler sesli).
 
 ### Grafik
@@ -122,6 +122,12 @@ Ayrı hareket kartı **yok**. Yalnızca **izlenen** coinlerde (24s hacim ≥ 3M 
 - İzlenen liste dışındaki pariteler dinlenmez (bildirim yok).
 Ayar: `/ayarlar` → ⚡ Hareket (`moveAlertPct`, 0 = kapalı).
 
+**⚠️ Short'a karşı** (yalnız 📋 Detay'da, dereceyi etkilemez): **4s gizli PU** — son iki 4 saatlik dipte fiyat daha yüksek dip,
+RSI daha düşük dip (ikinci dip son 10 mum içinde) · **günlük golden cross** — SMA50, SMA200'ün altında ama fark ≤ %2 ve 5 günde daralıyor
+("yakın") ya da son 10 günde kesti ("oldu").
+
+**⭐ Dirençte:** fiyat en yakın direncin en fazla %0.5 altında ya da %0.3 üstünde (fitil payı). Daha yukarısı = seviye kırıldı.
+
 **3dk EMA21 durumu** (yalnız 📋 Detay'da): *izliyor (trend)* — son 10 mumun ≥ 6'sında fiyat EMA21'e değdi;
 *koptu* — önceki 10 mumun ≥ 6'sında değmişken son 3 mumda değmedi ve fiyat ≥ 1.5 ATR yukarıda; aksi *serbest*.
 
@@ -130,7 +136,7 @@ Her kart ve ⚡ uyarı `/data/cards.db`'ye (SQLite) yazılır; sonrasında fiyat
 (en düşük / en yüksek / kapanış değişimi, kart anındaki fiyata göre — kazanç/kayıp değil). 90 gün saklanır.
 Yeniden başlatmada yarım kalan takipler "eksik" işaretlenir.
 - `/gecmis ETH [adet]` — coinin son kartları + sonrasında fiyat
-- `/istatistik [gün]` — kart sınıfları (RSI 2/3–3/3, DİPTE, hacim, seri içi, negatif tepe …) ve ⚡ uyarılar için
+- `/istatistik [gün]` — kart sınıfları (RSI 2/3–3/3, Dirençte, hacim, seri içi, negatif tepe …) ve ⚡ uyarılar için
   "sonraki 60 dk" medyanları — backtest'teki tablonun canlı hali
 
 ### Konulu (forum) gruba bağlama
@@ -174,7 +180,7 @@ node src/infoBacktest.js --canli-ayar --telegram          # Telegram'dan değiş
 node src/infoBacktest.js --kanit --days 1 --max-coins 50  # kanıt modu (RSI 70) — yalnızca backtest
 ```
 Çıktı: kart sayısı (günlük), seri sayısı, sesli/sessiz, Telegram yükü (en yoğun dakika/saat), sınıf
-tablosu (RSI 2/3–3/3, DİPTE/yaklaşıyor, hacim tetikli, seri içi, ayrışma, destek, negatif tepe), listedeki
+tablosu (RSI 2/3–3/3, Dirençte/yaklaşıyor, hacim tetikli, seri içi, ayrışma, destek, negatif tepe), listedeki
 coinlerde 1 dk ≥ %2 hareket sayısı ve `backtest-results/info-*.json`. Varsayılan ayarlar canlıyla aynıdır.
 **Kanıt modu:** `--kanit` yalnızca o backtest çalışmasında RSI eşiğini 70'e, sıfırlamayı 60'a indirir (çok kart →
 motorun çalıştığı görülür); canlı bota ve ayar dosyasına dokunmaz. `--canli-ayar` ayar dosyasını yalnızca okur.

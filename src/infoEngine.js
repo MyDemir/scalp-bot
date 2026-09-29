@@ -240,6 +240,57 @@ function emaRide(series, tf = '3m') {
   return { tf, state, recent, before, last3, dist, win: RIDE.win };
 }
 
+// ── Short'a karşı sinyaller (yalnızca Detay'da; dereceyi etkilemez) ─────────
+
+/**
+ * Gizli pozitif uyumsuzluk (gizli PU): son iki dip — fiyat daha YÜKSEK dip, RSI daha DÜŞÜK dip → yükseliş devam eğilimi.
+ *   Dip: low[i] solundaki `bars` mumdan düşük, sağındaki `bars` mumdan düşük-eşit (kapanmış mumlar).
+ *   İkinci dip son `fresh` mum içinde olmalı (güncel). RSI farkı en az 1 puan.
+ * @param {number[]} lows  @param {number[]} rsi  lows ile hizalı (tanımsız başı NaN)
+ */
+function findHiddenPU(lows, rsi, { bars = 3, lookback = 60, fresh = 10 } = {}) {
+  const n = lows.length;
+  const piv = [];
+  for (let i = Math.max(bars, n - lookback); i < n - bars; i++) {
+    if (!Number.isFinite(rsi[i])) continue;
+    let ok = true;
+    for (let k = 1; k <= bars && ok; k++) if (!(lows[i] < lows[i - k]) || !(lows[i] <= lows[i + k])) ok = false;
+    if (ok) piv.push({ i, low: lows[i], rsi: rsi[i] });
+  }
+  if (piv.length < 2) return null;
+  const a = piv[piv.length - 2], b = piv[piv.length - 1];
+  if (n - 1 - b.i > fresh) return null;
+  return b.low > a.low && b.rsi < a.rsi - 1 ? { low1: a.low, rsi1: a.rsi, low2: b.low, rsi2: b.rsi, ago: n - 1 - b.i } : null;
+}
+function hiddenPU(series, tf, period) {
+  const l = series.col(tf, 'l', false), c = series.col(tf, 'c', false);
+  if (c.length < 40) return null;
+  const r = ta.rsiSeries(c, period);
+  const al = new Array(c.length - r.length).fill(NaN).concat(r);
+  const res = findHiddenPU(l, al);
+  return res ? { tf, ...res } : null;
+}
+
+/**
+ * Günlük golden cross (SMA50 / SMA200, kapanmış günlük mumlar):
+ *   'crossed' — son 10 günde SMA50, SMA200'ü aşağıdan yukarı kesti
+ *   'near'    — SMA50 hâlâ altında ama fark ≤ %2 ve 5 gün öncesine göre daralıyor
+ */
+function findGoldenCross(closes) {
+  const n = closes.length;
+  if (n < 211) return null;
+  const sma = (end, p) => { let t = 0; for (let i = end - p + 1; i <= end; i++) t += closes[i]; return t / p; };
+  const at = k => { const e = n - 1 - k, a = sma(e, 50), b = sma(e, 200); return { a, b, gap: (b - a) / b * 100 }; };
+  const now = at(0);
+  for (let k = 0; k < 10; k++) {
+    const x = at(k), y = at(k + 1);
+    if (x.a >= x.b && y.a < y.b) return { state: 'crossed', ago: k, gap: now.gap };
+  }
+  const prev = at(5);
+  if (now.a < now.b && now.gap <= 2 && now.gap < prev.gap) return { state: 'near', gap: now.gap, prevGap: prev.gap };
+  return null;
+}
+
 function macdState(series, tf) {
   const c = series.col(tf, 'c', false);                 // yalnızca kapanmış mumlar (kararlı)
   const m = ta.macdTail(c, 12, 26, 9, 6);
@@ -483,6 +534,7 @@ function evaluate(series, s, ctx = {}, force = false) {
   snap.stoch = stochState(series, '5m');
   snap.vwap = vwapState(series, price);
   snap.vol = volStats(series);
+  snap.counter = { hpu: hiddenPU(series, '4h', s.rsiPeriod), gc: findGoldenCross(series.col('1d', 'c', false)) };
 
   const wins = [s.windowMin, s.shortWindowMin];
   snap.bursts = burstCounts(series, s, wins);
@@ -751,7 +803,7 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
   const dip = snap.level?.zone === 'dip';
   const tags = [
     `#${sym}`, `#DERECE${snap.grade}`,
-    snap.level ? (dip ? '#DIPTE' : '#YAKLASIYOR') : null,
+    snap.level ? (dip ? '#DIRENCTE' : '#YAKLASIYOR') : null,
     burst ? '#HACIM' : null,
     move ? '#HAREKET' : null,
     inSeries ? '#SERI' : null,
@@ -781,4 +833,4 @@ function movePct(prevClose, prevT, c) {
   return base > 0 ? (c.c - base) / base * 100 : null;
 }
 
-module.exports = { volStats, emaRide, moveText, evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, detectSfp, discoveryOf, negPeaks, movePct, volGrade, rsiGrade, checklist, circles, dirColor, RSI_TFS };
+module.exports = { findHiddenPU, findGoldenCross, volStats, emaRide, moveText, evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, detectSfp, discoveryOf, negPeaks, movePct, volGrade, rsiGrade, checklist, circles, dirColor, RSI_TFS };

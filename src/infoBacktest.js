@@ -242,7 +242,7 @@ async function main() {
   console.log(`  Bilgi Botu — Backtest${a.kanit ? '  [KANIT MODU: RSI ≥ 70, sıfırlama 60]' : ''}`);
   console.log(`  Semboller : ${symbols.length} (${universe}) — ${symbols.slice(0, 10).join(', ')}${symbols.length > 10 ? ' …' : ''}`);
   console.log(`  Dönem     : ${fmtDate(start)} → ${fmtDate(end)} UTC`);
-  console.log(`  Derece    : 🔴 RSI ≥ ${s.rsiMin} · 🔴🔴 RSI ≥ ${s.rsiMin2} + seviye · 🔴🔴🔴 3/3 ≥ ${s.rsiMin2} + dipte + ayrışma · RSI(${s.rsiPeriod})`);
+  console.log(`  Derece    : kontrol listesi skoru (8 madde) — 🔴 < ${s.grade2Min} · 🔴🔴 ≥ ${s.grade2Min} · 🔴🔴🔴 ≥ ${s.grade3Min} · RSI(${s.rsiPeriod})`);
   console.log(`  Şart      : 3m/5m/15m RSI ≥ ${s.rsiMin} (${s.minTFs}/3)${s.levelRequired ? ` + üstte ≤ %${s.levelMaxPct} seviye` : ''}${s.sepRequired ? ' + ayrışma' : ''}${s.confRequired ? ' + destek' : ''}${s.macdRequired ? ' + MACD' : ''}`);
   console.log(`  Hareket   : 1 dk ≥ %${s.moveAlertPct}${s.moveAlertPct > 0 ? '' : ' (kapalı)'}`);
   console.log(`  Patlama   : gövde ≥ %${s.burstPct1}/%${s.burstPct2} · hacim ≥ ${s.volMult}× (${s.volAvgN} mum) · taker >%${s.takerBuyPct} alım / <%${s.takerSellPct} satış`);
