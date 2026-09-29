@@ -54,7 +54,7 @@ const { circles, dirColor } = require('./infoEngine');
 function levelLine(snap, s) {
   const lv = snap.level;
   if (!lv) return `Direnç: %${s.levelMaxPct} içinde yok`;
-  return `Direnç: ${esc(lv.name)} ${px(lv.value)} (${lv.dist <= 0 ? `${pa(lv.dist)} kala` : `${pa(lv.dist)} üstünde`})${lv.zone === 'dip' ? ' ⭐' : ''}`;
+  return `Direnç: ${esc(lv.name)} ${px(lv.value)} (${lv.dist <= 0 ? `${pa(lv.dist)} kala` : `${pa(lv.dist)} üstünde`})`;
 }
 
 /** RSI alt alta: 3dk / 5dk / 15dk / 1s / 4s */
@@ -103,16 +103,17 @@ function formatCard(card, s, opt = {}) {
   if (opt.header) L.push(opt.header);
   L.push(card.seq === '–'
     ? `📋 <b>#${esc(sym)} — Anlık durum</b>`
-    : `${circles(snap.grade ?? 0, dirColor(snap.chg))} <b>#${esc(sym)} — RSI</b>`);
+    : `${circles(snap.grade ?? 0, T.sfp ? 'red' : dirColor(snap.chg))} <b>#${esc(sym)} — RSI</b>`);
   // 🔔 neden geldi (tek satır) + özel olaylar (sahte kırılım / fiyat keşfi / hacimli mum)
   const why = card.seq === '–'
     ? `şart ${snap.ok ? 'sağlanıyor ✅' : `sağlanmıyor (${(snap.fails || []).join(', ') || '—'})`}`
-    : T.sfp ? '⚠️ Sahte kırılım'
+    : T.sfp ? (T.sfp.type === 'wick' ? '⚠️ Sahte kırılım (fitil)' : '⚠️ Sahte kırılım')
       : snap.rsiOk ? `RSI ${s.rsiMin}+`
         : card.inSeries ? 'Seri sürüyor (şart dışı)' : `RSI ${s.rsiMin}+`;
   L.push(`🔔: ${[why, card.seq === '–' ? null : `Kart ${card.seq}`, dip ? '⭐ Dirençte' : null].filter(Boolean).join(' · ')}`);
   const special = card.news.filter(n => /^(⚡|⚠️ Sahte kırılım|🚀 Fiyat keşfi|🟢|🔴|⚪)/.test(n));
-  for (const n of special.slice(0, 2)) L.push(esc(n));
+  // Sahte kırılım 🔔 satırında yazdığı için özel satırda başlık tekrarlanmaz: "4h tepe 1.5457 · 5dk mum üstüne çıktı, altında kapandı"
+  for (const n of special.slice(0, 2)) L.push(esc(n.replace(/^⚠️ Sahte kırılım(?: \(fitil\))?: /, '')));
   L.push(...rsiLines(snap));
   L.push('');
   L.push(levelLine(snap, s));
@@ -123,6 +124,7 @@ function formatCard(card, s, opt = {}) {
   const D = [`📋 <b>#${esc(sym)} — ${card.seq === '–' ? 'Anlık durum' : `Kart ${card.seq}`}</b> · ${dayTime(card.t)}`];
 
   // 📊 Hacim ve alış–satış
+  const volStart = D.length;
   D.push('', '📊 <b>Hacim ve alış–satış</b>');
   const mv = T.move;
   if (mv) D.push(`⚡ 1 dk ${ps(mv.pct)} (${px(mv.from)} → ${px(mv.to)})${mv.volX != null ? ` · hacim ${mv.volX.toFixed(1)} kat` : ''}${mv.taker != null ? ` · alış %${mv.taker.toFixed(0)} / satış %${(100 - mv.taker).toFixed(0)}` : ''}`);
@@ -133,6 +135,7 @@ function formatCard(card, s, opt = {}) {
   const bc = snap.bursts?.[wl]?.p1;
   if (bc) D.push(`Hacimli mum (${wl >= 60 ? `${wl / 60} saat` : `${wl} dk`}): ${bc.buy + bc.sell + bc.neutral ? `${bc.buy} alış · ${bc.sell} satış${bc.neutral ? ` · ${bc.neutral} nötr` : ''}` : 'yok'}`);
   const ms = card.moveStats;
+  if (D.length === volStart + 2 && !ms) D.length = volStart;          // hacim verisi yoksa bölüm başlığı da yazılmaz
   if (ms) { const net = ms.up - ms.down; D.push(`Bugün 1 dk ≥ %${s.moveAlertPct}: ▲ ${ms.up} · ▼ ${ms.down} · fark ${net > 0 ? '+' : net < 0 ? '−' : ''}${Math.abs(net)}`); }
 
   // 🎯 Kontrol
@@ -156,8 +159,14 @@ function formatCard(card, s, opt = {}) {
   // 📏 Hedef + EMA21 durumu + fiyat keşfi
   const tgt = targetLine(snap, card.price);
   const rd = snap.ride, dc = snap.discovery;
-  if (tgt || rd || dc) D.push('');
+  if (tgt || rd || dc || snap.fibLeg || snap.level?.also?.length || snap.level?.zoneInfo || snap.level?.trend) D.push('');
   if (tgt) D.push(`📏 ${tgt}`);
+  const lvd = snap.level;
+  if (lvd?.also?.length) D.push(`Direnç çakışması: ${esc(lvd.name)} + ${esc([...new Set(lvd.also)].join(' + '))}`);
+  if (lvd?.kind === 'zone' && lvd.zoneInfo) D.push(`Direnç bölgesi: ${px(lvd.zoneInfo.lo)}–${px(lvd.zoneInfo.hi)} · ${lvd.zoneInfo.touches} temas · son temas ${dmy(lvd.zoneInfo.last)}`);
+  if (lvd?.kind === 'trend' && lvd.trend) D.push(`Trend çizgisi: ${px(lvd.trend.a.v)} (${dmy(lvd.trend.a.t)}) → ${px(lvd.trend.b.v)} (${dmy(lvd.trend.b.t)}) · bugün ${px(lvd.trend.value)}`);
+  const lg = snap.fibLeg;
+  if (lg) D.push(`Fib (günlük): ${lg.up ? `dip ${px(lg.lo)} (${dmy(lg.loT)}) → tepe ${px(lg.hi)} (${dmy(lg.hiT)})` : `tepe ${px(lg.hi)} (${dmy(lg.hiT)}) → dip ${px(lg.lo)} (${dmy(lg.loT)})`}`);
   if (rd) {
     const at = `${rd.dist >= 0 ? '+' : '−'}${Math.abs(rd.dist).toFixed(1)} ATR`;
     D.push(`3dk EMA21: ${rd.state === 'break' ? `koptu (${at}, son 3 mumda değmedi)` : rd.state === 'ride' ? `izliyor — trend (son ${rd.win} mumun ${rd.recent}'${suffix(rd.recent)} değdi)` : `serbest (${at})`}`);
@@ -177,7 +186,7 @@ function formatCard(card, s, opt = {}) {
     snap.vwap ? `VWAP ${updown((card.price - snap.vwap.vwap) / snap.vwap.vwap * 100)}` : null].filter(Boolean);
   const shown = snap.level ? `${snap.level.name}@${snap.level.value}` : null;
   const others = (snap.levels || [])
-    .filter(l => l.value > card.price && l.kind !== 'fib' && l.name !== '1h tepe' && `${l.name}@${l.value}` !== shown && Math.abs(l.dist) <= 10)
+    .filter(l => l.value > card.price && l.kind !== 'fib' && l.kind !== 'swing' && `${l.name}@${l.value}` !== shown && Math.abs(l.dist) <= 50)
     .sort((a, b) => a.value - b.value).slice(0, 3);
   if (line1.length || line2.length || others.length) D.push('', '🧭 <b>Diğer</b>');
   if (line1.length) D.push(line1.join(' · '));
@@ -208,6 +217,13 @@ function cardKeyboard(id, sym, followed) {
       { text: followed ? '⭐ Takipte' : '☆ Takip', callback_data: `f:${sym}` },
     ],
   ];
+}
+
+/** Gün.ay.yıl (kısa) */
+function dmy(t) {
+  if (!Number.isFinite(t)) return '—';
+  const d = new Date(t);
+  return `${String(d.getUTCDate()).padStart(2, '0')}.${String(d.getUTCMonth() + 1).padStart(2, '0')}.${String(d.getUTCFullYear()).slice(2)}`;
 }
 
 let dmFmt = null;

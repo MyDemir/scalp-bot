@@ -126,7 +126,7 @@ function volGrade(move, volX, taker, s) {
   return agree >= s.dirGrade3Pct ? 3 : 2;
 }
 
-const DAILY_LEVELS = ['1d MA200', '1d EMA200', '30 günlük tepe', '30 günlük en yüksek', '7 günlük en yüksek'];
+const DAILY_LEVELS = ['1d MA200', '1d EMA200', '30 günlük tepe', '30 günlük en yüksek', '7 günlük en yüksek', 'Günlük bölge'];
 
 /**
  * Kurulum kontrol listesi (8 madde, yalnızca bilgi — kart göndermeyi engellemez):
@@ -445,7 +445,8 @@ function discoveryOf(series, price, all) {
  *   Seviyeler: yalnızca güçlü olanlar — MA200/EMA200, 30 günlük tepe, 7/30 günlük en yüksek, 4h tepe
  *             (1h tepe ve Fib izlenmez; kartta direnç olarak görünmeye devam eder).
  *   Sahte   : izlenirken bir 5m mum seviyenin ALTINDA kapanırsa ('close'),
- *             ya da aynı mumun fitili üstüne çıkıp gövdesi altında kalırsa ('wick').
+ *             ya da aynı 5m mumun fitili seviyeyi ≥ %0.5 aşıp gövdesi ≥ %0.2 ALTINDA kapanırsa ve mumun hacmi
+ *             önceki 20 mumun ortalamasının üstündeyse ('wick' — sıradan direnç temasını elemek için sıkı).
  * Aynı mumda birden fazla olay varsa en önemlisi (majör/en yüksek → salınım → Fib) döner.
  */
 const KIND_RANK = { major: 0, high: 0, swing: 1, fib: 2 };
@@ -454,6 +455,9 @@ function detectSfp(series, s, watch) {
   const n = d.c.length;
   if (n < 30) return null;
   const o = d.o[n - 1], h = d.h[n - 1], c = d.c[n - 1], cPrev = d.c[n - 2], t = d.t[n - 1];
+  let vs = 0;
+  for (let j = n - 21; j < n - 1; j++) vs += d.v[j];
+  const volOk = d.v[n - 1] > vs / 20;
   const better = (a, b) => !b || (KIND_RANK[a.kind] ?? 3) < (KIND_RANK[b.kind] ?? 3);
   let ev = null;
   for (const [k, w] of watch) {
@@ -472,7 +476,7 @@ function detectSfp(series, s, watch) {
     const thr = L.value * (1 + up), key = lvKey(L);
     if (watch.has(key)) continue;
     if (c > thr && cPrev <= thr) watch.set(key, { name: L.name, value: L.value, kind: L.kind, t, left: s.sfpBars });
-    else if (h > thr && c < L.value && o < L.value) {
+    else if (h > L.value * 1.005 && c < L.value * 0.998 && o < L.value && volOk) {
       const e = { name: L.name, value: L.value, kind: L.kind, type: 'wick', ago: 0 };
       if (better(e, ev)) ev = e;
     }
@@ -519,6 +523,7 @@ function evaluate(series, s, ctx = {}, force = false) {
   snap.level = level;
   snap.levels = all;
   snap.levelOk = !!level;
+  snap.fibLeg = series._lv?.leg ?? null;              // günlük geniş Fib bacağı (Detay'da)
   // Fiyat keşfi: yakında direnç yok ama fiyat bir seviyeyi yeni kırmış → kart engellenmez, bilgi olarak gelir
   snap.discovery = !level && s.discoveryCards !== false ? discoveryOf(series, price, all) : null;
 
@@ -572,7 +577,7 @@ const fpx = v => String(+(+v).toPrecision(6));
 /** Sahte kırılım yeniliği */
 function sfpText(e) {
   return e.type === 'wick'
-    ? `⚠️ Sahte kırılım (fitil): ${e.name} ${fpx(e.value)} · mum üstüne çıktı ama altında kapandı`
+    ? `⚠️ Sahte kırılım (fitil): ${e.name} ${fpx(e.value)} · 5dk mum üstüne çıktı, altında kapandı`
     : `⚠️ Sahte kırılım: ${e.name} ${fpx(e.value)} · ${e.ago} dk önce üstüne çıktı, şimdi altında kapandı`;
 }
 

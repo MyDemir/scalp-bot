@@ -102,7 +102,7 @@ function fmtPx(v) {
  * @param {number} [p.show]      gösterilecek mum sayısı
  * @returns {Buffer|null} PNG
  */
-function renderChart({ symbol, candles, level = null, levels = [], overlays = [], ichi = DEFAULT_ICHI, showIchi = true, fib = true, fibDir = 'up', tf = '5m', subtitle = '', show = 100, tz = process.env.DISPLAY_TZ || 'Europe/Istanbul' }) {
+function renderChart({ symbol, candles, level = null, levels = [], overlays = [], ichi = DEFAULT_ICHI, showIchi = true, fib = true, fibDir = 'up', fibLeg = null, tf = '5m', subtitle = '', show = 100, tz = process.env.DISPLAY_TZ || 'Europe/Istanbul' }) {
   const L = lib();
   if (!L || !candles || candles.length < 20) return null;
   try {
@@ -198,16 +198,18 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
     //   düşüş (düşüş uyarıları): penceredeki en yüksek tepe + ondan sonraki en düşük dip → 0 = dip, 1 = tepe
     // Bacak çok kısa kalırsa (pencerenin en ucunda) tüm pencerenin dip–tepesi kullanılır.
     let fibInfo = null;
+    const edge = [];                                   // görünen aralığın dışındaki seviyeler → üst/alt kenarda ok + etiket
     if (fib) {
-      const leg = impulseLeg(h, l, N, fibDir);                 // levels.js — motor aynı bacaktan Fib seviyesi üretir
-      const hiI = leg ? leg.hiI : 0, loI = leg ? leg.loI : 0, up = leg ? leg.up : true;
-      const HI = leg ? h[hiI] : 0, Lw = leg ? l[loI] : 0;
-      if (leg && HI > Lw) {
-        fibInfo = { up };
+      // Günlük geniş bacak verildiyse (motorla aynı: son ~1 yılın tepe ↔ dibi) o; yoksa görünen mumlardan kısa bacak
+      const leg = fibLeg && fibLeg.hi > fibLeg.lo ? fibLeg : impulseLeg(h, l, N, fibDir);
+      if (leg && leg.hi > leg.lo) {
+        const HI = leg.hi, Lw = leg.lo, up = leg.up;
+        fibInfo = { up, daily: leg === fibLeg };
         const R = [[0, '#7d8796'], [0.236, '#8e9aaf'], [0.382, '#5dade2'], [0.5, '#f4d03f'], [0.618, '#f39c12'], [0.786, '#e67e22'], [1, '#7d8796']];
         g.font = '13px ChartSans'; g.textAlign = 'left';
         for (const [r, col] of R) {
           const v = up ? HI - (HI - Lw) * r : Lw + (HI - Lw) * r;
+          if (v > hi || v < lo) { edge.push({ label: `Fib ${r}`, value: v, color: col }); continue; }
           const y = ys(v);
           g.strokeStyle = col; g.globalAlpha = r === 0.618 || r === 0.5 ? 0.9 : 0.6; g.lineWidth = r === 0.618 ? 1.6 : 1;
           g.beginPath(); g.moveTo(padL, y); g.lineTo(padL + plotW, y); g.stroke();
@@ -217,11 +219,17 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
           g.fillStyle = 'rgba(15,20,27,0.8)'; g.fillRect(padL + 2, y - 15, tw + 8, 16);
           g.fillStyle = col; g.fillText(lab, padL + 6, y - 3);
         }
-        // tepe ve dip noktaları
-        g.fillStyle = '#7d8796';
-        g.beginPath(); g.arc(xs(hiI - start), ys(HI), 3.5, 0, 7); g.fill();
-        g.beginPath(); g.arc(xs(loI - start), ys(Lw), 3.5, 0, 7); g.fill();
+        if (!fibInfo.daily) {                          // kısa bacakta tepe/dip noktaları görünür
+          g.fillStyle = '#7d8796';
+          g.beginPath(); g.arc(xs(leg.hiI - start), ys(HI), 3.5, 0, 7); g.fill();
+          g.beginPath(); g.arc(xs(leg.loI - start), ys(Lw), 3.5, 0, 7); g.fill();
+        }
       }
+    }
+    // Uzaktaki günlük dirençler (MA/EMA200, günlük bölge, trend çizgisi, 7/30g en yüksek) → kenar etiketi
+    for (const L0 of levels) {
+      if (!L0 || !Number.isFinite(L0.value) || L0.kind === 'fib' || L0.kind === 'swing' || near(L0)) continue;
+      if (L0.value > hi) edge.push({ label: L0.name, value: L0.value, color: C.levelOther });
     }
 
     // Mumlar
@@ -277,6 +285,19 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
       g.fillText(fmtPx(last), padL + plotW + 8, y + 5);
     }
 
+    // Kenar etiketleri: görünen aralığın üstündeki en yakın 4 seviye (↑ ad değer (+%uzaklık)), sağ üstte alt alta
+    {
+      const ups = edge.filter(e => e.value > last).sort((a, b) => a.value - b.value).slice(0, 4);
+      g.font = '13px ChartSans'; g.textAlign = 'right';
+      ups.forEach((e, i) => {
+        const txt = `↑ ${e.label} ${fmtPx(e.value)} (+%${((e.value - last) / last * 100).toFixed(1)})`;
+        const y = top + 16 + i * 17, tw = g.measureText(txt).width;
+        g.fillStyle = 'rgba(15,20,27,0.85)'; g.fillRect(padL + plotW - tw - 10, y - 13, tw + 8, 16);
+        g.fillStyle = e.color; g.fillText(txt, padL + plotW - 6, y);
+      });
+      g.textAlign = 'left';
+    }
+
     // Başlık + gösterge açıklaması
     g.textAlign = 'left';
     g.font = '24px ChartSansBold'; g.fillStyle = C.text;
@@ -289,7 +310,7 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
     const legend = [
       ...overlays.map(ov => [ov.label, ov.color]),
       ...(showIchi ? [[`Ichimoku bulutu (${ichi.tenkan}/${ichi.kijun}/${ichi.senkouB}, +${ichi.shift})`, C.spanA]] : []),
-      ...(fibInfo ? [[`Fibonacci (son ${fibInfo.up ? 'yükseliş' : 'düşüş'} bacağı: ${fibInfo.up ? 'dip → tepe' : 'tepe → dip'})`, '#f39c12']] : []),
+      ...(fibInfo ? [[`Fibonacci (${fibInfo.daily ? 'günlük, ' : ''}${fibInfo.up ? 'dip → tepe' : 'tepe → dip'})`, '#f39c12']] : []),
     ];
     g.font = '14px ChartSans';
     for (const [t, col] of legend) {

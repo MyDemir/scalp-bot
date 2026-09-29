@@ -5,8 +5,11 @@
  *   majör  : 4h MA200/EMA200, 1d MA200/EMA200, 30 günlük tepe (en yüksek 3 günün ortalaması)
  *   en yüksek: 7 / 30 günlük gerçek en yüksek (kapanmış günler)
  *   salınım: 1h / 4h tepe (solundaki ve sağındaki N mumdan yüksek tepe)
- *   Fib    : son 1h itki bacağının 0.236 / 0.382 / 0.618 düzeltmesi (grafikteki bacakla aynı)
- * Her seviye { name, value, kind: 'major'|'high'|'swing'|'fib' }.
+ *   bölge  : günlük bölge — son ~1 yılın günlük tepe/dip noktalarının kümesi (≥ 2 temas; eski destekler dahil)
+ *   trend  : günlük düşen trend çizgisi — en yüksek günlük tepeden sonraki tepelere çizilen üst çizgi, bugüne uzatılmış
+ *   Fib    : GÜNLÜK geniş bacağın (son ~1 yılın en yüksek tepe ↔ en düşük dip) 0.236 / 0.382 / 0.5 / 0.618 / 0.786 düzeltmesi;
+ *            yön otomatik (dip tepeden sonraysa düşüş bacağı → seviyeler dibin üstünde, direnç)
+ * Her seviye { name, value, kind: 'major'|'high'|'zone'|'trend'|'swing'|'fib' }.
  */
 
 const { emaLast } = require('./ta');
@@ -84,7 +87,84 @@ function swingHighs(h, bars = 3, lookback = 200) {
   return out;
 }
 
-const FIB_RET = [0.236, 0.382, 0.618];
+/**
+ * Günlük geniş bacak (Fibonacci): pencerenin en yüksek tepesi ve en düşük dibi; hangisi sonra geldiyse bacak ona doğru.
+ *   up=true  : dip → tepe (yükseliş) · up=false: tepe → dip (düşüş)
+ * @returns {{hi, lo, hiT, loT, up}|null}
+ */
+function majorLeg(t, h, l, lookback = 365) {
+  const n = Math.min(h.length, l.length);
+  if (n < 20) return null;
+  let hiI = Math.max(0, n - lookback), loI = hiI;
+  for (let i = Math.max(0, n - lookback); i < n; i++) { if (h[i] > h[hiI]) hiI = i; if (l[i] < l[loI]) loI = i; }
+  if (!(h[hiI] > l[loI])) return null;
+  return { hi: h[hiI], lo: l[loI], hiT: t[hiI], loT: t[loI], up: loI < hiI };
+}
+
+/** Pivot noktaları: tepe = iki yanındaki `bars` mumdan yüksek; dip = düşük */
+function pivots(h, l, bars, from) {
+  const out = [];
+  for (let i = Math.max(bars, from); i < h.length - bars; i++) {
+    let hi = true, lo = true;
+    for (let k = 1; k <= bars; k++) {
+      if (!(h[i] > h[i - k] && h[i] >= h[i + k])) hi = false;
+      if (!(l[i] < l[i - k] && l[i] <= l[i + k])) lo = false;
+    }
+    if (hi) out.push({ i, v: h[i], type: 'high' });
+    if (lo) out.push({ i, v: l[i], type: 'low' });
+  }
+  return out;
+}
+
+/**
+ * Günlük bölgeler: son `lookback` günün pivot tepe VE dipleri fiyata göre sıralanıp %tol içinde kümelenir;
+ * ≥ minTouch temas alan küme bölge olur (eski destek, fiyat altına inince dirence döner).
+ * @returns {{lo, hi, touches, last}[]}  last: son temasın zamanı
+ */
+function dailyZones(t, h, l, { lookback = 365, bars = 3, tol = 0.015, minTouch = 2 } = {}) {
+  const pts = pivots(h, l, bars, h.length - lookback).sort((a, b) => a.v - b.v);
+  const zones = [];
+  let cur = null;
+  for (const p of pts) {
+    if (cur && p.v <= cur.lo * (1 + tol)) { cur.hi = Math.max(cur.hi, p.v); cur.touches++; cur.last = Math.max(cur.last, t[p.i]); }
+    else { cur = { lo: p.v, hi: p.v, touches: 1, last: t[p.i] }; zones.push(cur); }
+  }
+  return zones.filter(z => z.touches >= minTouch);
+}
+
+/**
+ * Günlük düşen trend çizgisi (log fiyat): pencerenin en yüksek pivot tepesi (A) ile sonraki pivot tepeler arasından
+ * çizginin diğer tüm tepelerin üstünde kaldığı (en yatık) B seçilir; çizgi bugüne uzatılır. B'den sonra 2 günlük kapanış
+ * çizginin %2'den (ya da 1 kapanış %5'ten) fazla üstündeyse çizgi kırılmış sayılır (yok). En az 10 gün arayla iki tepe gerekir.
+ * @returns {{value, a:{v,t}, b:{v,t}}|null}
+ */
+function dailyTrendline(t, h, c, { lookback = 365, bars = 5 } = {}) {
+  // Logaritmik fiyatta düz çizgi (uzun vadeli grafikler log ölçekte okunur; doğrusalda uzun düşüşlerde çizgi fazla dik olur)
+  const n = h.length;
+  const highs = pivots(h, h, bars, n - lookback).filter(p => p.type === 'high');
+  if (highs.length < 2) return null;
+  let A = highs[0];
+  for (const p of highs) if (p.v > A.v) A = p;
+  let best = null;
+  for (const p of highs) {
+    if (p.i - A.i < 10 || !(p.v < A.v)) continue;
+    const slope = (Math.log(p.v) - Math.log(A.v)) / (p.i - A.i);
+    if (!best || slope > best.slope) best = { p, slope };      // en yatık = diğer tepeler çizginin altında
+  }
+  if (!best || !(best.slope < 0)) return null;
+  const at = i => Math.exp(Math.log(A.v) + best.slope * (i - A.i));
+  // Kırılım: B'den sonra en az 2 günlük kapanış çizginin %2'den fazla üstünde ya da biri %5'ten fazla üstünde
+  let over = 0;
+  for (let i = best.p.i + 1; i < n; i++) {
+    if (c[i] > at(i) * 1.05) return null;
+    if (c[i] > at(i) * 1.02 && ++over >= 2) return null;
+  }
+  const value = at(n);                                          // bugünkü (devam eden gün) değeri
+  if (!(value > 0)) return null;
+  return { value, a: { v: A.v, t: t[A.i] }, b: { v: best.p.v, t: t[best.p.i] } };
+}
+
+const FIB_RET = [0.236, 0.382, 0.5, 0.618, 0.786];
 const FIB_EXT = [1.272, 1.618, 2, 2.618];
 
 /**
@@ -92,27 +172,35 @@ const FIB_EXT = [1.272, 1.618, 2, 2.618];
  * @param {object} p
  * @param {{h:number[], l:number[]}} p.h1  1h mumlar
  * @param {{h:number[]}} p.h4              4h mumlar
- * @param {{h:number[]}} p.d1              1d mumlar
+ * @param {{t:number[],h:number[],l:number[],c:number[]}} p.d1  1d mumlar (kapanmış)
  * @param {object} o  { swing:boolean, fib:boolean, bars:number }
  * @param {{name,value}[]} base  mevcut (majör) seviyeler — bunlara %0.3'ten yakın ek seviye eklenmez
  * @returns {{levels:object[], leg:object|null}}
  */
 function calcExtraLevels({ h1, h4, d1 }, o, base = []) {
   const out = [];
-  const near = (v, list) => list.some(L => Math.abs(L.value - v) / L.value <= 0.003);
-  const add = (name, v, kind) => {
+  const add = (name, v, kind, extra = null) => {
     if (!(Number.isFinite(v) && v > 0)) return;
-    if (near(v, base) || near(v, out)) return;               // yakın kopya yok (öncelik: majör → en yüksek → salınım → Fib)
-    out.push({ name, value: roundPx(v), kind });
+    // yakın kopya eklenmez (öncelik: majör → en yüksek → bölge → trend → salınım → Fib); çakışma kalan seviyeye not edilir
+    const hit = [...base, ...out].find(L => Math.abs(L.value - v) / L.value <= 0.003);
+    if (hit) { if (kind !== 'swing') (hit.also = hit.also || []).push(name); return; }
+    out.push({ name, value: roundPx(v), kind, ...(extra || {}) });
   };
   const dh = d1?.h || [];
   if (dh.length >= 20) add('30 günlük en yüksek', Math.max(...dh.slice(-30)), 'high');
   if (dh.length >= 7) add('7 günlük en yüksek', Math.max(...dh.slice(-7)), 'high');   // 30 günlükle aynıysa tek seviye
+  const d1ok = d1 && d1.t && d1.l && d1.c && dh.length >= 30;
+  // Günlük bölgeler (değer = bölgenin alt kenarı: direnç orada başlar) ve düşen trend çizgisi
+  const zones = d1ok ? dailyZones(d1.t, dh, d1.l) : [];
+  for (const z of zones) add('Günlük bölge', z.lo, 'zone', { zoneInfo: z });   // ("zone" alanı dirençte/yaklaşıyor için kullanılıyor)
+  const tl = d1ok ? dailyTrendline(d1.t, dh, d1.c) : null;
+  if (tl) add('Günlük trend çizgisi', tl.value, 'trend', { trend: tl });
   if (o.swing) {
     for (const p of swingHighs(h4?.h || [], o.bars, 180).reverse()) add('4h tepe', p.value, 'swing');
     for (const p of swingHighs(h1?.h || [], o.bars, 200).reverse()) add('1h tepe', p.value, 'swing');
   }
-  const leg = h1 && h1.h.length >= 30 ? impulseLeg(h1.h, h1.l, 100, 'up') : null;
+  // Fib: GÜNLÜK geniş bacak (son ~1 yıl), yön otomatik
+  const leg = d1ok ? majorLeg(d1.t, dh, d1.l) : null;
   if (o.fib && leg) {
     const R = leg.hi - leg.lo;
     for (const r of FIB_RET) add(`Fib ${r}`, leg.up ? leg.hi - r * R : leg.lo + r * R, 'fib');
@@ -127,4 +215,4 @@ function fibExtensions(leg, price, max = 2) {
   return FIB_EXT.map(r => ({ r, value: roundPx(leg.lo + r * R) })).filter(x => x.value > price).slice(0, max);
 }
 
-module.exports = { roundPx, calcMajorResistance, calcLevelSet, impulseLeg, swingHighs, calcExtraLevels, fibExtensions, FIB_RET, FIB_EXT };
+module.exports = { roundPx, calcMajorResistance, calcLevelSet, impulseLeg, majorLeg, dailyZones, dailyTrendline, swingHighs, calcExtraLevels, fibExtensions, FIB_RET, FIB_EXT };

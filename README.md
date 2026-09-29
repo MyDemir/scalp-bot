@@ -22,7 +22,7 @@ Kontrol anı: **3m / 5m / 15m mum kapanışları** + **hacimli her 1m mum kapan�
 | Şart | Varsayılan |
 |---|---|
 | 3m/5m/15m RSI | en az **2/3** dilimde **≥ 85** (kapanmamış dilimde devam eden mumla hesaplanır; RSI periyodu 14) |
-| Seviye (zorunlu) | fiyatın üstünde en fazla **%2.5** uzakta bir seviye: 4h MA200 · 4h EMA200 · 1d MA200 · 1d EMA200 · 30 günlük tepe (son 30 **kapanmış** günün en yüksek 3 tepesinin ortalaması) · **7 / 30 günlük en yüksek** (gerçek tepe) · **1h / 4h tepe** (salınım tepesi: iki yanındaki 3 mumdan yüksek) · **Fib 0.236 / 0.382 / 0.618** (son 1h yükseliş bacağı — grafikteki bacak). Birbirine %0.3'ten yakın seviyeler tek sayılır. Yakında direnç yoksa bkz. **Fiyat keşfi** |
+| Seviye (zorunlu) | fiyatın üstünde en fazla **%2.5** uzakta bir seviye: 4h MA200 · 4h EMA200 · 1d MA200 · 1d EMA200 · 30 günlük tepe (son 30 **kapanmış** günün en yüksek 3 tepesinin ortalaması) · **7 / 30 günlük en yüksek** (gerçek tepe) · **1h / 4h tepe** (salınım tepesi: iki yanındaki 3 mumdan yüksek) · **Günlük bölge** (son ~1 yılın günlük tepe/dip noktalarından ≥ 2 temas alan bölge — eski destekler dahil; değer = bölgenin alt kenarı) · **Günlük trend çizgisi** (en yüksek günlük tepeden sonraki tepelere log ölçekte çizilen düşen çizgi, bugüne uzatılmış; kapanışlar üstüne çıkınca kırılmış sayılır) · **Fib 0.236 / 0.382 / 0.5 / 0.618 / 0.786** (GÜNLÜK geniş bacak: son ~1 yılın en yüksek tepesi ↔ en düşük dibi, yön otomatik). Birbirine %0.3'ten yakın seviyeler tek sayılır (çakışma Detay'da yazar). Yakında direnç yoksa bkz. **Fiyat keşfi** |
 | Yeni veri | önceki karttan bu yana: RSI dilim sayısı değişti · bir dilim 95'i geçti · hacimli mum · seviye/bölge değişti (⭐ Dirençte'ye girdi, seviye kırıldı) · MACD ya da Stoch RSI kesişimi · 1m/3m negatif tepe arttı. **Yeni veri yoksa kart gitmez.** |
 
 **Kurulum kontrol listesi ve derece** (kartta ✅/▫️, başlıkta daireler). 8 madde, yalnızca bilgi (kartı engellemez):
@@ -54,9 +54,10 @@ ve fiyat son 24 saatte bir seviyeyi (Fib hariç) yukarı kırmış → kart enge
 
 **⚠️ Sahte kırılım (SFP)** (`/ayarlar` → Sahte kırılım, SFP süresi): her 5m kapanışında, fiyatın kırdığı seviyeler izlenir.
 Kırılım = 5m mum seviyenin %0.3'ten fazla üstünde kapanır **ve** o an RSI kart şartı sağlanıyor (3m/5m/15m'den en az 2'si ≥ 85).
-Yalnızca güçlü seviyeler izlenir: MA200/EMA200, 30 günlük tepe, 7/30 günlük en yüksek, 4h tepe (1h tepe ve Fib izlenmez).
-Kırılımdan sonraki **6 mum (30 dk)** içinde bir 5m mum seviyenin **altında kapanırsa** — ya da mumun fitili üstüne çıkıp gövdesi
-altında kalırsa — şart aranmadan kart gelir: `⚠️ Sahte kırılım: 30 günlük tepe 0.7646 · 20 dk önce üstüne çıktı, şimdi altında kapandı`
+Yalnızca güçlü seviyeler izlenir: MA200/EMA200, 30 günlük tepe, 7/30 günlük en yüksek, günlük bölge, günlük trend çizgisi, 4h tepe (1h tepe ve Fib izlenmez).
+Kırılımdan sonraki **6 mum (30 dk)** içinde bir 5m mum seviyenin **altında kapanırsa** — ya da aynı 5m mumun fitili seviyeyi
+**≥ %0.5** aşıp gövdesi **≥ %0.2 altında** kapanırsa ve mumun hacmi önceki 20 mumun ortalamasının üstündeyse (fitil türü) — kart gelir.
+Kartta 🔔 satırı `⚠️ Sahte kırılım` (ya da `⚠️ Sahte kırılım (fitil)`), altındaki satır ayrıntı (başlık tekrarlanmaz) ve daireler hep 🔴: `⚠️ Sahte kırılım: 30 günlük tepe 0.7646 · 20 dk önce üstüne çıktı, şimdi altında kapandı`
 · `#SAHTEKIRILIM`. Derece kontrol listesinden. Aynı coinde bir SFP kartından sonra 30 dk yeni SFP kartı gelmez.
 Aynı coinde kartlar **#1, #2 …** diye numaralanır; kapanmış 5m RSI 75'in altına inince numara sıfırlanır.
 
@@ -100,8 +101,11 @@ Ayrıntılar bellekte tutulur (son 3000 kart); bot yeniden başlayınca eski kar
 
 ### Grafik
 Kartlar ve ⚡ uyarılar **grafikli** gelir (fotoğraf + açıklama). Varsayılan **1 saatlik** grafik (son 100 mum ≈ 4 gün):
-- **Fibonacci düzeltme seviyeleri** (0 · 0.236 · 0.382 · 0.5 · 0.618 · 0.786 · 1) — SON İTKİ BACAĞINA göre: penceredeki en düşük
-  dipten sonraki en yüksek tepeye (TradingView gibi 0 = tepe, 1 = dip); düşüş uyarılarında tepe → sonraki dip. 0.618 kalın.
+- **Fibonacci düzeltme seviyeleri** (0 · 0.236 · 0.382 · 0.5 · 0.618 · 0.786 · 1) — GÜNLÜK geniş bacak (son ~1 yılın en yüksek
+  tepesi ↔ en düşük dibi; dip sonra geldiyse tepe → dip, düşüşte seviyeler dirençtir). Motorun direnç listesiyle aynı bacak. 0.618 kalın.
+  Yeni coinde (günlük geçmiş yoksa) görünen mumların kısa bacağı kullanılır.
+- **Kenar etiketleri:** görünen aralığın (fiyatın ±%12'si) üstünde kalan en yakın 4 seviye — Fib ve günlük dirençler (MA/EMA200,
+  günlük bölge, trend çizgisi, 7/30 günlük en yüksek) — sağ üstte `↑ 1d MA200 0.0052 (+%35.2)` biçiminde yazılır.
 - **Ichimoku bulutu** (KivancOzbilgic parametreleri, varsayılan 10/30/30/60/30; Senkou A ≥ B yeşil, A < B kırmızı)
 - Yakındaki direnç seviyeleri (en yakını turuncu, diğerleri gri), hacim, son fiyat etiketi
 - 5m grafik seçilirse 3m EMA21 (beyaz) ve 5m EMA21 (sarı) çizgileri de çizilir
@@ -126,7 +130,8 @@ Ayar: `/ayarlar` → ⚡ Hareket (`moveAlertPct`, 0 = kapalı).
 RSI daha düşük dip (ikinci dip son 10 mum içinde) · **günlük golden cross** — SMA50, SMA200'ün altında ama fark ≤ %2 ve 5 günde daralıyor
 ("yakın") ya da son 10 günde kesti ("oldu").
 
-**⭐ Dirençte:** fiyat en yakın direncin en fazla %0.5 altında ya da %0.3 üstünde (fitil payı). Daha yukarısı = seviye kırıldı.
+**⭐ Dirençte** (yalnız 🔔 satırında): fiyat en yakın direncin en fazla %0.5 altında ya da %0.3 üstünde (fitil payı). Daha yukarısı = seviye kırıldı.
+Detay'da direnç ayrıntısı: günlük bölgenin aralığı ve temas sayısı, trend çizgisinin iki tepesi, günlük Fib bacağı, çakışan seviyeler.
 
 **3dk EMA21 durumu** (yalnız 📋 Detay'da): *izliyor (trend)* — son 10 mumun ≥ 6'sında fiyat EMA21'e değdi;
 *koptu* — önceki 10 mumun ≥ 6'sında değmişken son 3 mumda değmedi ve fiyat ≥ 1.5 ATR yukarıda; aksi *serbest*.
