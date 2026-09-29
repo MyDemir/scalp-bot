@@ -390,7 +390,9 @@ function discoveryOf(series, price, all) {
 /**
  * Sahte kırılım (SFP) — her kapanmış 5m mumda çağrılır. `watch` coin başına kalıcı takip listesidir.
  *   Kırılım : 5m mum seviyenin %dipAbovePct'ten fazla üstünde kapanır (önceki mum altındaydı) ve o an
- *             5m ya da 15m RSI ≥ rsiMin (aşırı alımda kırılım) → sfpBars mum boyunca izlenir.
+ *             RSI kart şartı sağlanıyor (3m/5m/15m'den en az minTFs tanesi ≥ rsiMin) → sfpBars mum boyunca izlenir.
+ *   Seviyeler: yalnızca güçlü olanlar — MA200/EMA200, 30 günlük tepe, 7/30 günlük en yüksek, 4h tepe
+ *             (1h tepe ve Fib izlenmez; kartta direnç olarak görünmeye devam eder).
  *   Sahte   : izlenirken bir 5m mum seviyenin ALTINDA kapanırsa ('close'),
  *             ya da aynı mumun fitili üstüne çıkıp gövdesi altında kalırsa ('wick').
  * Aynı mumda birden fazla olay varsa en önemlisi (majör/en yüksek → salınım → Fib) döner.
@@ -410,10 +412,12 @@ function detectSfp(series, s, watch) {
       watch.delete(k);
     } else if (--w.left <= 0) watch.delete(k);
   }
-  const r5 = ta.rsiLast(d.c, s.rsiPeriod), r15 = rsiOf(series, '15m', s.rsiPeriod).v;
-  if (!(Math.max(r5 ?? 0, r15 ?? 0) >= s.rsiMin)) return ev;
+  // Kırılım yalnızca RSI kart şartı sağlanırken izlenir (normal RSI kartıyla aynı şart)
+  const hits = RSI_TFS.filter(tf => (rsiOf(series, tf, s.rsiPeriod).v ?? 0) >= s.rsiMin).length;
+  if (hits < s.minTFs) return ev;
   const up = s.dipAbovePct / 100;
   for (const L of levelsOf(series, s)) {
+    if (L.kind === 'fib' || L.name === '1h tepe') continue;          // yalnızca güçlü seviyeler
     const thr = L.value * (1 + up), key = lvKey(L);
     if (watch.has(key)) continue;
     if (c > thr && cPrev <= thr) watch.set(key, { name: L.name, value: L.value, kind: L.kind, t, left: s.sfpBars });

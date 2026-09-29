@@ -26,7 +26,7 @@ module.exports = {
     levelsSwing:   true,   // 1h / 4h salınım tepeleri (iki yanında swingBars mumdan yüksek tepe)
     swingBars:     3,
     levelsFib:     true,   // son 1h itki bacağının Fib 0.236 / 0.382 / 0.618 düzeltmesi (grafikteki bacak)
-    // Sahte kırılım (SFP): 5m mum, RSI ≥ rsiMin iken seviyenin %dipAbovePct üstünde kapanır; sfpBars mum içinde
+    // Sahte kırılım (SFP): 5m mum, RSI kart şartı varken güçlü bir seviyenin %dipAbovePct üstünde kapanır; sfpBars mum içinde
     // altında kapanırsa (ya da fitil üstüne çıkıp gövde altında kalırsa) şart aranmadan kart (#SAHTEKIRILIM)
     sfpCards:      true,
     sfpBars:       6,      // 6 × 5m = 30 dk
