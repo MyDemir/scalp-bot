@@ -756,9 +756,7 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
     const w = tracker.sfpWatch(sym);
     sfp = detectSfp(series, s, w);
     // Bekleme: bir sahte kırılım kartından sonra sfpBars × 5 dk yeni SFP kartı yok (aynı bölgede art arda kart olmasın)
-    const now = series.lastT('1m') + MIN;
-    if (sfp && w.until && now < w.until) sfp = null;
-    else if (sfp) w.until = now + s.sfpBars * 5 * MIN;
+    if (sfp && w.until && series.lastT('1m') + MIN < w.until) sfp = null;
   }
   // 1 dk hareket (≥ moveAlertPct): günlük sayaca yazılır; RSI şartı sağlanıyorsa karta girer (ayrı uyarı yok)
   let move = null;
@@ -778,6 +776,9 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
   if (!tfs.length && !burst && !move) return null;
 
   let snap = evaluate(series, s, ctx);
+  // Sahte kırılım kartı yalnızca KART ANINDA da RSI şartı sağlanıyorsa (kırılım anındaki şart yetmez)
+  if (sfp && !snap.rsiOk) sfp = null;
+  if (sfp) { const w = tracker.sfpWatch(sym); w.until = snap.t + s.sfpBars * 5 * MIN; }
   let inSeries = false;
   if (!snap.ok) {
     // Şart dışı ama yine de kart: (a) sahte kırılım, (b) seri sürerken gelen hacimli mum

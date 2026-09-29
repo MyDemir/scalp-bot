@@ -94,7 +94,10 @@ function tgLinks(sym) {
 function formatCard(card, s, opt = {}) {
   const { snap } = card;
   const sym = card.symbol;
-  const dip = snap.level?.zone === 'dip';
+  // Sahte kırılım kartında Direnç satırı ve ⭐, kırılan seviyeye göre (en yakın seviyeye göre değil)
+  const sf = card.trig?.sfp;
+  const shownLv = sf ? { name: sf.name, value: sf.value, dist: (card.price - sf.value) / sf.value * 100 } : snap.level;
+  const dip = sf ? shownLv.dist >= -s.dipBelowPct && shownLv.dist <= s.dipAbovePct : snap.level?.zone === 'dip';
   const now = opt.now ?? card.t;
   const T = card.trig || {};
 
@@ -116,7 +119,7 @@ function formatCard(card, s, opt = {}) {
   for (const n of special.slice(0, 2)) L.push(esc(n.replace(/^⚠️ Sahte kırılım(?: \(fitil\))?: /, '')));
   L.push(...rsiLines(snap));
   L.push('');
-  L.push(levelLine(snap, s));
+  L.push(levelLine({ level: shownLv, discovery: snap.discovery }, s));
   L.push(`Fiyat: ${px(card.price)}`);
   L.push(`⏱: ${dayTime(card.t)}`);
 

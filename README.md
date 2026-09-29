@@ -54,6 +54,7 @@ ve fiyat son 24 saatte bir seviyeyi (Fib hariç) yukarı kırmış → kart enge
 
 **⚠️ Sahte kırılım (SFP)** (`/ayarlar` → Sahte kırılım, SFP süresi): her 5m kapanışında, fiyatın kırdığı seviyeler izlenir.
 Kırılım = 5m mum seviyenin %0.3'ten fazla üstünde kapanır **ve** o an RSI kart şartı sağlanıyor (3m/5m/15m'den en az 2'si ≥ 85).
+Kart da yalnızca **geri dönüş anında RSI kart şartı hâlâ sağlanıyorsa** gelir (sağlanmıyorsa bildirim yok). Kartın Direnç satırı ve ⭐, kırılan seviyeye göredir.
 Yalnızca güçlü seviyeler izlenir: MA200/EMA200, 30 günlük tepe, 7/30 günlük en yüksek, günlük bölge, günlük trend çizgisi, 4h tepe (1h tepe ve Fib izlenmez).
 Kırılımdan sonraki **6 mum (30 dk)** içinde bir 5m mum seviyenin **altında kapanırsa** — ya da aynı 5m mumun fitili seviyeyi
 **≥ %0.5** aşıp gövdesi **≥ %0.2 altında** kapanırsa ve mumun hacmi önceki 20 mumun ortalamasının üstündeyse (fitil türü) — kart gelir.
