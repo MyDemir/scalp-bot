@@ -73,7 +73,7 @@ function targetLine(snap, price) {
   if (!items.length) return null;
   const side = d => (d <= 0 ? 'aşağıda' : 'yukarıda');
   const same = items.every(x => side(x.d) === side(items[0].d));
-  return `<b>Hedef:</b> ${items.map(x => `${x.tf} EMA21 ${pa(x.d, 1)}${same ? '' : ` ${side(x.d)}`}`).join(' · ')}${same ? ` ${side(items[0].d)}` : ''}`;
+  return `<b>Hedef:</b> ${items.map(x => `${x.tf.replace("m", "dk")} EMA21 ${pa(x.d, 1)}${same ? '' : ` ${side(x.d)}`}`).join(' · ')}${same ? ` ${side(items[0].d)}` : ''}`;
 }
 
 function tgLinks(sym) {
@@ -119,69 +119,71 @@ function formatCard(card, s, opt = {}) {
   L.push(`Fiyat: ${px(card.price)}`);
   L.push(`⏱: ${dayTime(card.t)}`);
 
-  // ── Detay mesajı (📋 Detay butonu) ──
-  const D = [`📋 <b>#${esc(sym)} — ${card.seq === '–' ? 'anlık durum' : `Kart ${card.seq}`} ayrıntıları</b> · ${dayTime(card.t)}`];
-  if (card.news.length) { D.push(''); for (const n of card.news) D.push(`🔔 ${esc(n)}`); }
+  // ── Detay (📋 Detay butonu — yalnız basan kişiye özel mesaj) ──
+  const D = [`📋 <b>#${esc(sym)} — ${card.seq === '–' ? 'Anlık durum' : `Kart ${card.seq}`}</b> · ${dayTime(card.t)}`];
+
+  // 📊 Hacim ve alış–satış
+  D.push('', '📊 <b>Hacim ve alış–satış</b>');
+  const mv = T.move;
+  if (mv) D.push(`⚡ 1 dk ${ps(mv.pct)} (${px(mv.from)} → ${px(mv.to)})${mv.volX != null ? ` · hacim ${mv.volX.toFixed(1)} kat` : ''}${mv.taker != null ? ` · alış %${mv.taker.toFixed(0)} / satış %${(100 - mv.taker).toFixed(0)}` : ''}`);
+  for (const r of snap.vol || []) {
+    D.push(`${r.label}: ${usd(r.q).replace('+', '')} $${r.x != null ? ` · ort. ${r.x.toFixed(1)} katı` : ''}${r.buy != null ? ` · alış %${r.buy.toFixed(0)} / satış %${(100 - r.buy).toFixed(0)}` : ''} · net ${usd(r.net)} $`);
+  }
+  const [wl] = snap.windows || [];
+  const bc = snap.bursts?.[wl]?.p1;
+  if (bc) D.push(`Hacimli mum (${wl >= 60 ? `${wl / 60} saat` : `${wl} dk`}): ${bc.buy + bc.sell + bc.neutral ? `${bc.buy} alış · ${bc.sell} satış${bc.neutral ? ` · ${bc.neutral} nötr` : ''}` : 'yok'}`);
+  const ms = card.moveStats;
+  if (ms) { const net = ms.up - ms.down; D.push(`Bugün 1 dk ≥ %${s.moveAlertPct}: ▲ ${ms.up} · ▼ ${ms.down} · fark ${net > 0 ? '+' : net < 0 ? '−' : ''}${Math.abs(net)}`); }
+
+  // 🎯 Kontrol
   const ck = snap.check;
   if (ck) {
-    D.push('');
-    D.push(`<b>Kontrol ${ck.score}/${ck.total}</b>`);
-    for (const it of ck.items) D.push(`${it.ok ? '✅' : '▫️'} ${esc(it.text)}`);
+    D.push('', `🎯 <b>Kontrol ${ck.score}/${ck.total}</b>`);
+    for (const it of ck.items) if (it.ok) D.push(`✅ ${esc(it.text)}`);
+    const sh = CHECK_SHORT(s), miss = ck.items.filter(it => !it.ok).map(it => sh[it.key] || it.key);
+    if (miss.length) D.push(`▫️ Eksik: ${esc(miss.join(' · '))}`);
     if (ck.warn) D.push(esc(ck.warn));
   }
+
+  // 📏 Hedef + EMA21 durumu + fiyat keşfi
   const tgt = targetLine(snap, card.price);
-  const dc = snap.discovery;
-  if (tgt || dc) D.push('');
-  if (tgt) D.push(tgt);
-  if (dc) {
-    D.push(`<b>Kırılan seviye:</b> ${esc(dc.broken.name)} ${px(dc.broken.value)} (${pa((card.price - dc.broken.value) / dc.broken.value * 100)} aşağıda)`);
-    D.push(dc.above ? `<b>Sonraki direnç:</b> ${esc(dc.above.name)} ${px(dc.above.value)} (${pa((dc.above.value - card.price) / card.price * 100)} yukarıda)` : '<b>Sonraki direnç:</b> yok (üstünde hiç seviye yok)');
-    if (dc.ext.length) D.push(`<b>Fib uzantı:</b> ${dc.ext.map(x => `${x.r} → ${px(x.value)} (+${pa((x.value - card.price) / card.price * 100, 1)})`).join(' · ')}`);
-  }
-  // 1 dk hareket (bu kartı doğurduysa) + bugünkü hareket sayacı + 3dk EMA21 takip/kopuş
-  const mv = T.move, ms = card.moveStats;
-  if (mv || ms || snap.ride) D.push('');
-  if (mv) D.push(`<b>Hareket:</b> 1 dk ${ps(mv.pct)} (${px(mv.from)} → ${px(mv.to)})${mv.volX != null ? ` · hacim ${mv.volX.toFixed(1)} kat` : ''}${mv.taker != null ? ` · alış ${pa(mv.taker, 0)} / satış ${pa(100 - mv.taker, 0)}` : ''}`);
-  if (ms) {
-    const net = ms.up - ms.down;
-    D.push(`<b>Bugün 1 dk ≥ %${s.moveAlertPct} hareket:</b> ▲ ${ms.up} · ▼ ${ms.down} · fark ${net > 0 ? '+' : net < 0 ? '−' : ''}${Math.abs(net)}`);
-  }
-  const rd = snap.ride;
+  const rd = snap.ride, dc = snap.discovery;
+  if (tgt || rd || dc) D.push('');
+  if (tgt) D.push(`📏 ${tgt}`);
   if (rd) {
     const at = `${rd.dist >= 0 ? '+' : '−'}${Math.abs(rd.dist).toFixed(1)} ATR`;
-    D.push(`<b>3dk EMA21:</b> ${rd.state === 'break' ? `koptu · ${at}, son 3 mumda değmedi (önceki ${rd.win} mumun ${rd.before}'${suffix(rd.before)} değmişti)`
-      : rd.state === 'ride' ? `izliyor (trend) · son ${rd.win} mumun ${rd.recent}'${suffix(rd.recent)} değdi · ${at}`
-        : `serbest · ${at} · son ${rd.win} mumda ${rd.recent} değme`}`);
+    D.push(`3dk EMA21: ${rd.state === 'break' ? `koptu (${at}, son 3 mumda değmedi)` : rd.state === 'ride' ? `izliyor — trend (son ${rd.win} mumun ${rd.recent}'${suffix(rd.recent)} değdi)` : `serbest (${at})`}`);
+  }
+  if (dc) {
+    D.push(`🚀 Kırılan: ${esc(dc.broken.name)} ${px(dc.broken.value)} (${pa((card.price - dc.broken.value) / dc.broken.value * 100)} aşağıda)`);
+    D.push(dc.above ? `Sonraki direnç: ${esc(dc.above.name)} ${px(dc.above.value)} (${pa((dc.above.value - card.price) / card.price * 100)} yukarıda)` : 'Sonraki direnç: yok');
+    if (dc.ext.length) D.push(`Fib uzantı: ${dc.ext.map(x => `${x.r} → ${px(x.value)} (+${pa((x.value - card.price) / card.price * 100, 1)})`).join(' · ')}`);
   }
 
-  D.push('');
-  const [wl, ws] = snap.windows || [];
-  const cnt = b => `${b.buy} alış · ${b.sell} satış${b.neutral ? ` · ${b.neutral} nötr` : ''}`;
-  const has = b => b && b.buy + b.sell + b.neutral > 0;
-  if (snap.bursts) {
-    D.push(`<b>Hacimli mum (${wl} dk):</b> ${has(snap.bursts[wl]?.p1) ? cnt(snap.bursts[wl].p1) : 'yok'}`);
-    if (has(snap.bursts[ws]?.p1)) D.push(`<b>Hacimli mum (${ws} dk):</b> ${cnt(snap.bursts[ws].p1)}`);
-    if (has(snap.bursts[wl]?.p2)) D.push(`<b>Hacimli mum ≥%${s.burstPct2} (${wl} dk):</b> ${cnt(snap.bursts[wl].p2)}`);
-  }
-  if (snap.taker) D.push(`<b>Alış − satış (${wl} dk):</b> ${usd(snap.taker[wl])} $`);
-  const m5 = snap.macd?.['5m'], m15 = snap.macd?.['15m'];
-  if (m5 || m15) D.push(`<b>MACD:</b> 5m ${m5 ? esc(m5.text) : '—'} · 15m ${m15 ? esc(m15.text) : '—'}`);
-  if (snap.stoch) D.push(`<b>Stoch RSI 5m:</b> ${snap.stoch.k.toFixed(0)}${snap.stoch.cross ? ` (${snap.stoch.cross === 'down' ? 'aşağı' : 'yukarı'} kesti)` : ''}`);
-  if (snap.vwap) D.push(`<b>Günlük VWAP:</b> ${px(snap.vwap.vwap)} (fiyat ${updown((card.price - snap.vwap.vwap) / snap.vwap.vwap * 100)})`);
+  // 🧭 Diğer
+  const f = snap.funding, oi = card.oi && Number.isFinite(card.oi.changePct) ? card.oi.changePct : null;
+  const line1 = [f ? `Funding ${ps(f.rate * 100, 3)}${f.next ? ` (${dur(f.next - now)} sonra)` : ''}` : null,
+    oi != null ? `Açık pozisyon 1s ${ps(oi, 2)}` : null, Number.isFinite(snap.btc1h) ? `BTC 1s ${ps(snap.btc1h, 2)}` : null].filter(Boolean);
+  const m5 = snap.macd?.['5m'];
+  const line2 = [m5 ? `MACD 5dk ${esc(m5.text)}` : null, snap.stoch ? `Stoch RSI ${snap.stoch.k.toFixed(0)}` : null,
+    snap.vwap ? `VWAP ${updown((card.price - snap.vwap.vwap) / snap.vwap.vwap * 100)}` : null].filter(Boolean);
   const shown = snap.level ? `${snap.level.name}@${snap.level.value}` : null;
   const others = (snap.levels || [])
     .filter(l => l.value > card.price && l.kind !== 'fib' && l.name !== '1h tepe' && `${l.name}@${l.value}` !== shown && Math.abs(l.dist) <= 10)
     .sort((a, b) => a.value - b.value).slice(0, 3);
-  if (others.length) D.push(`<b>Üstteki diğer dirençler:</b> ${others.map(l => `${esc(l.name)} ${px(l.value)} (${pa(l.dist, 1)})`).join(' · ')}`);
-  const f = snap.funding;
-  if (f) D.push(`<b>Funding:</b> ${ps(f.rate * 100, 4)}${f.next ? ` · ${dur(f.next - now)} sonra` : ''}`);
-  if (card.oi && Number.isFinite(card.oi.changePct)) D.push(`<b>Açık pozisyon (1 saat):</b> ${ps(card.oi.changePct, 2)}`);
-  if (Number.isFinite(snap.btc1h)) D.push(`<b>BTC (1 saat):</b> ${ps(snap.btc1h, 2)}`);
-  const tags = (card.tags || []).filter(t => t !== `#${sym}`);
-  if (tags.length) { D.push(''); D.push(tags.map(esc).join(' ')); }
+  if (line1.length || line2.length || others.length) D.push('', '🧭 <b>Diğer</b>');
+  if (line1.length) D.push(line1.join(' · '));
+  if (line2.length) D.push(line2.join(' · '));
+  if (others.length) D.push(`Üstteki dirençler: ${others.map(l => `${esc(l.name)} ${px(l.value)} (${pa(l.dist, 1)})`).join(' · ')}`);
 
   return { text: L.join('\n'), keyboard: cardKeyboard(card.id, sym, card.followed), details: D.join('\n') };
 }
+
+/** Kontrol listesinde eksik maddelerin kısa adları */
+const CHECK_SHORT = s => ({
+  daily: 'günlük direnç', confluence: 'çakışan direnç', band: `RSI ${s.strongRsi}–${s.rsiEntryMax}`, rsi15: `15dk ≥ ${s.strongRsi}`,
+  rsi5_15: `5dk+15dk ≥ ${s.strongRsi}`, htf: `1s/4s ≥ ${s.confRsi}`, sep: 'EMA21 ayrışma', neg: 'negatif tepe',
+});
 
 /** Sayıdan sonra "-(s)ında/-(s)inde" eki: 6'sında · 7'sinde · 10'unda … (yaklaşık, 0–10 için) */
 function suffix(n) {

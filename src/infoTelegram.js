@@ -120,7 +120,22 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
   const show = async (cq, m) => { await telegram.editMessage(cq.message.chat.id, cq.message.message_id, m.text, m.keyboard); };
 
   const denied = { text: 'Bu işlem için grup yöneticisi olmalısın.', alert: true };
-  const detailSent = new Map();   // aynı kartın detayı 30 sn içinde tekrar gönderilmesin
+  const detailSent = new Map();   // aynı kişiye aynı kartın detayı 10 sn içinde tekrar gönderilmesin
+  function detailFor(id) {
+    const html = details ? details.get(id) : null;
+    if (!html) return null;
+    const sym = id.split('-')[0];
+    const sr = getSeries(sym);
+    return `${html}\n\n<i>${esc(summaryText(sym, tracker.log(sym), sr ? sr.price() : null))}</i>`;
+  }
+  // Özel sohbet: /start d_<kartId> → grup üyesiyse o kartın Detay'ı
+  if (telegram.onPrivateStart) {
+    telegram.onPrivateStart(async (param, msg) => {
+      if (!(await telegram.isMember(msg.from?.id))) return 'Bu bot yalnızca grup üyeleri içindir.';
+      if (!param.startsWith('d_')) return 'Merhaba! Gruptaki kartlarda <b>📋 Detay</b> butonuna bastığında ayrıntılar buraya, yalnızca sana gelir.';
+      return detailFor(param.slice(2)) || 'Bu kartın ayrıntıları artık yok (bot yeniden başladı).';
+    });
+  }
 
   async function onCallback(cq) {
     const data = String(cq.data || '');
@@ -129,19 +144,21 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
 
     const [kind, a, b] = data.split(':');
     if (kind === 'd') {
-      // 📋 Detay (herkes): kartın ayrıntıları kartın altına sessiz mesaj olarak
+      // 📋 Detay (herkes): YALNIZCA basan kişiye özel mesajla — grupta hiçbir şey görünmez
       const id = data.slice(2);
-      const html = details ? details.get(id) : null;
+      const html = detailFor(id);
       if (!html) return { text: 'Bu kartın ayrıntıları artık yok (bot yeniden başladı).', alert: true };
-      const last = detailSent.get(id) || 0;
-      if (Date.now() - last < 30_000) return { text: 'Ayrıntılar az önce gönderildi — kartın altında.' };
-      detailSent.set(id, Date.now());
-      if (detailSent.size > 500) detailSent.delete(detailSent.keys().next().value);
-      const sym = id.split('-')[0];
-      const sr = getSeries(sym);
-      const serie = id.endsWith('-move') ? '' : `\n\n<b>Seri:</b> ${esc(summaryText(sym, tracker.log(sym), sr ? sr.price() : null))}`;
-      telegram.sendDetail(html + serie, { thread: cq.message?.message_thread_id ?? null, replyTo: cq.message?.message_id ?? null });
-      return { text: '📋 Ayrıntılar kartın altına gönderildi' };
+      const key = `${uid}:${id}`, last = detailSent.get(key) || 0;
+      if (Date.now() - last < 10_000) return { text: '📋 Detay az önce özel mesajla gönderildi.' };
+      if (await telegram.sendPrivate(uid, html)) {
+        detailSent.set(key, Date.now());
+        if (detailSent.size > 1000) detailSent.delete(detailSent.keys().next().value);
+        return { text: '📋 Detay özel mesajla gönderildi.' };
+      }
+      // Bot bu kullanıcıyla hiç konuşmamış → özel sohbeti "Başlat" parametresiyle aç; /start d_<id> gelince gönderilir
+      const bot = telegram.getBotUsername ? telegram.getBotUsername() : null;
+      if (!bot) return { text: 'Önce botla özel sohbeti başlat (bota /start yaz), sonra tekrar bas.', alert: true };
+      return { url: `https://t.me/${bot}?start=d_${id}` };
     }
     if (kind === 'o') {
       const sr = getSeries(a);

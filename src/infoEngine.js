@@ -303,6 +303,39 @@ function negPeaks(series, tf, lookback = 40, period = 14) {
   return { count: fresh ? cnt : 0, key: last ? `${tf}:${t[last.i]}` : null, lastAgo };
 }
 
+/**
+ * Hacim ve alış–satış (USDT) — 15 dk / 1 saat / 4 saat / 24 saat. Bellekteki mumlardan, ek istek yok.
+ *   hacim  : pencerenin USDT hacmi · kat: o uzunluktaki pencerelerin normaline oranı
+ *            (15 dk ve 1 saat → son 24 saatin ortalaması · 4 saat ve 24 saat → son 7 günün ortalaması)
+ *   alış % : taker alış hacmi / hacim · net: alış − satış (USDT)
+ */
+function volStats(series) {
+  const last = (tf, n, incl) => {
+    const q = series.col(tf, 'q', incl), tq = series.col(tf, 'tq', incl);
+    let a = 0, b = 0;
+    for (let i = Math.max(0, q.length - n); i < q.length; i++) { a += q[i]; b += tq[i]; }
+    return { q: a, tq: b };
+  };
+  const avgOf = (tf, n) => {
+    const q = series.col(tf, 'q', false);
+    const k = Math.min(n, q.length);
+    if (k < 3) return null;
+    let a = 0;
+    for (let i = q.length - k; i < q.length; i++) a += q[i];
+    return a / k;
+  };
+  const rows = [
+    ['15 dk', last('1m', 15, false), avgOf('15m', 96)],
+    ['1 saat', last('1m', 60, false), avgOf('1h', 24)],
+    ['4 saat', last('1m', 240, false), avgOf('4h', 42)],
+    ['24 saat', last('15m', 96, true), avgOf('1d', 7)],
+  ];
+  return rows.map(([label, w, avg]) => ({
+    label, q: w.q, x: avg > 0 ? w.q / avg : null,
+    buy: w.q > 0 ? w.tq / w.q * 100 : null, net: 2 * w.tq - w.q,
+  }));
+}
+
 function vwapState(series, price) {
   const t = series.col('5m', 't');
   if (!t.length) return null;
@@ -445,6 +478,7 @@ function evaluate(series, s, ctx = {}, force = false) {
   snap.macd = { '5m': macdState(series, '5m'), '15m': macdState(series, '15m') };
   snap.stoch = stochState(series, '5m');
   snap.vwap = vwapState(series, price);
+  snap.vol = volStats(series);
 
   const wins = [s.windowMin, s.shortWindowMin];
   snap.bursts = burstCounts(series, s, wins);
@@ -743,4 +777,4 @@ function movePct(prevClose, prevT, c) {
   return base > 0 ? (c.c - base) / base * 100 : null;
 }
 
-module.exports = { emaRide, moveText, evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, detectSfp, discoveryOf, negPeaks, movePct, volGrade, rsiGrade, checklist, circles, dirColor, RSI_TFS };
+module.exports = { volStats, emaRide, moveText, evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, detectSfp, discoveryOf, negPeaks, movePct, volGrade, rsiGrade, checklist, circles, dirColor, RSI_TFS };

@@ -215,11 +215,6 @@ async function pump() {
 }
 
 /** Düz metin mesajı kuyruğa al (HTML) — ör. backtest özet raporu */
-/** Bir mesaja yanıt olarak (altına) sessiz mesaj — 📋 Detay butonu */
-function sendDetail(text, { thread = null, replyTo = null } = {}) {
-  enqueue('reply', CHAT_ID, text, { silent: true, ...(thread ? { thread } : {}), ...(replyTo ? { replyTo } : {}) });
-}
-
 function sendText(text, keyboard = null, thread = null) {
   enqueue('reply', CHAT_ID, text, { ...(keyboard ? { keyboard } : {}), ...(thread ? { thread } : {}) });
 }
@@ -327,13 +322,48 @@ function noteForeign(chat) {
   console.log(`[TELEGRAM] Tanımsız sohbetten mesaj yok sayıldı: ${chat.title ? `"${chat.title}" ` : ''}ID ${id}${chat.is_forum ? ' (konulu grup)' : ''} — bu sohbeti kullanmak için: fly secrets set TELEGRAM_CHAT_ID=${id}`);
 }
 
+/** Grup üyesi mi (özel sohbette Detay isteği için) — 10 dk önbellek */
+const memberCache = new Map();
+async function isMember(userId) {
+  if (userId == null) return false;
+  const hit = memberCache.get(userId);
+  if (hit && hit.until > Date.now()) return hit.ok;
+  let ok = false;
+  try {
+    const m = await api('getChatMember', { chat_id: CHAT_ID, user_id: userId });
+    ok = ['creator', 'administrator', 'member', 'restricted'].includes(m?.status);
+  } catch (err) {
+    console.warn(`[TELEGRAM] getChatMember (üyelik) başarısız: ${err.message}`);
+  }
+  memberCache.set(userId, { ok, until: Date.now() + 10 * 60_000 });
+  return ok;
+}
+
+/**
+ * Kullanıcıya ÖZEL mesaj (bot ile özel sohbet). Kullanıcı botu hiç başlatmadıysa Telegram izin vermez (403) → false.
+ * Kuyruğa girmez: özel sohbet grup hız sınırından bağımsızdır ve sonucun hemen bilinmesi gerekir.
+ */
+async function sendPrivate(userId, text) {
+  try {
+    await api('sendMessage', { chat_id: userId, text, parse_mode: 'HTML', disable_web_page_preview: true });
+    return true;
+  } catch (err) {
+    if (err.code !== 403 && err.code !== 400) console.warn(`[TELEGRAM] özel mesaj gönderilemedi (${err.code}: ${err.message})`);
+    return false;
+  }
+}
+
+// Özel sohbette yalnızca "/start <parametre>" kabul edilir (📋 Detay bağlantısı) — işleyiciyi bilgi botu verir
+let privateStartHandler = null;
+function onPrivateStart(fn) { privateStartHandler = fn; }
+
 async function handleCallback(cq) {
   if (String(cq.message?.chat?.id) !== String(CHAT_ID)) { noteForeign(cq.message?.chat); return; }
   let res = null;
   try { res = callbackHandler ? await callbackHandler(cq) : null; }
   catch (err) { console.error('[TELEGRAM] buton işlenemedi:', err.message); res = { text: 'Hata oluştu.' }; }
   try {
-    await api('answerCallbackQuery', { callback_query_id: cq.id, text: res?.text ? String(res.text).slice(0, 200) : undefined, show_alert: Boolean(res?.alert) });
+    await api('answerCallbackQuery', { callback_query_id: cq.id, text: res?.text ? String(res.text).slice(0, 200) : undefined, show_alert: Boolean(res?.alert), ...(res?.url ? { url: res.url } : {}) });
   } catch (err) { console.warn(`[TELEGRAM] answerCallbackQuery: ${err.message}`); }
 }
 
@@ -341,6 +371,17 @@ async function handleUpdate(u) {
   if (u.callback_query) return handleCallback(u.callback_query);
   const msg = u.message;
   if (!msg?.text || !msg.text.startsWith('/')) return;
+
+  // Özel sohbet: yalnızca /start <parametre> (📋 Detay) — başka komut çalışmaz
+  if (msg.chat?.type === 'private') {
+    const pm = msg.text.match(/^\/start(?:@\w+)?(?:\s+(\S+))?/i);
+    if (!pm || !privateStartHandler) return;
+    let reply = null;
+    try { reply = await privateStartHandler(pm[1] || '', msg); }
+    catch (err) { console.error('[TELEGRAM] özel /start hatası:', err.message); reply = 'Hata oluştu.'; }
+    if (reply) await sendPrivate(msg.chat.id, reply);
+    return;
+  }
 
   // Yetki: yalnızca yapılandırılmış sohbet
   if (String(msg.chat?.id) !== String(CHAT_ID)) { noteForeign(msg.chat); return; }
@@ -418,6 +459,6 @@ function stop() {
 
 module.exports = {
   start, stop, sendText, sendCard, flush, takeStats, queueLength, esc,
-  sendDetail, setCommands, publishCommands, onCallback, isAdmin, editMessage,
+  sendPrivate, onPrivateStart, isMember, getBotUsername: () => botUsername, setCommands, publishCommands, onCallback, isAdmin, editMessage,
   _internal: { handleUpdate, get commands() { return commands; }, queue },
 };

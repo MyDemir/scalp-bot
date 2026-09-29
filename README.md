@@ -78,9 +78,15 @@ Fiyat: 2.358
 1 dk ≥ %2 hareket ayrı kart değildir: RSI şartı sağlanan coinde RSI kartına `⚡…` satırı olarak girer (bkz. aşağıda).
 
 **Butonlar:** 📈 TradingView · 🟡 Binance / **📋 Detay** · 🔕 1s sustur · ☆ Takip.
-**📋 Detay** (herkes basabilir): kartın altına yanıt olarak sessiz bir mesaj gelir — tüm yenilikler, kontrol listesinin 8 maddesi
-(değerleriyle), hedef (3m/5m EMA21), fiyat keşfinde kırılan seviye / sonraki direnç / Fib uzantı, hacim sayaçları, alış − satış,
-MACD, Stoch RSI, VWAP, üstteki diğer dirençler, funding, açık pozisyon, BTC, serideki kart özeti ve etiketler (`#DERECE2 #DIPTE …`).
+**📋 Detay** yalnızca **basan kişiye özel mesajla** gelir; grupta hiçbir şey görünmez. Botu daha önce özel sohbette
+başlatmamış kullanıcıda buton botla özel sohbeti açar (bir kez **Başlat**), Detay hemen gelir; sonrakiler doğrudan gelir.
+Özel sohbette yalnızca bu istek kabul edilir ve yalnızca grup üyelerine gönderilir. Detay'ın bölümleri:
+- 📊 **Hacim ve alış–satış** — 15 dk / 1 saat / 4 saat / 24 saat: USDT hacim · normaline oranı (15 dk ve 1 saat için son 24 saat,
+  4 ve 24 saat için son 7 gün ortalaması) · alış % / satış % (taker) · net (alış − satış $) · hacimli mum sayısı (1 saat) ·
+  `Bugün 1 dk ≥ %2: ▲ 5 · ▼ 3 · fark +2`; kartı 1 dk hareket doğurduysa onun ayrıntısı
+- 🎯 **Kontrol x/8** — sağlanan maddeler değerleriyle, eksikler tek satırda, varsa ⚠️ uyarı
+- 📏 **Hedef** (3dk/5dk EMA21) · 3dk EMA21 durumu (izliyor / koptu / serbest) · fiyat keşfinde kırılan seviye, sonraki direnç, Fib uzantı
+- 🧭 **Diğer** — funding, açık pozisyon (1 saat), BTC (1 saat) · MACD 5dk, Stoch RSI, VWAP · üstteki dirençler
 Ayrıntılar bellekte tutulur (son 3000 kart); bot yeniden başlayınca eski kartların Detay'ı "artık yok" der.
 
 - **EMA21** 3m/5m: fiyata uzaklığı (%) ve ATR cinsinden ayrışma (geri çekilme hedefleri)
