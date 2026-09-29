@@ -36,7 +36,7 @@ Kontrol anı: **3m / 5m / 15m mum kapanışları** + **hacimli her 1m mum kapan�
 7. 3m ve 5m EMA21'den ayrışmış (≥ 0.5 ATR, son 3 mumda dokunmamış) — değilse "⚠️ RSI 95 üstü ama EMA21'e yakın"
 8. 1m ya da 3m'de ≥ 2 negatif tepe
 
-Altında 🎯 hedef bölgeleri: 3m EMA21 ve 5m EMA21 (fiyat ve uzaklık). **Derece:** 🔴 skor 0–2 · 🔴🔴 3–5 · 🔴🔴🔴 6–8 (8 madde; `/ayarlar` → Derece). Kartın 🔔 satırında tam skor yazar (`Kontrol 4/8`).
+Altında 🎯 hedef bölgeleri: 3m EMA21 ve 5m EMA21 (fiyat ve uzaklık). **Derece:** 🔴 skor 0–2 · 🔴🔴 3–5 · 🔴🔴🔴 6–8 (8 madde; `/ayarlar` → Derece).
 🔴🔴🔴 sesli (kart sesi kapalıyken bile). Skor değişince kart gelir ("Kontrol listesi 5/8 → 7/8"). Eşikler `/ayarlar`:
 `strongRsi`, `rsiEntryMax`, `confRsi`, `confluencePct`, `grade2Min`, `grade3Min`.
 Hacim/⚡ daireleri: 1 temel · 2 hacim ≥ 3× · 3 + yön uyumu ≥ %65; renk yönü gösterir (🟢 alış/yükseliş · 🔴 satış/düşüş · ⚪ nötr).
@@ -64,7 +64,7 @@ Aynı coinde kartlar **#1, #2 …** diye numaralanır; kapanmış 5m RSI 75'in a
 Hızlı okunsun diye kısa ve her şey açıkta (açılır kutu yok):
 ```
 🔴🔴 #CVXUSDT — RSI                 ← daire sayısı = derece (kontrol skoru), rengi = son 15 dk yön (🟢 yükseliş · 🔴 düşüş)
-🔔: RSI 85+ · Kart 3 · Kontrol 5/8 · ⭐ Dirençte   ← neden geldi (sahte kırılımda "⚠️ Sahte kırılım", seri içinde "Seri sürüyor (şart dışı)")
+🔔: RSI 85+ · Kart 3 · ⭐ Dirençte   ← neden geldi (sahte kırılımda "⚠️ Sahte kırılım", seri içinde "Seri sürüyor (şart dışı)")
 ⚠️ Sahte kırılım: … / 🚀 Fiyat keşfi: … / 🟢🟢 Hacimli yükselen mum …   ← yalnız özel olay varsa (en fazla 2 satır)
 RSI 3dk: 86.1
 RSI 5dk: 88.4

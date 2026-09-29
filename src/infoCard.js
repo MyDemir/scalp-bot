@@ -110,7 +110,7 @@ function formatCard(card, s, opt = {}) {
     : T.sfp ? '⚠️ Sahte kırılım'
       : snap.rsiOk ? `RSI ${s.rsiMin}+`
         : card.inSeries ? 'Seri sürüyor (şart dışı)' : `RSI ${s.rsiMin}+`;
-  L.push(`🔔: ${[why, card.seq === '–' ? null : `Kart ${card.seq}`, snap.check ? `Kontrol ${snap.check.score}/${snap.check.total}` : null, dip ? '⭐ Dirençte' : null].filter(Boolean).join(' · ')}`);
+  L.push(`🔔: ${[why, card.seq === '–' ? null : `Kart ${card.seq}`, dip ? '⭐ Dirençte' : null].filter(Boolean).join(' · ')}`);
   const special = card.news.filter(n => /^(⚡|⚠️ Sahte kırılım|🚀 Fiyat keşfi|🟢|🔴|⚪)/.test(n));
   for (const n of special.slice(0, 2)) L.push(esc(n));
   L.push(...rsiLines(snap));
