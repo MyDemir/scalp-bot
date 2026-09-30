@@ -839,4 +839,4 @@ function movePct(prevClose, prevT, c) {
   return base > 0 ? (c.c - base) / base * 100 : null;
 }
 
-module.exports = { findHiddenPU, findGoldenCross, volStats, emaRide, moveText, evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, detectSfp, discoveryOf, negPeaks, movePct, volGrade, rsiGrade, checklist, circles, dirColor, RSI_TFS };
+module.exports = { rsiOf, findHiddenPU, findGoldenCross, volStats, emaRide, moveText, evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, detectSfp, discoveryOf, negPeaks, movePct, volGrade, rsiGrade, checklist, circles, dirColor, RSI_TFS };

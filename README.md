@@ -146,6 +146,18 @@ Yeniden başlatmada yarım kalan takipler "eksik" işaretlenir.
 - `/istatistik [gün]` — kart sınıfları (RSI 2/3–3/3, Dirençte, hacim, seri içi, negatif tepe …) ve ⚡ uyarılar için
   "sonraki 60 dk" medyanları — backtest'teki tablonun canlı hali
 
+### Seviye tepkisi (/seviye)
+İzlenen her coinde fiyat bir dirence **alttan** değdiğinde (önceki 1m kapanış seviyenin %0.3'ten fazla altında, bu
+mumun tepesi %0.3 yakınında ya da üstünde) sonraki **60 dk** kaydedilir — kart çıksın çıkmasın. Seviyeler kartlardakiyle
+aynı (Fib 0.236–0.786, günlük bölge / trend çizgisi, 7/30g en yüksek, MA200/EMA200, 1h/4h tepe). Aynı seviye için
+60 dk içinde ikinci temas yazılmaz. Kartı etkilemez; `/data/cards.db` → `touches` tablosu, 60 gün saklanır.
+- Temasta: 3m/5m/15m RSI (RSI kart şartı sağlanıyor mu), ±5 dk içinde kart çıktı mı, fiyatın 3dk EMA21'e uzaklığı
+- 60 dk'da: **çekilme** (o ana kadarki en yüksekten en derin geri çekilme, %) · **EMA21'e dönüş** (1m mum 3dk EMA21'e
+  indi mi, kaç dk sonra) · **kırdı** (5dk kapanış seviyenin %`dipAbovePct` üstünde; EMA21'e döndükten sonra mı) ·
+  **üstte kaldı** (60. dk kapanışı seviyenin üstünde)
+- `/seviye [gün] [ad]` — seviye türüne göre tablo: tümü ve RSI şartlı ayrı (ör. `/seviye 7 fib`, `/seviye 14 bölge`).
+  Kazanç/kayıp değildir. Backtest aynı tabloyu geçmiş veriden hemen verir (aşağıda).
+
 ### Konulu (forum) gruba bağlama
 Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı konularına** gönderilebilir.
 1. Grup ayarları → **Konular**'ı aç (grup süpergrup olmalı; ID çoğunlukla değişmez). Yeni bir grup kullanacaksan
@@ -165,6 +177,7 @@ Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı kon
 | `/sustur ETH [dk]` · `/ac ETH` · `/sessiz` | yönetici / herkes | susturma |
 | `/takip [ETH]` | liste herkes, ekle-çıkar yönetici | takipteki coinlerin kartları her zaman sesli |
 | `/gecmis ETH [adet]` · `/istatistik [gün]` | herkes | kart geçmişi ve sınıf istatistiği |
+| `/seviye [gün] [ad]` | herkes | seviye tepkisi: temastan sonra çekilme / 3dk EMA21'e dönüş / kırılım (ör. `/seviye 7 fib`) |
 | `/konu [ad]` · `/konu sil ad` | liste herkes, bağlama yönetici | konulu grupta yönlendirme |
 | `/durum` · `/benkimim` · `/yardim` | herkes | |
 
@@ -185,10 +198,12 @@ node src/infoBacktest.js --symbol ETH,SOL --days 60 --ornek 5
 node src/infoBacktest.js --ayar rsiMin=95,minTFs=3        # başka ayarla dene
 node src/infoBacktest.js --canli-ayar --telegram          # Telegram'dan değiştirilmiş ayarlarla, sonucu gruba gönder
 node src/infoBacktest.js --kanit --days 1 --max-coins 50  # kanıt modu (RSI 70) — yalnızca backtest
+node src/infoBacktest.js --symbol ARK,ETH,SOL --days 30 --canli-ayar --seviye-filtre fib --telegram  # seviye tepkisi (yalnız Fib)
 ```
 Çıktı: kart sayısı (günlük), seri sayısı, sesli/sessiz, Telegram yükü (en yoğun dakika/saat), sınıf
 tablosu (RSI 2/3–3/3, Dirençte/yaklaşıyor, hacim tetikli, seri içi, ayrışma, destek, negatif tepe), listedeki
-coinlerde 1 dk ≥ %2 hareket sayısı ve `backtest-results/info-*.json`. Varsayılan ayarlar canlıyla aynıdır.
+coinlerde 1 dk ≥ %2 hareket sayısı, **seviye tepkisi tablosu** (canlıdaki `/seviye` ile aynı; `--seviye-filtre fib`
+ile süzülür) ve `backtest-results/info-*.json`. Varsayılan ayarlar canlıyla aynıdır.
 **Kanıt modu:** `--kanit` yalnızca o backtest çalışmasında RSI eşiğini 70'e, sıfırlamayı 60'a indirir (çok kart →
 motorun çalıştığı görülür); canlı bota ve ayar dosyasına dokunmaz. `--canli-ayar` ayar dosyasını yalnızca okur.
 Süre: coin başına ~`gün × 0.7` sn veri çekme (30 gün ≈ 20–25 sn/coin).
@@ -209,7 +224,8 @@ src/
 ├── infoTelegram.js   # /ayarlar, /coin, /sustur, /takip … + buton işleyicileri
 ├── infoSettings.js   # Ayarlar (varsayılan config.info, değişiklikler /data/info-settings.json)
 ├── infoStats.js      # Kart sınıfları + "sonrası" medyanları (backtest ve /istatistik ortak)
-├── cardStore.js      # Kart geçmişi (SQLite /data/cards.db) + 15/60/240 dk takip
+├── cardStore.js      # Kart geçmişi (SQLite /data/cards.db) + 15/60/240 dk takip + seviye tepkisi tablosu
+├── levelTouch.js     # Seviye tepkisi: dirence alttan temas → 60 dk çekilme / EMA21 / kırılım (canlı + backtest ortak)
 ├── infoBacktest.js   # Bilgi botu backtest'i
 ├── levels.js         # 4h/1d MA200 · EMA200 · 30 günlük tepe · 7/30g en yüksek · 1h/4h tepe · Fib düzeltme/uzantı
 ├── ta.js             # RSI/EMA/ATR/MACD/Stoch RSI/VWAP

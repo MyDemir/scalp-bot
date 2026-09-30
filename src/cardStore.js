@@ -8,6 +8,7 @@
  *           kart anındaki fiyata göre. Kazanç/kayıp hesabı YOK — sınıfları zamanla kıyaslamak için.
  *   Yeniden başlatma: yarım kalan takipler "eksik" işaretlenip kapatılır (kopukluk verisi uydurulmaz).
  *   Saklama: 90 gün.
+ *   Seviye tepkisi (src/levelTouch.js): dirence alttan temas + sonraki 60 dk özeti, `touches` tablosu, 60 gün.
  *
  * Hata olursa bot durmaz: yazma hataları loglanır, kart gönderimi etkilenmez.
  */
@@ -18,6 +19,7 @@ const fs   = require('fs');
 const MIN = 60_000;
 const WINDOWS = [15, 60, 240];
 const KEEP_DAYS = 90;
+const TOUCH_KEEP_DAYS = 60;
 
 function defaultFile() {
   const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'signals.db');
@@ -42,6 +44,13 @@ function createCardStore({ file = defaultFile(), logger = console } = {}) {
       );
       CREATE INDEX IF NOT EXISTS cards_t ON cards(t);
       CREATE INDEX IF NOT EXISTS cards_sym_t ON cards(symbol, t);
+      CREATE TABLE IF NOT EXISTS touches (
+        id TEXT PRIMARY KEY, symbol TEXT NOT NULL, t INTEGER NOT NULL, name TEXT NOT NULL, kind TEXT, value REAL,
+        hits INTEGER, rsiok INTEGER, card INTEGER, emagap REAL,
+        pb REAL, pbmin INTEGER, emamin INTEGER, brokemin INTEGER, brokeafterema INTEGER, held INTEGER,
+        up REAL, dn REAL, c60 REAL
+      );
+      CREATE INDEX IF NOT EXISTS touches_t ON touches(t);
     `);
     const n = db.prepare('UPDATE cards SET done = 1, partial = 1 WHERE done = 0').run().changes;
     if (n) logger.log(`[GEÇMİŞ] Yeniden başlatma: ${n} yarım takip "eksik" olarak kapatıldı`);
@@ -57,6 +66,10 @@ function createCardStore({ file = defaultFile(), logger = console } = {}) {
     recent: db.prepare('SELECT * FROM cards WHERE symbol = ? ORDER BY t DESC LIMIT ?'),
     since: db.prepare('SELECT * FROM cards WHERE t >= ? ORDER BY t'),
     prune: db.prepare('DELETE FROM cards WHERE t < ?'),
+    tIns: db.prepare(`INSERT OR IGNORE INTO touches (id, symbol, t, name, kind, value, hits, rsiok, card, emagap, pb, pbmin, emamin, brokemin, brokeafterema, held, up, dn, c60)
+      VALUES (@id, @symbol, @t, @name, @kind, @value, @hits, @rsiok, @card, @emagap, @pb, @pbmin, @emamin, @brokemin, @brokeafterema, @held, @up, @dn, @c60)`),
+    tSince: db.prepare('SELECT * FROM touches WHERE t >= ? ORDER BY t'),
+    tPrune: db.prepare('DELETE FROM touches WHERE t < ?'),
   };
 
   const open = new Map();   // symbol → [{ id, t, price, lo, hi, last, rec }]
@@ -117,7 +130,19 @@ function createCardStore({ file = defaultFile(), logger = console } = {}) {
         if (!arr.length) open.delete(sym);
       }
       safe(() => st.prune.run(now - KEEP_DAYS * 86_400_000), 'temizlik');
+      safe(() => st.tPrune.run(now - TOUCH_KEEP_DAYS * 86_400_000), 'temizlik');
     },
+
+    /** Seviye tepkisi olayı (src/levelTouch.js finish() çıktısı) */
+    addTouch(e) {
+      safe(() => st.tIns.run({
+        id: e.id, symbol: e.symbol, t: e.t, name: e.name, kind: e.kind ?? null, value: e.value,
+        hits: e.hits, rsiok: e.rsiOk ? 1 : 0, card: e.card ? 1 : 0, emagap: e.emaGap ?? null,
+        pb: e.pb, pbmin: e.pbMin, emamin: e.emaMin ?? null, brokemin: e.brokeMin ?? null, brokeafterema: e.brokeAfterEma ? 1 : 0,
+        held: e.held ? 1 : 0, up: e.up, dn: e.dn, c60: e.c60,
+      }), 'seviye kaydı');
+    },
+    touchesSince: t => (safe(() => st.tSince.all(t), 'sorgu') || []).map(rowToTouch),
 
     recent: (symbol, n = 10) => safe(() => st.recent.all(symbol, n), 'sorgu') || [],
     since: t => safe(() => st.since.all(t), 'sorgu') || [],
@@ -135,4 +160,13 @@ function rowToStat(r) {
   return { ...d, kind: r.kind, symbol: r.symbol, t: r.t, seq: r.seq, price: r.price, fwd, partial: Boolean(r.partial), done: Boolean(r.done) };
 }
 
-module.exports = { createCardStore, rowToStat, WINDOWS };
+/** touches satırı → levelTouch olay biçimi */
+function rowToTouch(r) {
+  return {
+    id: r.id, symbol: r.symbol, t: r.t, name: r.name, kind: r.kind, value: r.value, hits: r.hits, rsiOk: Boolean(r.rsiok), card: Boolean(r.card),
+    emaGap: r.emagap, pb: r.pb, pbMin: r.pbmin, emaMin: r.emamin, brokeMin: r.brokemin, brokeAfterEma: Boolean(r.brokeafterema),
+    held: Boolean(r.held), up: r.up, dn: r.dn, c60: r.c60,
+  };
+}
+
+module.exports = { createCardStore, rowToStat, rowToTouch, WINDOWS };

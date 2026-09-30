@@ -10,7 +10,7 @@
 
 const { formatCard, summaryText, esc, px, pct, dayTime } = require('./infoCard');
 const { evaluate, circles } = require('./infoEngine');
-const { classTable, median } = require('./infoStats');
+const { classTable, median, touchText } = require('./infoStats');
 const { rowToStat } = require('./cardStore');
 
 const HOUR = 3_600_000;
@@ -204,6 +204,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
 /takip [ETH] — takip listesi / ekle-çıkar (takip edilenlerin kartları sesli gelir)
 /gecmis ETH [adet] — coinin son kartları ve sonrasında fiyat
 /istatistik [gün] — kart sınıfları ve sonrasında fiyat (varsayılan 7 gün)
+/seviye [gün] [ad] — dirence alttan temastan sonraki 60 dk: geri çekilme, 3dk EMA21'e dönüş, kırılım (ör. <code>/seviye 7 fib</code>)
 /konu [ad] — konulu grupta yönlendirme (konunun içinde yaz: /konu kart · /konu sistem · /konu kart3 · /konu backtest)
 /durum — bot durumu
 /benkimim — Telegram kullanıcı ID'n
@@ -321,6 +322,15 @@ ${cls.join('\n') || '—'}${moves.length ? `
 ${mv.join('\n')}` : ''}`.slice(0, 4000);
     },
 
+    seviye: (args) => {
+      if (!store || !store.enabled() || !store.touchesSince) return 'Kart geçmişi kapalı (veritabanı açılamadı).';
+      const parts = args.split(/\s+/).filter(Boolean);
+      const dIdx = parts.findIndex(x => /^\d+$/.test(x));
+      const days = Math.max(1, Math.min(60, dIdx >= 0 ? Number(parts.splice(dIdx, 1)[0]) : 7));
+      const rows = store.touchesSince(Date.now() - days * 86_400_000);
+      return touchText(rows, { title: `son ${days} gün · ${rows.length} temas`, filter: parts.join(' ') });
+    },
+
     konu: async (args, msg) => {
       const [a0, a1] = args.split(/\s+/).filter(Boolean).map(x => x.toLowerCase());
       const list = () => {
@@ -358,6 +368,7 @@ ${mv.join('\n')}` : ''}`.slice(0, 4000);
     ['durum', 'Bot durumu: izlenen coin, bağlantı, kart sayısı'],
     ['gecmis', 'Coinin son kartları ve sonrasında fiyat · örn. /gecmis ETH'],
     ['istatistik', 'Kart sınıfları ve kart sonrası fiyat · örn. /istatistik 7'],
+    ['seviye', 'Seviye tepkisi: temastan sonra çekilme / EMA21 / kırılım · örn. /seviye 7 fib'],
     ['takip', 'Takip listesi / ekle-çıkar (kartları hep sesli) · örn. /takip ETH'],
     ['sustur', 'Coini sustur (varsayılan 60 dk) · örn. /sustur ETH 30'],
     ['ac', 'Susturmayı aç · örn. /ac ETH'],

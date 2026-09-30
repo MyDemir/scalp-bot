@@ -15,6 +15,8 @@
  *   Hareket  : izlenen coinde 1m kapanış bir önceki kapanışa göre ≥ %moveAlertPct → motor günlük sayaca yazar;
  *              RSI şartı sağlanıyorsa RSI kartına ⚡ satırı olarak girer (ayrı uyarı kartı yok). Evren dışı dinlenmez.
  *   Geçmiş   : her kart/uyarı src/cardStore.js ile /data/cards.db'ye yazılır, sonrası 15/60/240 dk izlenir.
+ *   Seviye   : izlenen coinde fiyat dirence alttan değince sonraki 60 dk'daki tepki kaydedilir (src/levelTouch.js,
+ *              /seviye komutu). Kartı etkilemez.
  */
 
 const cfg      = require('./config');
@@ -25,6 +27,7 @@ const eng      = require('./infoEngine');
 const { formatCard } = require('./infoCard');
 const { compact } = require('./infoStats');
 const { createCardStore } = require('./cardStore');
+const { createTouchTracker } = require('./levelTouch');
 const chart = require('./chart');
 const { createSettings } = require('./infoSettings');
 const { installInfoTelegram } = require('./infoTelegram');
@@ -39,6 +42,7 @@ const KEEP_BELOW_RATIO  = 0.8;       // evrenden çıkış: hacim < eşik × 0.8
 
 const settings = createSettings();
 const tracker  = eng.createTracker();
+const touches  = createTouchTracker();
 let store = null;             // kart geçmişi (main'de açılır)
 
 const series  = new Map();   // sym → Series
@@ -120,6 +124,13 @@ function processCandle(sr, c, live) {
   const closed = sr.apply1m(c);
   store?.onCandle(sr.symbol, c);
   if (!live) return;
+  if (sr.ready()) {
+    try {
+      for (const e of touches.observe(sr, closed, settings.get())) store?.addTouch(e);
+    } catch (err) {
+      console.error(`[SEVİYE] ${sr.symbol}:`, err?.message || err);
+    }
+  }
   let card = null;
   try {
     card = eng.step(sr, closed, settings.get(), tracker, ctx);
@@ -127,6 +138,7 @@ function processCandle(sr, c, live) {
     console.error(`[DEĞERLENDİRME] ${sr.symbol}:`, err?.stack || err);
   }
   if (card) {
+    touches.noteCard(sr.symbol, card.t);
     // Aynı coinin kartları sırayla kuyruğa girsin (OI isteği async — #3, #2'den önce gitmesin)
     const sym = sr.symbol;
     const prev = chains.get(sym) || Promise.resolve();
@@ -326,11 +338,12 @@ function heartbeat() {
   const cards = stats.cards;
   stats.cards = 0;
   store?.sweep();
+  touches.sweep();
   console.log(
     `[HEARTBEAT] WS ${ws?.open ?? 0}/${ws?.connections ?? 0} bağlı (${ws?.streams ?? 0} stream)` +
     ` | son ${mins}dk: ${closes} 1m kapanış, ${ws?.skipped ?? 0} ara güncelleme atlandı, ${cards} kart` +
     ` | coin: ${readyCount()}/${series.size} hazır${busy.size ? `, ${busy.size} yükleniyor` : ''}` +
-    ` | takipte ${store?.openCount() ?? 0} kart` +
+    ` | takipte ${store?.openCount() ?? 0} kart, ${touches.openCount()} seviye teması` +
     ` | telegram: ${tg.sent} gönderildi, ${tg.queued} kuyrukta${tg.failed ? `, ${tg.failed} BAŞARISIZ` : ''}` +
     ` | bellek: ${mem} MB`,
   );
@@ -393,4 +406,4 @@ async function main() {
   console.log('\n✅ Bilgi botu çalışıyor.\n');
 }
 
-module.exports = { main, _internal: { series, settings, tracker, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, statusText, stats, busy, pending, details, getStore: () => store } };
+module.exports = { main, _internal: { series, settings, tracker, touches, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, statusText, stats, busy, pending, details, getStore: () => store } };

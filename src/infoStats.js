@@ -93,4 +93,61 @@ function load(cards) {
   return { maxMin, maxHour, over20, peakHour: peakHour ? { at: fmtDate(peakHour[0] * 3_600_000), n: peakHour[1] } : null };
 }
 
-module.exports = { median, pctS, fmtDate, compact, CLASSES, classTable, load };
+// ── Seviye tepkisi (src/levelTouch.js) ─────────────────────────────────────
+
+const TOUCH_ORDER = ['Fib 0.236', 'Fib 0.382', 'Fib 0.5', 'Fib 0.618', 'Fib 0.786', 'Günlük bölge', 'Günlük trend çizgisi',
+  '30 günlük en yüksek', '7 günlük en yüksek', '30 günlük tepe', '1d MA200', '1d EMA200', '4h MA200', '4h EMA200', '4h tepe', '1h tepe'];
+
+/** Bir olay grubunun özeti (medyanlar ve adetler) */
+function touchSum(a) {
+  const ema = a.filter(e => e.emaMin != null);
+  return {
+    n: a.length,
+    pb: median(a.map(e => e.pb)),
+    ema: ema.length, emaMin: median(ema.map(e => e.emaMin)),
+    broke: a.filter(e => e.brokeMin != null).length,
+    brokeAfterEma: a.filter(e => e.brokeAfterEma).length,
+    held: a.filter(e => e.held).length,
+  };
+}
+
+/** Seviye adına göre gruplar: tümü + RSI şartlı */
+function touchGroups(rows) {
+  const by = new Map();
+  for (const e of rows) { if (!by.has(e.name)) by.set(e.name, []); by.get(e.name).push(e); }
+  const names = [...TOUCH_ORDER.filter(n => by.has(n)), ...[...by.keys()].filter(n => !TOUCH_ORDER.includes(n)).sort()];
+  return names.map(name => {
+    const a = by.get(name);
+    return { name, all: touchSum(a), rsi: touchSum(a.filter(e => e.rsiOk)), cards: a.filter(e => e.card).length };
+  });
+}
+
+const touchLine = (x) => (x.n
+  ? `çekilme %${x.pb.toFixed(1)} · EMA21'e dönüş ${x.ema}${x.ema ? ` (${Math.round(x.emaMin)} dk)` : ''} · kırdı ${x.broke}${x.brokeAfterEma ? ` (${x.brokeAfterEma}'i EMA21'den sonra)` : ''} · üstte kaldı ${x.held}`
+  : '—');
+
+/**
+ * Telegram metni (HTML). filter: seviye adında aranan metin (ör. "fib")
+ * @param {object[]} rows  levelTouch olayları
+ */
+function touchText(rows, { title = '', filter = '' } = {}) {
+  const f = filter.trim().toLocaleLowerCase('tr');
+  const groups = touchGroups(f ? rows.filter(e => e.name.toLocaleLowerCase('tr').includes(f)) : rows);
+  const head = `📐 <b>Seviye tepkisi</b>${title ? ` · ${title}` : ''}
+<i>Fiyat dirence alttan değdikten sonraki 60 dk (medyan / adet). Kazanç/kayıp değildir.
+çekilme: en derin geri çekilme · EMA21'e dönüş: 3dk EMA21'e inen (kaç dk sonra) · kırdı: 5dk kapanış seviyenin üstünde · üstte kaldı: 60. dk kapanışı seviyenin üstünde</i>`;
+  if (!groups.length) return `${head}
+
+Kayıt yok${f ? ` (“${filter}”)` : ''}.`;
+  const body = groups.map(g => `<b>${g.name}</b> · ${g.all.n} temas · RSI şartlı ${g.rsi.n} · kart ${g.cards}
+  Tümü: ${touchLine(g.all)}
+  RSI şartlı: ${touchLine(g.rsi)}`);
+  let out = head;
+  for (const b of body) {
+    if (out.length + b.length + 40 > 4000) { out += '\n\n… (liste uzun — ör. /seviye 7 fib)'; break; }
+    out += '\n\n' + b;
+  }
+  return out;
+}
+
+module.exports = { median, pctS, fmtDate, compact, CLASSES, classTable, load, touchGroups, touchText, TOUCH_ORDER };
