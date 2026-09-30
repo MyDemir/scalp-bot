@@ -102,6 +102,8 @@ function fmtPx(v) {
  * @param {number} [p.show]      gösterilecek mum sayısı
  * @returns {Buffer|null} PNG
  */
+const L0Name = L0 => L0.name;
+
 function renderChart({ symbol, candles, level = null, levels = [], overlays = [], ichi = DEFAULT_ICHI, showIchi = true, fib = true, fibDir = 'up', fibLeg = null, tf = '5m', subtitle = '', show = 100, tz = process.env.DISPLAY_TZ || 'Europe/Istanbul' }) {
   const L = lib();
   if (!L || !candles || candles.length < 20) return null;
@@ -260,14 +262,28 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
       }
     }
 
-    // Diğer seviyeler (gri, ince) — etiket sağda
-    for (const L0 of otherLevels) {
-      const y = ys(L0.value);
-      g.strokeStyle = C.levelOther; g.lineWidth = 1; g.setLineDash([4, 6]);
-      g.beginPath(); g.moveTo(padL, y); g.lineTo(padL + plotW, y); g.stroke(); g.setLineDash([]);
-      g.font = '13px ChartSans'; g.textAlign = 'right'; g.fillStyle = C.levelOther;
-      g.fillText(`${L0.name} ${fmtPx(L0.value)}`, padL + plotW - 6, y - 5);
-      g.textAlign = 'left';
+    // Kenar etiketleri için ayrılan alan (sağ üst): görünen aralığın üstündeki en yakın 4 seviye
+    const ups = edge.filter(e => e.value > last).sort((a, b) => a.value - b.value).slice(0, 4);
+    const reservedBottom = ups.length ? top + 16 + (ups.length - 1) * 17 + 4 : top - 20;
+    // Diğer seviyeler (gri, ince) — etiket sağda; yakın seviyelerin etiketleri üst üste binmesin diye kaydırılır
+    // (çizgi gerçek yerinde kalır, yalnız yazı kayar)
+    {
+      const placed = [];
+      const items = otherLevels.map(L0 => ({ L0, y: ys(L0.value) })).sort((a, b) => a.y - b.y);
+      for (const it of items) {
+        g.strokeStyle = C.levelOther; g.lineWidth = 1; g.setLineDash([4, 6]);
+        g.beginPath(); g.moveTo(padL, it.y); g.lineTo(padL + plotW, it.y); g.stroke(); g.setLineDash([]);
+        let ly = it.y - 5;
+        if (ly - 12 < reservedBottom) ly = Math.max(ly, reservedBottom + 14);       // kenar etiketlerinin altına
+        for (const p of placed) if (Math.abs(ly - p) < 15) ly = p + 15;             // bir öncekinin altına
+        placed.push(ly);
+        const txt = `${L0Name(it.L0)} ${fmtPx(it.L0.value)}`;
+        g.font = '13px ChartSans'; g.textAlign = 'right';
+        const tw = g.measureText(txt).width;
+        g.fillStyle = 'rgba(15,20,27,0.8)'; g.fillRect(padL + plotW - tw - 10, ly - 12, tw + 8, 15);
+        g.fillStyle = C.levelOther; g.fillText(txt, padL + plotW - 6, ly);
+        g.textAlign = 'left';
+      }
     }
     // Direnç seviyesi (en yakın, turuncu)
     if (showLevel) {
@@ -295,7 +311,6 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
 
     // Kenar etiketleri: görünen aralığın üstündeki en yakın 4 seviye (↑ ad değer (+%uzaklık)), sağ üstte alt alta
     {
-      const ups = edge.filter(e => e.value > last).sort((a, b) => a.value - b.value).slice(0, 4);
       g.font = '13px ChartSans'; g.textAlign = 'right';
       ups.forEach((e, i) => {
         const txt = `↑ ${e.label} ${fmtPx(e.value)} (+%${((e.value - last) / last * 100).toFixed(1)})`;
