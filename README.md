@@ -156,8 +156,9 @@ aynı (Fib 0.236–0.786, günlük bölge / trend çizgisi, 7/30g en yüksek, MA
   indi mi, kaç dk sonra) · **kırdı** (5dk kapanış seviyenin %`dipAbovePct` üstünde; EMA21'e döndükten sonra mı) ·
   **üstte kaldı** (60. dk kapanışı seviyenin üstünde)
 - **Nerede durdu:** ret yiyen (seviyeyi kıramadan geri çekilen) temasta en derin çekilmenin dibi, o andaki hareketli
-  ortalamalarla kıyaslanır — 3dk / 5dk / 15dk / 1s EMA21 ve 3dk / 5dk / 15dk MA99 (grafikte görünen, canlı mum dahil).
-  Dibin %0.2 yakınına indiği EN ALTTAKİ ortalama kaydedilir; hiçbirine inmediyse "ortalamaya inmedi".
+  ortalamalarla kıyaslanır — 3dk / 5dk / 15dk EMA21 (grafikte görünen, canlı mum dahil).
+  Dip bir ortalamanın ±%0.5'inde durduysa o ortalama (ör. "5dk EMA21"); birini %0.5'ten fazla delip alttakine inmediyse
+  "5dk–15dk EMA21 arası"; 15dk EMA21'i de deldiyse "15dk EMA21 altı"; hiçbirine inmediyse "ortalamaya inmedi".
 - `/seviye [gün] [ad]` — telefona göre kısa satırlar: 🔥 **Pompa (RSI 85+)**: temas · ret / kırdı (hangisi önce) ·
   ret çekilmesi · dibe kaç dk · 🛑 **ret sonrası nerede durdu** dağılımı · kırıp üstte kalan; 💤 RSI şartı yokken kısa
   özet; 📊 seviyelere göre (pompa, 5+ örnekli seviyeler; azı tek satırda); tanımlar en altta açılır blokta.

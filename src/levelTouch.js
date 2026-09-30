@@ -13,8 +13,8 @@
  *   60 dk    : en derin geri çekilme (o ana kadarki en yüksekten, %) ve dibe kaç dk · 3m EMA21'e dönüş ve kaç dk ·
  *              kırılım (5m kapanış seviyenin %dipAbovePct üstünde) ve kaç dk · EMA21'e döndükten SONRA kırılım ·
  *              60. dk kapanışı seviyenin üstünde mi · seviyeye göre en yüksek / en düşük / kapanış (%)
- *   Nerede durdu: en derin çekilmenin dibi, o andaki hareketli ortalama merdiveniyle (3dk/5dk/15dk/1s EMA21,
- *              3dk/5dk/15dk MA99 — canlı mum dahil, grafikte görünen değer) kıyaslanır. Dibin ulaştığı (±%0.2) EN ALTTAKİ
+ *   Nerede durdu: en derin çekilmenin dibi, o andaki hareketli ortalama merdiveniyle (3dk / 5dk / 15dk EMA21 —
+ *              canlı mum dahil, grafikte görünen değer) kıyaslanır. Dibin ulaştığı (±%0.2) EN ALTTAKİ
  *              ortalama = "indiği ortalama" (stop). Hiçbirine inmediyse 'yok'. Dip 55. dk'dan sonraysa hâlâ düşüyor (falling).
  *
  * Kazanç/kayıp hesabı YOK — yalnızca fiyatın seviyede ne yaptığı.
@@ -29,10 +29,7 @@ const WINDOW = 60;         // izleme süresi (dk)
 const CARD_NEAR = 5;       // temasın ±5 dk içinde kart → "kart çıktı"
 
 // Hareketli ortalama merdiveni (dip bunlarla kıyaslanır)
-const LADDER = [
-  ['3dk EMA21', '3m', 'ema', 21], ['5dk EMA21', '5m', 'ema', 21], ['15dk EMA21', '15m', 'ema', 21], ['1s EMA21', '1h', 'ema', 21],
-  ['3dk MA99', '3m', 'sma', 99], ['5dk MA99', '5m', 'sma', 99], ['15dk MA99', '15m', 'sma', 99],
-];
+const LADDER = [['3dk EMA21', '3m', 'ema', 21], ['5dk EMA21', '5m', 'ema', 21], ['15dk EMA21', '15m', 'ema', 21]];
 const STOP_TOL = 0.2;      // dip ortalamanın %0.2 yakınına geldiyse "indi"
 
 function maLadder(series) {
@@ -48,13 +45,26 @@ function maLadder(series) {
   return out;
 }
 
-/** Dibin indiği en alttaki ortalama */
+/**
+ * Dibin durduğu yer:
+ *   • dip bir ortalamanın ±%0.5'i içinde (en alttaki ulaşılan)  → "5dk EMA21"          (orada durdu)
+ *   • ulaşılan en alttakini %0.5'ten fazla deldi, sonrakine inmedi → "5dk–15dk EMA21 arası"
+ *   • en alttakini (15dk EMA21) de %0.5'ten fazla deldi            → "15dk EMA21 altı"
+ *   • hiçbirine %0.2 yaklaşmadı                                    → "yok"
+ */
+const PIERCE = 0.5;
 function stopOf(low, mas) {
   if (!mas || !mas.length) return { stop: null, stopDepth: null };
-  const reached = mas.filter(m => low <= m.v * (1 + STOP_TOL / 100)).sort((a, b) => a.v - b.v);
+  const asc = [...mas].sort((a, b) => a.v - b.v);                 // aşağıdan yukarı
+  const reached = asc.filter(m => low <= m.v * (1 + STOP_TOL / 100));
   if (!reached.length) return { stop: 'yok', stopDepth: null };
   const m = reached[0];
-  return { stop: m.name, stopDepth: +((low - m.v) / m.v * 100).toFixed(3) };
+  const depth = +((low - m.v) / m.v * 100).toFixed(3);
+  if (depth >= -PIERCE) return { stop: m.name, stopDepth: depth };
+  const below = asc[asc.indexOf(m) - 1];                            // bir alttaki ortalama (yoksa en alttaki delindi)
+  if (!below) return { stop: `${m.name} altı`, stopDepth: depth };
+  const tf = x => x.name.split(' ')[0];
+  return { stop: `${tf(m)}–${below.name} arası`, stopDepth: depth };
 }
 
 function ema21of(series) {

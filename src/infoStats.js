@@ -222,7 +222,7 @@ function touchText(rows, { title = '', filter = '', s = {} } = {}) {
 • Pompa: temas anında 3dk/5dk/15dk RSI(${s.rsiPeriod ?? 14})'ten en az ${minTFs}'si ≥ ${rsiMin}
 • Kırdı: en derin çekilmeden önce 5 dk kapanışı seviyenin %${s.dipAbovePct ?? 0.3} üstünde · Ret: kıramadan geri çekildi
 • Çekilme: temastan sonraki tepeden en derin düşüş (medyan) · dibe: kaç dk sonra
-• Nerede durdu: dibin %0.2 yakınına indiği EN ALTTAKİ ortalama — 3dk/5dk/15dk/1s EMA21, 3dk/5dk/15dk MA99 (grafikte görünen, canlı mum dahil)
+• Nerede durdu: dip 3dk / 5dk / 15dk EMA21 ile kıyaslanır (grafikte görünen, canlı mum dahil). Bir ortalamanın ±%0.5'inde durduysa o ortalama; birini %0.5'ten fazla delip alttakine inmediyse "arası"; 15dk EMA21'i de deldiyse "15dk EMA21 altı"; hiçbirine inmediyse "ortalamaya inmedi"
 • Kırıp üstte kalan: 60. dk kapanışı seviyenin üstünde
 • Seviye: kartlardaki dirençler (MA200/EMA200, 7/30g en yüksek, günlük bölge/trend, 1h/4h tepe, 1 saatlik Fib)
 • Kazanç/kayıp hesabı değildir</blockquote>`;
