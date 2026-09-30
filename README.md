@@ -155,10 +155,13 @@ aynı (Fib 0.236–0.786, günlük bölge / trend çizgisi, 7/30g en yüksek, MA
 - 60 dk'da: **çekilme** (o ana kadarki en yüksekten en derin geri çekilme, %) · **EMA21'e dönüş** (1m mum 3dk EMA21'e
   indi mi, kaç dk sonra) · **kırdı** (5dk kapanış seviyenin %`dipAbovePct` üstünde; EMA21'e döndükten sonra mı) ·
   **üstte kaldı** (60. dk kapanışı seviyenin üstünde)
-- `/seviye [gün] [ad]` — önce iki özet (RSI 85+ iken / RSI şartı yokken: EMA21'e inme %, medyan çekilme, kırdı %,
-  60 dk sonra üstünde %), sonra seviye türüne göre yüzde tablosu (ör. `/seviye 7 fib`, `/seviye 14 bölge`); 5'ten az
-  örnek `*` ile işaretlenir, en altta ölçüm tanımları. EMA21 oranına temas anında zaten EMA21'e yapışık yükselenler
-  katılmaz (onlarda "geri çekilme" yok). Kazanç/kayıp değildir. Backtest aynı tabloyu geçmiş veriden hemen verir (aşağıda).
+- **Nerede durdu:** ret yiyen (seviyeyi kıramadan geri çekilen) temasta en derin çekilmenin dibi, o andaki hareketli
+  ortalamalarla kıyaslanır — 3dk / 5dk / 15dk / 1s EMA21 ve 3dk / 5dk / 15dk MA99 (grafikte görünen, canlı mum dahil).
+  Dibin %0.2 yakınına indiği EN ALTTAKİ ortalama kaydedilir; hiçbirine inmediyse "ortalamaya inmedi".
+- `/seviye [gün] [ad]` — telefona göre kısa satırlar: 🔥 **Pompa (RSI 85+)**: temas · ret / kırdı (hangisi önce) ·
+  ret çekilmesi · dibe kaç dk · 🛑 **ret sonrası nerede durdu** dağılımı · kırıp üstte kalan; 💤 RSI şartı yokken kısa
+  özet; 📊 seviyelere göre (pompa, 5+ örnekli seviyeler; azı tek satırda); tanımlar en altta açılır blokta.
+  Ör. `/seviye 7 fib`, `/seviye 14 bölge`. Kazanç/kayıp değildir. Backtest aynı tabloyu geçmiş veriden hemen verir (aşağıda).
 
 ### Konulu (forum) gruba bağlama
 Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı konularına** gönderilebilir.

@@ -13,6 +13,9 @@
  *   60 dk    : en derin geri çekilme (o ana kadarki en yüksekten, %) ve dibe kaç dk · 3m EMA21'e dönüş ve kaç dk ·
  *              kırılım (5m kapanış seviyenin %dipAbovePct üstünde) ve kaç dk · EMA21'e döndükten SONRA kırılım ·
  *              60. dk kapanışı seviyenin üstünde mi · seviyeye göre en yüksek / en düşük / kapanış (%)
+ *   Nerede durdu: en derin çekilmenin dibi, o andaki hareketli ortalama merdiveniyle (3dk/5dk/15dk/1s EMA21,
+ *              3dk/5dk/15dk MA99 — canlı mum dahil, grafikte görünen değer) kıyaslanır. Dibin ulaştığı (±%0.2) EN ALTTAKİ
+ *              ortalama = "indiği ortalama" (stop). Hiçbirine inmediyse 'yok'. Dip 55. dk'dan sonraysa hâlâ düşüyor (falling).
  *
  * Kazanç/kayıp hesabı YOK — yalnızca fiyatın seviyede ne yaptığı.
  */
@@ -24,6 +27,35 @@ const MIN = 60_000;
 const TOUCH_PCT = 0.3;     // seviyeye bu kadar yakın tepe = temas
 const WINDOW = 60;         // izleme süresi (dk)
 const CARD_NEAR = 5;       // temasın ±5 dk içinde kart → "kart çıktı"
+
+// Hareketli ortalama merdiveni (dip bunlarla kıyaslanır)
+const LADDER = [
+  ['3dk EMA21', '3m', 'ema', 21], ['5dk EMA21', '5m', 'ema', 21], ['15dk EMA21', '15m', 'ema', 21], ['1s EMA21', '1h', 'ema', 21],
+  ['3dk MA99', '3m', 'sma', 99], ['5dk MA99', '5m', 'sma', 99], ['15dk MA99', '15m', 'sma', 99],
+];
+const STOP_TOL = 0.2;      // dip ortalamanın %0.2 yakınına geldiyse "indi"
+
+function maLadder(series) {
+  const out = [];
+  for (const [name, tf, kind, n] of LADDER) {
+    const c = series.col(tf, 'c', true);
+    if (c.length < n) continue;
+    let v;
+    if (kind === 'ema') { const e = ta.emaSeries(c, n); v = e[e.length - 1]; }
+    else { let sum = 0; for (let i = c.length - n; i < c.length; i++) sum += c[i]; v = sum / n; }
+    if (Number.isFinite(v) && v > 0) out.push({ name, v });
+  }
+  return out;
+}
+
+/** Dibin indiği en alttaki ortalama */
+function stopOf(low, mas) {
+  if (!mas || !mas.length) return { stop: null, stopDepth: null };
+  const reached = mas.filter(m => low <= m.v * (1 + STOP_TOL / 100)).sort((a, b) => a.v - b.v);
+  if (!reached.length) return { stop: 'yok', stopDepth: null };
+  const m = reached[0];
+  return { stop: m.name, stopDepth: +((low - m.v) / m.v * 100).toFixed(3) };
+}
 
 function ema21of(series) {
   const e = ta.emaSeries(series.col('3m', 'c', false), 21);
@@ -39,7 +71,9 @@ function createTouchTracker({ window = WINDOW, touchPct = TOUCH_PCT } = {}) {
   function finish(e, c) {
     const v = e.value;
     const nearCard = (cardT.get(e.symbol) || []).some(t => Math.abs(t - e.t) <= CARD_NEAR * MIN);
+    const st = e.pb > 0 ? stopOf(e.troughLow, e.mas) : { stop: 'yok', stopDepth: null };
     return {
+      stop: st.stop, stopDepth: st.stopDepth, falling: e.pb > 0 && e.pbMin >= window - 5,
       id: e.id, symbol: e.symbol, t: e.t, name: e.name, kind: e.kind, value: v,
       hits: e.hits, rsiOk: e.rsiOk, card: nearCard,
       rsi: e.rsi, emaGap: e.emaGap,
@@ -65,7 +99,7 @@ function createTouchTracker({ window = WINDOW, touchPct = TOUCH_PCT } = {}) {
 
       // 1) Açık olayları ilerlet
       const arr = open.get(sym);
-      let ema = null;
+      let ema = null, mas = null;
       if (arr && arr.length) {
         ema = ema21of(series);
         const up = (s.dipAbovePct ?? 0.3) / 100;
@@ -75,7 +109,7 @@ function createTouchTracker({ window = WINDOW, touchPct = TOUCH_PCT } = {}) {
           const m = Math.round((tClose - e.t) / MIN);
           if (h > e.peak) e.peak = h;
           const dd = (e.peak - l) / e.peak * 100;
-          if (dd > e.pb) { e.pb = dd; e.pbMin = m; }
+          if (dd > e.pb) { e.pb = dd; e.pbMin = m; e.troughLow = l; e.mas = mas || (mas = maLadder(series)); }
           if (h > e.hi) e.hi = h;
           if (l < e.lo) e.lo = l;
           if (e.emaMin == null && ema != null && l <= ema) e.emaMin = m;
@@ -109,7 +143,7 @@ function createTouchTracker({ window = WINDOW, touchPct = TOUCH_PCT } = {}) {
         const e = {
           id: `${sym}-${tClose}-${L.name}-${L.value}`, symbol: sym, t: tClose, name: L.name, kind: L.kind, value: L.value,
           rsi, hits, rsiOk: hits >= s.minTFs, emaGap: ema ? +((c - ema) / ema * 100).toFixed(3) : null,
-          peak: h, pb: 0, pbMin: 0, hi: h, lo: l,
+          peak: h, pb: 0, pbMin: 0, hi: h, lo: l, troughLow: null, mas: null,
           emaMin: ema != null && l <= ema ? 0 : null, brokeMin: null, brokeAfterEma: false,
         };
         if (!open.has(sym)) open.set(sym, []);
@@ -144,4 +178,4 @@ function createTouchTracker({ window = WINDOW, touchPct = TOUCH_PCT } = {}) {
   };
 }
 
-module.exports = { createTouchTracker, TOUCH_PCT, WINDOW };
+module.exports = { createTouchTracker, maLadder, stopOf, LADDER, TOUCH_PCT, WINDOW };

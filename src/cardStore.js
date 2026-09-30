@@ -52,6 +52,11 @@ function createCardStore({ file = defaultFile(), logger = console } = {}) {
       );
       CREATE INDEX IF NOT EXISTS touches_t ON touches(t);
     `);
+    // Sonradan eklenen sütunlar (eski veritabanı): dibin indiği ortalama
+    const tcols = new Set(db.prepare('PRAGMA table_info(touches)').all().map(c => c.name));
+    for (const [c, type] of [['stop', 'TEXT'], ['stopdepth', 'REAL'], ['falling', 'INTEGER']]) {
+      if (!tcols.has(c)) db.exec(`ALTER TABLE touches ADD COLUMN ${c} ${type}`);
+    }
     const n = db.prepare('UPDATE cards SET done = 1, partial = 1 WHERE done = 0').run().changes;
     if (n) logger.log(`[GEÇMİŞ] Yeniden başlatma: ${n} yarım takip "eksik" olarak kapatıldı`);
   } catch (err) {
@@ -66,8 +71,8 @@ function createCardStore({ file = defaultFile(), logger = console } = {}) {
     recent: db.prepare('SELECT * FROM cards WHERE symbol = ? ORDER BY t DESC LIMIT ?'),
     since: db.prepare('SELECT * FROM cards WHERE t >= ? ORDER BY t'),
     prune: db.prepare('DELETE FROM cards WHERE t < ?'),
-    tIns: db.prepare(`INSERT OR IGNORE INTO touches (id, symbol, t, name, kind, value, hits, rsiok, card, emagap, pb, pbmin, emamin, brokemin, brokeafterema, held, up, dn, c60)
-      VALUES (@id, @symbol, @t, @name, @kind, @value, @hits, @rsiok, @card, @emagap, @pb, @pbmin, @emamin, @brokemin, @brokeafterema, @held, @up, @dn, @c60)`),
+    tIns: db.prepare(`INSERT OR IGNORE INTO touches (id, symbol, t, name, kind, value, hits, rsiok, card, emagap, pb, pbmin, emamin, brokemin, brokeafterema, held, up, dn, c60, stop, stopdepth, falling)
+      VALUES (@id, @symbol, @t, @name, @kind, @value, @hits, @rsiok, @card, @emagap, @pb, @pbmin, @emamin, @brokemin, @brokeafterema, @held, @up, @dn, @c60, @stop, @stopdepth, @falling)`),
     tSince: db.prepare('SELECT * FROM touches WHERE t >= ? ORDER BY t'),
     tPrune: db.prepare('DELETE FROM touches WHERE t < ?'),
   };
@@ -140,6 +145,7 @@ function createCardStore({ file = defaultFile(), logger = console } = {}) {
         hits: e.hits, rsiok: e.rsiOk ? 1 : 0, card: e.card ? 1 : 0, emagap: e.emaGap ?? null,
         pb: e.pb, pbmin: e.pbMin, emamin: e.emaMin ?? null, brokemin: e.brokeMin ?? null, brokeafterema: e.brokeAfterEma ? 1 : 0,
         held: e.held ? 1 : 0, up: e.up, dn: e.dn, c60: e.c60,
+        stop: e.stop ?? null, stopdepth: e.stopDepth ?? null, falling: e.falling ? 1 : 0,
       }), 'seviye kaydı');
     },
     touchesSince: t => (safe(() => st.tSince.all(t), 'sorgu') || []).map(rowToTouch),
@@ -166,6 +172,7 @@ function rowToTouch(r) {
     id: r.id, symbol: r.symbol, t: r.t, name: r.name, kind: r.kind, value: r.value, hits: r.hits, rsiOk: Boolean(r.rsiok), card: Boolean(r.card),
     emaGap: r.emagap, pb: r.pb, pbMin: r.pbmin, emaMin: r.emamin, brokeMin: r.brokemin, brokeAfterEma: Boolean(r.brokeafterema),
     held: Boolean(r.held), up: r.up, dn: r.dn, c60: r.c60,
+    stop: r.stop ?? null, stopDepth: r.stopdepth ?? null, falling: Boolean(r.falling),
   };
 }
 

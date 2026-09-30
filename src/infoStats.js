@@ -101,25 +101,37 @@ const TOUCH_ORDER = ['Fib 0.236', 'Fib 0.382', 'Fib 0.5', 'Fib 0.618', 'Fib 0.78
 const SHORT = { 'Günlük bölge': 'G. bölge', 'Günlük trend çizgisi': 'G. trend', '30 günlük en yüksek': '30g yüks.',
   '7 günlük en yüksek': '7g yüks.', '30 günlük tepe': '30g tepe' };
 const shortName = n => SHORT[n] || n.replace(/^Fib 0\./, 'Fib .');
-const MIN_N = 5;             // bundan az örnek → * (yorumlanmaz)
+const MIN_N = 5;             // bundan az örnekli seviyeler ayrı satırda (yorumlanmaz)
 
 /**
  * Bir olay grubunun özeti.
- *   ema: temas anında fiyatı 3dk EMA21'in ÜSTÜNDE olanlardan (emaMin !== 0) 60 dk içinde EMA21'e inenlerin oranı.
- *        Temas mumu zaten EMA21'e değiyorsa (emaMin === 0 — fiyat EMA21'e yapışık yükseliyordu) "geri çekilme" sayılmaz.
+ *   ema : temas anında fiyatı 3dk EMA21'in ÜSTÜNDE olanlardan (emaMin !== 0) 60 dk içinde EMA21'e inenlerin oranı.
+ *   ret / kırdı: hangisi önce oldu — kırdı = 5dk kapanış seviyenin üstünde, en derin çekilmenin dibinden ÖNCE (ya da hiç
+ *        çekilmeden); ret = diğerleri (seviyeyi geçemeden geri çekildi). İkisi toplamı = temas.
+ *   stops: ret yiyenlerde dibin indiği en alttaki ortalama → adet (eski kayıtlarda yok → sayılmaz)
  */
 function touchSum(a) {
   const sep = a.filter(e => e.emaMin !== 0);
   const back = sep.filter(e => e.emaMin != null);
   const broke = a.filter(e => e.brokeMin != null);
+  const first = a.filter(e => e.brokeMin != null && (!(e.pb > 0) || e.brokeMin <= e.pbMin));
+  const rej = a.filter(e => !first.includes(e));
+  const withStop = rej.filter(e => e.stop);
+  const stops = new Map();
+  for (const e of withStop) stops.set(e.stop, (stops.get(e.stop) || 0) + 1);
   return {
     n: a.length,
     pb: median(a.map(e => e.pb)),
     sepN: sep.length, ema: back.length, emaRate: sep.length ? back.length / sep.length * 100 : null, emaMin: median(back.map(e => e.emaMin)),
     broke: broke.length, brokeRate: a.length ? broke.length / a.length * 100 : null,
+    first: first.length, firstHeld: first.filter(e => e.held).length,
     held: a.filter(e => e.held).length, heldRate: a.length ? a.filter(e => e.held).length / a.length * 100 : null,
     brokeAfterEma: a.filter(e => e.brokeAfterEma).length,
     cards: a.filter(e => e.card).length,
+    rej: rej.length, rejPb: median(rej.map(e => e.pb)), rejMin: median(rej.map(e => e.pbMin)),
+    stopN: withStop.length,
+    stops: [...stops.entries()].sort((x, y) => (x[0] === 'yok') - (y[0] === 'yok') || y[1] - x[1]),
+    falling: rej.filter(e => e.falling).length,
   };
 }
 
@@ -136,49 +148,92 @@ function touchGroups(rows) {
 
 const pc = v => (v == null ? '—' : `%${Math.round(v)}`);
 const pc1 = v => (v == null ? '—' : `%${v.toFixed(1)}`);
+const stopName = k => (k === 'yok' ? 'Ortalamaya inmedi' : k);
+const ofN = (k, n) => `${pc(n ? k / n * 100 : null)} (${k})`;
 
-function summaryBlock(title, x) {
-  if (!x.n) return `<b>${title}</b>: kayıt yok`;
-  return `<b>${title}</b> (${x.n} temas · kart çıkan ${x.cards})
-• 3dk EMA21'e indi: <b>${pc(x.emaRate)}</b>${x.ema ? ` · medyan ${Math.round(x.emaMin)} dk sonra` : ''}
-• En derin geri çekilme: <b>${pc1(x.pb)}</b> (medyan)
-• Seviyeyi kırdı: ${pc(x.brokeRate)} · 60 dk sonra üstünde: <b>${pc(x.heldRate)}</b>`;
+/** Ret sonrası nerede durdu — dağılım satırları */
+function stopLines(x, max = 8, prefix = '▫️ ') {
+  if (!x.rej) return [`${prefix}ret yok`];
+  if (!x.stopN) return [`${prefix}veri yok (yeni kayıtlarla birikecek)`];
+  return x.stops.slice(0, max).map(([k, n]) => `${prefix}${stopName(k)} — ${ofN(n, x.stopN)}`);
 }
 
-function levelTable(groups, pick) {
-  const rows = groups.map(g => [g.name, pick(g)]).filter(([, x]) => x.n > 0);
-  if (!rows.length) return '—';
-  const line = (a, b, c, d, e, f) => `${a.padEnd(9)}${b.padStart(4)}${c.padStart(6)}${d.padStart(5)}${e.padStart(5)}${f.padStart(5)}`;
-  return '<pre>' + [line('Seviye', 'Adet', 'Çekil', 'EMA', 'Kır', 'Üst'),
-    ...rows.map(([n, x]) => line(shortName(n), String(x.n) + (x.n < MIN_N ? '*' : ''), pc1(x.pb), pc(x.emaRate), pc(x.brokeRate), pc(x.heldRate)))].join('\n') + '</pre>';
+function mainBlock(title, x) {
+  if (!x.n) return `${title}\nkayıt yok`;
+  const out = [
+    title,
+    `📍 ${x.n} temas · kart çıkan ${x.cards}`,
+    `🔻 Ret yedi: ${ofN(x.rej, x.n)}`,
+    `🚀 Kırdı: ${ofN(x.first, x.n)}`,
+    ...(x.rej ? [`📉 Ret çekilmesi: ${pc1(x.rejPb)}`, `⏱ Dibe: ${Math.round(x.rejMin)} dk (medyan)`] : []),
+    '',
+    '🛑 <b>Ret sonrası nerede durdu</b>',
+    ...stopLines(x),
+  ];
+  if (x.stopN && x.rej > x.stopN) out.push(`▫️ Ortalama verisi yok (eski kayıt): ${x.rej - x.stopN}`);
+  if (x.falling) out.push(`⏳ 60 dk'da hâlâ düşüyor: ${x.falling}`);
+  if (x.first) out.push('', `🚀 Kırıp üstte kalan: ${x.firstHeld}/${x.first}`);
+  return out.join('\n');
+}
+
+function shortBlock(title, x) {
+  if (!x.n) return `${title}\nkayıt yok`;
+  const top = x.stops.slice(0, 2).map(([k, n]) => `🛑 ${stopName(k)} ${pc(n / x.stopN * 100)}`);
+  return [
+    title,
+    `🔻 Ret ${pc(x.rej / x.n * 100)} · 📉 ${pc1(x.rejPb)}`,
+    ...(top.length ? top : ['🛑 —']),
+    `🚀 Kırıp üstte kalan: ${x.first ? pc(x.firstHeld / x.first * 100) : '—'}`,
+  ].join('\n');
+}
+
+function levelBlock(name, x) {
+  const top = x.stops.slice(0, 2).map(([k, n]) => `   🛑 ${stopName(k)} ${pc(n / x.stopN * 100)}`);
+  return [
+    `▪️ <b>${name}</b> — ${x.n} temas`,
+    `   🔻 Ret ${x.rej} · 📉 ${pc1(x.rejPb)}`,
+    ...(top.length ? top : ['   🛑 —']),
+    `   🚀 Kırıp kalan ${x.first ? `${x.firstHeld}/${x.first}` : "—"}`,
+  ].join('\n');
 }
 
 /**
- * Telegram metni (HTML).
+ * Telegram metni (HTML) — telefonda dar ekran: kısa satırlar, emoji başlıklar, tanımlar açılır blokta.
  * @param {object[]} rows  levelTouch olayları
- * @param {object} o  { title, filter: seviye adında aranan metin (ör. "fib"), s: ayarlar (baz açıklaması) }
+ * @param {object} o  { title, filter: seviye adında aranan metin (ör. "fib"), s: ayarlar }
  */
 function touchText(rows, { title = '', filter = '', s = {} } = {}) {
   const f = filter.trim().toLocaleLowerCase('tr');
   const sel = f ? rows.filter(e => e.name.toLocaleLowerCase('tr').includes(f)) : rows;
-  const head = `📐 <b>Seviye tepkisi</b>${title ? ` · ${title}` : ''}${f ? ` · “${filter.trim()}”` : ''}
-<i>Fiyat bir dirence alttan değdi → sonraki 60 dk</i>`;
+  const head = `📐 <b>Seviye tepkisi</b>${f ? ` · “${filter.trim()}”` : ''}${title ? `\n🗓 ${title}` : ''}
+<i>Dirence alttan temas → sonraki 60 dk</i>`;
   if (!sel.length) return `${head}\n\nKayıt yok.`;
   const rsiMin = s.rsiMin ?? 85, minTFs = s.minTFs ?? 2;
-  const groups = touchGroups(sel);
-  const rsiRows = sel.filter(e => e.rsiOk), other = sel.filter(e => !e.rsiOk);
-  const baz = `<i>Nasıl ölçülür: temas = önceki 1 dk kapanışı seviyenin %0.3'ten fazla altında, mumun tepesi seviyeye %0.3 yaklaştı (aynı seviye 60 dk'da bir) · RSI ${rsiMin}+ = temas anında 3dk/5dk/15dk RSI(${s.rsiPeriod ?? 14})'ten en az ${minTFs}'si ≥ ${rsiMin} · EMA = temas anında 3dk EMA21'in üstündeyken 60 dk içinde EMA21'e inenler (zaten EMA21'e yapışık yükselenler hariç) · Kır = 5 dk kapanışı seviyenin %${s.dipAbovePct ?? 0.3} üstünde · Üst = 60. dk kapanışı seviyenin üstünde · Çekil = o ana kadarki tepeden en derin düşüş (medyan) · * ${MIN_N}'ten az örnek, yorumlanmaz · kazanç/kayıp değildir</i>`;
-  const parts = [
-    head,
-    summaryBlock(`RSI ${rsiMin}+ iken`, touchSum(rsiRows)),
-    summaryBlock('RSI şartı yokken', touchSum(other)),
-    `<b>Seviyeye göre — RSI ${rsiMin}+ iken</b>\n${levelTable(groups, g => g.rsi)}`,
-    `<b>Seviyeye göre — tüm temaslar</b>\n${levelTable(groups, g => g.all)}`,
-    baz,
-  ];
+  const pump = sel.filter(e => e.rsiOk), calm = sel.filter(e => !e.rsiOk);
+  const groups = touchGroups(sel).filter(g => g.rsi.n > 0).sort((a, b) => b.rsi.n - a.rsi.n);
+  const big = groups.filter(g => g.rsi.n >= MIN_N), small = groups.filter(g => g.rsi.n < MIN_N);
+  const levels = big.length || small.length ? [
+    `📊 <b>Seviyelere göre (pompa)</b>`,
+    ...big.map(g => levelBlock(shortName(g.name), g.rsi)),
+    ...(small.length ? [`▫️ Az örnek (&lt;${MIN_N}): ${small.map(g => `${shortName(g.name)} (${g.rsi.n})`).join(', ')}`] : []),
+  ].join('\n\n') : '';
+  const how = `<blockquote expandable>ℹ️ <b>Nasıl ölçülür</b>
+• Temas: önceki 1 dk kapanışı seviyenin %0.3'ten fazla altında, mumun tepesi seviyeye %0.3 yaklaştı (aynı seviye 60 dk'da bir)
+• Pompa: temas anında 3dk/5dk/15dk RSI(${s.rsiPeriod ?? 14})'ten en az ${minTFs}'si ≥ ${rsiMin}
+• Kırdı: en derin çekilmeden önce 5 dk kapanışı seviyenin %${s.dipAbovePct ?? 0.3} üstünde · Ret: kıramadan geri çekildi
+• Çekilme: temastan sonraki tepeden en derin düşüş (medyan) · dibe: kaç dk sonra
+• Nerede durdu: dibin %0.2 yakınına indiği EN ALTTAKİ ortalama — 3dk/5dk/15dk/1s EMA21, 3dk/5dk/15dk MA99 (grafikte görünen, canlı mum dahil)
+• Kırıp üstte kalan: 60. dk kapanışı seviyenin üstünde
+• Seviye: kartlardaki dirençler (MA200/EMA200, 7/30g en yüksek, günlük bölge/trend, 1h/4h tepe, 1 saatlik Fib)
+• Kazanç/kayıp hesabı değildir</blockquote>`;
+  const parts = [head, mainBlock(`🔥 <b>Pompa: RSI ${rsiMin}+ iken</b>`, touchSum(pump)), shortBlock(`💤 <b>RSI şartı yokken</b> (${calm.length} temas)`, touchSum(calm)), levels, how].filter(Boolean);
   let out = parts.join('\n\n');
-  if (out.length > 4000) out = parts.slice(0, 4).join('\n\n') + '\n\n' + baz;
-  return out.slice(0, 4000);
+  while (out.length > 4000 && big.length > 1) {
+    big.pop();
+    const lv = [`📊 <b>Seviyelere göre (pompa)</b>`, ...big.map(g => levelBlock(shortName(g.name), g.rsi)), `▫️ … diğerleri: /seviye 7 &lt;ad&gt;`].join('\n\n');
+    out = [head, parts[1], parts[2], lv, how].join('\n\n');
+  }
+  return out.slice(0, 4096);
 }
 
 module.exports = { median, pctS, fmtDate, compact, CLASSES, classTable, load, touchGroups, touchSum, touchText, TOUCH_ORDER };
