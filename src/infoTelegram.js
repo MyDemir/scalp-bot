@@ -47,7 +47,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
   const SECTIONS = [
     { id: 'rsi', title: '📊 RSI kartı', keys: ['rsiMin', 'rsiMin2', 'strongRsi', 'rsiEntryMax', 'minTFs', 'rsiPeriod', 'resetRsi', 'seriesBursts'],
       sum: v => `eşik ${v.rsiMin} · ${v.minTFs}/3 dilim · RSI(${v.rsiPeriod})` },
-    { id: 'lvl', title: '🎯 Direnç ve kırılım', keys: ['levelRequired', 'levelMaxPct', 'dipBelowPct', 'dipAbovePct', 'confluencePct', 'levelsSwing', 'swingBars', 'levelsFib', 'sfpCards', 'sfpBars', 'discoveryCards'],
+    { id: 'lvl', title: '🎯 Direnç ve kırılım', keys: ['levelRequired', 'levelMaxPct', 'dipBelowPct', 'dipAbovePct', 'confluencePct', 'levelsSwing', 'swingBars', 'zoneTouches', 'levelsFib', 'sfpCards', 'sfpBars', 'discoveryCards'],
       sum: v => `${v.levelRequired ? 'şart açık' : 'şart kapalı'} · %${v.levelMaxPct} içinde · sahte kırılım ${v.sfpCards ? 'açık' : 'kapalı'} · fiyat keşfi ${v.discoveryCards ? 'açık' : 'kapalı'}` },
     { id: 'grd', title: '🏅 Derece ve kontrol listesi', keys: ['grade2Min', 'grade3Min', 'confRsi', 'sepATR', 'sepRequired', 'confRequired', 'macdRequired'],
       sum: v => `🔴🔴 ≥ ${v.grade2Min} · 🔴🔴🔴 ≥ ${v.grade3Min} (8 madde)` },

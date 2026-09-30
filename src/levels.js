@@ -121,7 +121,7 @@ function pivots(h, l, bars, from) {
  * ≥ minTouch temas alan küme bölge olur (eski destek, fiyat altına inince dirence döner).
  * @returns {{lo, hi, touches, last}[]}  last: son temasın zamanı
  */
-function dailyZones(t, h, l, { lookback = 365, bars = 3, tol = 0.015, minTouch = 2 } = {}) {
+function dailyZones(t, h, l, { lookback = 365, bars = 3, tol = 0.015, minTouch = 3 } = {}) {
   const pts = pivots(h, l, bars, h.length - lookback).sort((a, b) => a.v - b.v);
   const zones = [];
   let cur = null;
@@ -173,7 +173,7 @@ const FIB_EXT = [1.272, 1.618, 2, 2.618];
  * @param {{h:number[], l:number[]}} p.h1  1h mumlar
  * @param {{h:number[]}} p.h4              4h mumlar
  * @param {{t:number[],h:number[],l:number[],c:number[]}} p.d1  1d mumlar (kapanmış)
- * @param {object} o  { swing:boolean, fib:boolean, bars:number }
+ * @param {object} o  { swing:boolean, fib:boolean, bars:number, zoneTouches:number }
  * @param {{name,value}[]} base  mevcut (majör) seviyeler — bunlara %0.3'ten yakın ek seviye eklenmez
  * @returns {{levels:object[], leg:object|null}}
  */
@@ -191,7 +191,7 @@ function calcExtraLevels({ h1, h4, d1 }, o, base = []) {
   if (dh.length >= 7) add('7 günlük en yüksek', Math.max(...dh.slice(-7)), 'high');   // 30 günlükle aynıysa tek seviye
   const d1ok = d1 && d1.t && d1.l && d1.c && dh.length >= 30;
   // Günlük bölgeler (değer = bölgenin alt kenarı: direnç orada başlar) ve düşen trend çizgisi
-  const zones = d1ok ? dailyZones(d1.t, dh, d1.l) : [];
+  const zones = d1ok ? dailyZones(d1.t, dh, d1.l, { minTouch: o.zoneTouches || 3 }) : [];
   for (const z of zones) add('Günlük bölge', z.lo, 'zone', { zoneInfo: z });   // ("zone" alanı dirençte/yaklaşıyor için kullanılıyor)
   const tl = d1ok ? dailyTrendline(d1.t, dh, d1.c) : null;
   if (tl) add('Günlük trend çizgisi', tl.value, 'trend', { trend: tl });

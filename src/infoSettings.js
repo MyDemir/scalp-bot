@@ -28,6 +28,7 @@ const DEFS = [
   { key: 'levelRequired', short: 'Seviye şartı', label: 'Seviye şartı',            type: 'bool' },
   { key: 'levelsSwing', short: 'Salınım tepeleri', label: 'Direnç: 1h/4h salınım tepeleri', type: 'bool' },
   { key: 'swingBars', short: 'Salınım mum', label: 'Salınım tepesi: iki yanında en az … mum', type: 'int', min: 2, max: 10, step: 1 },
+  { key: 'zoneTouches', short: 'Bölge teması', label: 'Günlük bölge: en az … temas', type: 'int', min: 2, max: 6, step: 1 },
   { key: 'levelsFib', short: 'Fib seviyeleri', label: 'Direnç: son 1h bacağın Fib 0.236/0.382/0.618', type: 'bool' },
   { key: 'sfpCards', short: 'Sahte kırılım', label: 'Sahte kırılım (SFP) kartı', type: 'bool' },
   { key: 'sfpBars', short: 'SFP süresi', label: 'Sahte kırılım: kırılımdan sonra en fazla … 5m mum', type: 'int', min: 1, max: 24, step: 1 },

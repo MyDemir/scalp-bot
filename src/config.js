@@ -25,6 +25,7 @@ module.exports = {
     // Ek direnç türleri (src/levels.js): 7/30 günlük gerçek en yüksek her zaman; aşağıdakiler aç-kapa
     levelsSwing:   true,   // 1h / 4h salınım tepeleri (iki yanında swingBars mumdan yüksek tepe)
     swingBars:     3,
+    zoneTouches:   3,      // Günlük bölge: en az bu kadar günlük tepe/dip teması (son ~13 ay, %1.5 içinde)
     levelsFib:     true,   // son 1h itki bacağının Fib 0.236 / 0.382 / 0.618 düzeltmesi (grafikteki bacak)
     // Sahte kırılım (SFP): 5m mum, RSI kart şartı varken güçlü bir seviyenin %dipAbovePct üstünde kapanır; sfpBars mum içinde
     // altında kapanırsa (ya da fitil üstüne çıkıp gövde altında kalırsa) şart aranmadan kart (#SAHTEKIRILIM)
