@@ -169,7 +169,7 @@ function formatCard(card, s, opt = {}) {
   if (lvd?.kind === 'zone' && lvd.zoneInfo) D.push(`Direnç bölgesi: ${px(lvd.zoneInfo.lo)}–${px(lvd.zoneInfo.hi)} · ${lvd.zoneInfo.touches} temas · son temas ${dmy(lvd.zoneInfo.last)}`);
   if (lvd?.kind === 'trend' && lvd.trend) D.push(`Trend çizgisi: ${px(lvd.trend.a.v)} (${dmy(lvd.trend.a.t)}) → ${px(lvd.trend.b.v)} (${dmy(lvd.trend.b.t)}) · bugün ${px(lvd.trend.value)}`);
   const lg = snap.fibLeg;
-  if (lg) D.push(`Fib (günlük): ${lg.up ? `dip ${px(lg.lo)} (${dmy(lg.loT)}) → tepe ${px(lg.hi)} (${dmy(lg.hiT)})` : `tepe ${px(lg.hi)} (${dmy(lg.hiT)}) → dip ${px(lg.lo)} (${dmy(lg.loT)})`}`);
+  if (lg) D.push(`Fib (1s): ${lg.up ? `dip ${px(lg.lo)} (${dayTime(lg.loT)}) → tepe ${px(lg.hi)} (${dayTime(lg.hiT)})` : `tepe ${px(lg.hi)} (${dayTime(lg.hiT)}) → dip ${px(lg.lo)} (${dayTime(lg.loT)})`}`);
   if (rd) {
     const at = `${rd.dist >= 0 ? '+' : '−'}${Math.abs(rd.dist).toFixed(1)} ATR`;
     D.push(`3dk EMA21: ${rd.state === 'break' ? `koptu (${at}, son 3 mumda değmedi)` : rd.state === 'ride' ? `izliyor — trend (son ${rd.win} mumun ${rd.recent}'${suffix(rd.recent)} değdi)` : `serbest (${at})`}`);

@@ -109,7 +109,14 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
     const h = candles.map(k => k.h), l = candles.map(k => k.l), c = candles.map(k => k.c);
     const I = ichimoku(h, l, c, ichi);
     const n = candles.length;
-    const N = Math.min(show, n);
+    // Fib bacağı verildiyse grafik bacağın başladığı mumdan itibaren çizilir (en az `show`, en fazla 240 mum)
+    let want = show;
+    if (fib && fibLeg && Number.isFinite(fibLeg.hiT) && Number.isFinite(fibLeg.loT)) {
+      const t0 = Math.min(fibLeg.hiT, fibLeg.loT);
+      const i0 = candles.findIndex(k => k.t >= t0);
+      if (i0 >= 0) want = Math.min(240, Math.max(show, n - i0 + 4));
+    }
+    const N = Math.min(want, n);
     const start = n - N;
     const slots = N + ichi.shift;                     // gelecekteki bulut için boşluk
 
@@ -204,7 +211,7 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
       const leg = fibLeg && fibLeg.hi > fibLeg.lo ? fibLeg : impulseLeg(h, l, N, fibDir);
       if (leg && leg.hi > leg.lo) {
         const HI = leg.hi, Lw = leg.lo, up = leg.up;
-        fibInfo = { up, daily: leg === fibLeg };
+        fibInfo = { up, wide: leg === fibLeg };
         const R = [[0, '#7d8796'], [0.236, '#8e9aaf'], [0.382, '#5dade2'], [0.5, '#f4d03f'], [0.618, '#f39c12'], [0.786, '#e67e22'], [1, '#7d8796']];
         g.font = '13px ChartSans'; g.textAlign = 'left';
         for (const [r, col] of R) {
@@ -219,11 +226,12 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
           g.fillStyle = 'rgba(15,20,27,0.8)'; g.fillRect(padL + 2, y - 15, tw + 8, 16);
           g.fillStyle = col; g.fillText(lab, padL + 6, y - 3);
         }
-        if (!fibInfo.daily) {                          // kısa bacakta tepe/dip noktaları görünür
-          g.fillStyle = '#7d8796';
-          g.beginPath(); g.arc(xs(leg.hiI - start), ys(HI), 3.5, 0, 7); g.fill();
-          g.beginPath(); g.arc(xs(leg.loI - start), ys(Lw), 3.5, 0, 7); g.fill();
-        }
+        // tepe ve dip noktaları (geniş bacakta zamana göre bulunur)
+        const idxOf = tt => { const i = candles.findIndex(k => k.t === tt); return i >= 0 ? i : null; };
+        const hI = fibInfo.wide ? idxOf(leg.hiT) : leg.hiI, lI = fibInfo.wide ? idxOf(leg.loT) : leg.loI;
+        g.fillStyle = '#7d8796';
+        if (hI != null && hI >= start) { g.beginPath(); g.arc(xs(hI - start), ys(HI), 3.5, 0, 7); g.fill(); }
+        if (lI != null && lI >= start) { g.beginPath(); g.arc(xs(lI - start), ys(Lw), 3.5, 0, 7); g.fill(); }
       }
     }
     // Uzaktaki günlük dirençler (MA/EMA200, günlük bölge, trend çizgisi, 7/30g en yüksek) → kenar etiketi
@@ -310,7 +318,7 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
     const legend = [
       ...overlays.map(ov => [ov.label, ov.color]),
       ...(showIchi ? [[`Ichimoku bulutu (${ichi.tenkan}/${ichi.kijun}/${ichi.senkouB}, +${ichi.shift})`, C.spanA]] : []),
-      ...(fibInfo ? [[`Fibonacci (${fibInfo.daily ? 'günlük, ' : ''}${fibInfo.up ? 'dip → tepe' : 'tepe → dip'})`, '#f39c12']] : []),
+      ...(fibInfo ? [[`Fibonacci (${fibInfo.wide ? '1s geniş bacak, ' : ''}${fibInfo.up ? 'dip → tepe' : 'tepe → dip'})`, '#f39c12']] : []),
     ];
     g.font = '14px ChartSans';
     for (const [t, col] of legend) {

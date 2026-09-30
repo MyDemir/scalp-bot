@@ -523,7 +523,7 @@ function evaluate(series, s, ctx = {}, force = false) {
   snap.level = level;
   snap.levels = all;
   snap.levelOk = !!level;
-  snap.fibLeg = series._lv?.leg ?? null;              // günlük geniş Fib bacağı (Detay'da)
+  snap.fibLeg = series._lv?.leg ?? null;              // 1 saatlik geniş Fib bacağı (grafik + Detay)
   // Fiyat keşfi: yakında direnç yok ama fiyat bir seviyeyi yeni kırmış → kart engellenmez, bilgi olarak gelir
   snap.discovery = !level && s.discoveryCards !== false ? discoveryOf(series, price, all) : null;
 

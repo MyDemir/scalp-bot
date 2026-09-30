@@ -7,8 +7,8 @@
  *   salınım: 1h / 4h tepe (solundaki ve sağındaki N mumdan yüksek tepe)
  *   bölge  : günlük bölge — son ~1 yılın günlük tepe/dip noktalarının kümesi (≥ 2 temas; eski destekler dahil)
  *   trend  : günlük düşen trend çizgisi — en yüksek günlük tepeden sonraki tepelere çizilen üst çizgi, bugüne uzatılmış
- *   Fib    : GÜNLÜK geniş bacağın (son ~1 yılın en yüksek tepe ↔ en düşük dip) 0.236 / 0.382 / 0.5 / 0.618 / 0.786 düzeltmesi;
- *            yön otomatik (dip tepeden sonraysa düşüş bacağı → seviyeler dibin üstünde, direnç)
+ *   Fib    : 1 SAATLİK geniş bacağın (son ~2 haftanın 1h en yüksek tepe ↔ en düşük dip) 0.236 / 0.382 / 0.5 / 0.618 / 0.786
+ *            düzeltmesi — kart grafiği (1h) ile aynı bacak; yön otomatik (dip tepeden sonraysa düşüş bacağı → seviyeler direnç)
  * Her seviye { name, value, kind: 'major'|'high'|'zone'|'trend'|'swing'|'fib' }.
  */
 
@@ -199,8 +199,8 @@ function calcExtraLevels({ h1, h4, d1 }, o, base = []) {
     for (const p of swingHighs(h4?.h || [], o.bars, 180).reverse()) add('4h tepe', p.value, 'swing');
     for (const p of swingHighs(h1?.h || [], o.bars, 200).reverse()) add('1h tepe', p.value, 'swing');
   }
-  // Fib: GÜNLÜK geniş bacak (son ~1 yıl), yön otomatik
-  const leg = d1ok ? majorLeg(d1.t, dh, d1.l) : null;
+  // Fib: 1 SAATLİK geniş bacak (son ~2 hafta = 336 mum), yön otomatik — grafikteki bacakla aynı
+  const leg = h1 && h1.t && h1.h.length >= 30 ? majorLeg(h1.t, h1.h, h1.l, 336) : null;
   if (o.fib && leg) {
     const R = leg.hi - leg.lo;
     for (const r of FIB_RET) add(`Fib ${r}`, leg.up ? leg.hi - r * R : leg.lo + r * R, 'fib');

@@ -21,7 +21,7 @@ const HTF = ['3m', '5m', '15m', '1h', '4h', '1d'];
 const COLS = ['t', 'o', 'h', 'l', 'c', 'v', 'tb', 'q', 'tq'];
 
 // Tampon boyları (kapanmış mum). Seed limitleri de bunlardan gelir.
-const KEEP = { '1m': 240, '3m': 300, '5m': 300, '15m': 300, '1h': 200, '4h': 600, '1d': 400 };   // 1d: ~13 ay (günlük bölge, trend çizgisi, geniş Fib)
+const KEEP = { '1m': 240, '3m': 300, '5m': 300, '15m': 300, '1h': 336, '4h': 600, '1d': 400 };   // 1h: 2 hafta (Fib bacağı)   // 1d: ~13 ay (günlük bölge, trend çizgisi, geniş Fib)
 
 // Değerlendirme için gereken en az kapanmış mum
 const MIN_READY = { '1m': 25, '3m': 60, '5m': 60, '15m': 40, '1h': 15, '4h': 0, '1d': 0 };
