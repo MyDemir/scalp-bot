@@ -283,7 +283,7 @@ async function main() {
 
   printReport(p, all, perSym);
   if (s.moveAlertPct > 0) printMoves(p, allMoves, s);
-  const touchMsg = touchText(allTouches, { title: `${DAYS} gün · ${symbols.length} coin · ${allTouches.length} temas (backtest)`, filter: typeof a['seviye-filtre'] === 'string' ? a['seviye-filtre'] : '' });
+  const touchMsg = touchText(allTouches, { title: `${DAYS} gün · ${symbols.length} coin · ${allTouches.length} temas (backtest)`, filter: typeof a['seviye-filtre'] === 'string' ? a['seviye-filtre'] : '', s });
   console.log('\n' + toPlain(touchMsg));
 
   if (ORNEK > 0) {

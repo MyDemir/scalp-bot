@@ -97,17 +97,29 @@ function load(cards) {
 
 const TOUCH_ORDER = ['Fib 0.236', 'Fib 0.382', 'Fib 0.5', 'Fib 0.618', 'Fib 0.786', 'Günlük bölge', 'Günlük trend çizgisi',
   '30 günlük en yüksek', '7 günlük en yüksek', '30 günlük tepe', '1d MA200', '1d EMA200', '4h MA200', '4h EMA200', '4h tepe', '1h tepe'];
+// Tabloda kısa ad (telefonda sığsın)
+const SHORT = { 'Günlük bölge': 'G. bölge', 'Günlük trend çizgisi': 'G. trend', '30 günlük en yüksek': '30g yüks.',
+  '7 günlük en yüksek': '7g yüks.', '30 günlük tepe': '30g tepe' };
+const shortName = n => SHORT[n] || n.replace(/^Fib 0\./, 'Fib .');
+const MIN_N = 5;             // bundan az örnek → * (yorumlanmaz)
 
-/** Bir olay grubunun özeti (medyanlar ve adetler) */
+/**
+ * Bir olay grubunun özeti.
+ *   ema: temas anında fiyatı 3dk EMA21'in ÜSTÜNDE olanlardan (emaMin !== 0) 60 dk içinde EMA21'e inenlerin oranı.
+ *        Temas mumu zaten EMA21'e değiyorsa (emaMin === 0 — fiyat EMA21'e yapışık yükseliyordu) "geri çekilme" sayılmaz.
+ */
 function touchSum(a) {
-  const ema = a.filter(e => e.emaMin != null);
+  const sep = a.filter(e => e.emaMin !== 0);
+  const back = sep.filter(e => e.emaMin != null);
+  const broke = a.filter(e => e.brokeMin != null);
   return {
     n: a.length,
     pb: median(a.map(e => e.pb)),
-    ema: ema.length, emaMin: median(ema.map(e => e.emaMin)),
-    broke: a.filter(e => e.brokeMin != null).length,
+    sepN: sep.length, ema: back.length, emaRate: sep.length ? back.length / sep.length * 100 : null, emaMin: median(back.map(e => e.emaMin)),
+    broke: broke.length, brokeRate: a.length ? broke.length / a.length * 100 : null,
+    held: a.filter(e => e.held).length, heldRate: a.length ? a.filter(e => e.held).length / a.length * 100 : null,
     brokeAfterEma: a.filter(e => e.brokeAfterEma).length,
-    held: a.filter(e => e.held).length,
+    cards: a.filter(e => e.card).length,
   };
 }
 
@@ -122,32 +134,51 @@ function touchGroups(rows) {
   });
 }
 
-const touchLine = (x) => (x.n
-  ? `çekilme %${x.pb.toFixed(1)} · EMA21'e dönüş ${x.ema}${x.ema ? ` (${Math.round(x.emaMin)} dk)` : ''} · kırdı ${x.broke}${x.brokeAfterEma ? ` (${x.brokeAfterEma}'i EMA21'den sonra)` : ''} · üstte kaldı ${x.held}`
-  : '—');
+const pc = v => (v == null ? '—' : `%${Math.round(v)}`);
+const pc1 = v => (v == null ? '—' : `%${v.toFixed(1)}`);
 
-/**
- * Telegram metni (HTML). filter: seviye adında aranan metin (ör. "fib")
- * @param {object[]} rows  levelTouch olayları
- */
-function touchText(rows, { title = '', filter = '' } = {}) {
-  const f = filter.trim().toLocaleLowerCase('tr');
-  const groups = touchGroups(f ? rows.filter(e => e.name.toLocaleLowerCase('tr').includes(f)) : rows);
-  const head = `📐 <b>Seviye tepkisi</b>${title ? ` · ${title}` : ''}
-<i>Fiyat dirence alttan değdikten sonraki 60 dk (medyan / adet). Kazanç/kayıp değildir.
-çekilme: en derin geri çekilme · EMA21'e dönüş: 3dk EMA21'e inen (kaç dk sonra) · kırdı: 5dk kapanış seviyenin üstünde · üstte kaldı: 60. dk kapanışı seviyenin üstünde</i>`;
-  if (!groups.length) return `${head}
-
-Kayıt yok${f ? ` (“${filter}”)` : ''}.`;
-  const body = groups.map(g => `<b>${g.name}</b> · ${g.all.n} temas · RSI şartlı ${g.rsi.n} · kart ${g.cards}
-  Tümü: ${touchLine(g.all)}
-  RSI şartlı: ${touchLine(g.rsi)}`);
-  let out = head;
-  for (const b of body) {
-    if (out.length + b.length + 40 > 4000) { out += '\n\n… (liste uzun — ör. /seviye 7 fib)'; break; }
-    out += '\n\n' + b;
-  }
-  return out;
+function summaryBlock(title, x) {
+  if (!x.n) return `<b>${title}</b>: kayıt yok`;
+  return `<b>${title}</b> (${x.n} temas · kart çıkan ${x.cards})
+• 3dk EMA21'e indi: <b>${pc(x.emaRate)}</b>${x.ema ? ` · medyan ${Math.round(x.emaMin)} dk sonra` : ''}
+• En derin geri çekilme: <b>${pc1(x.pb)}</b> (medyan)
+• Seviyeyi kırdı: ${pc(x.brokeRate)} · 60 dk sonra üstünde: <b>${pc(x.heldRate)}</b>`;
 }
 
-module.exports = { median, pctS, fmtDate, compact, CLASSES, classTable, load, touchGroups, touchText, TOUCH_ORDER };
+function levelTable(groups, pick) {
+  const rows = groups.map(g => [g.name, pick(g)]).filter(([, x]) => x.n > 0);
+  if (!rows.length) return '—';
+  const line = (a, b, c, d, e, f) => `${a.padEnd(9)}${b.padStart(4)}${c.padStart(6)}${d.padStart(5)}${e.padStart(5)}${f.padStart(5)}`;
+  return '<pre>' + [line('Seviye', 'Adet', 'Çekil', 'EMA', 'Kır', 'Üst'),
+    ...rows.map(([n, x]) => line(shortName(n), String(x.n) + (x.n < MIN_N ? '*' : ''), pc1(x.pb), pc(x.emaRate), pc(x.brokeRate), pc(x.heldRate)))].join('\n') + '</pre>';
+}
+
+/**
+ * Telegram metni (HTML).
+ * @param {object[]} rows  levelTouch olayları
+ * @param {object} o  { title, filter: seviye adında aranan metin (ör. "fib"), s: ayarlar (baz açıklaması) }
+ */
+function touchText(rows, { title = '', filter = '', s = {} } = {}) {
+  const f = filter.trim().toLocaleLowerCase('tr');
+  const sel = f ? rows.filter(e => e.name.toLocaleLowerCase('tr').includes(f)) : rows;
+  const head = `📐 <b>Seviye tepkisi</b>${title ? ` · ${title}` : ''}${f ? ` · “${filter.trim()}”` : ''}
+<i>Fiyat bir dirence alttan değdi → sonraki 60 dk</i>`;
+  if (!sel.length) return `${head}\n\nKayıt yok.`;
+  const rsiMin = s.rsiMin ?? 85, minTFs = s.minTFs ?? 2;
+  const groups = touchGroups(sel);
+  const rsiRows = sel.filter(e => e.rsiOk), other = sel.filter(e => !e.rsiOk);
+  const baz = `<i>Nasıl ölçülür: temas = önceki 1 dk kapanışı seviyenin %0.3'ten fazla altında, mumun tepesi seviyeye %0.3 yaklaştı (aynı seviye 60 dk'da bir) · RSI ${rsiMin}+ = temas anında 3dk/5dk/15dk RSI(${s.rsiPeriod ?? 14})'ten en az ${minTFs}'si ≥ ${rsiMin} · EMA = temas anında 3dk EMA21'in üstündeyken 60 dk içinde EMA21'e inenler (zaten EMA21'e yapışık yükselenler hariç) · Kır = 5 dk kapanışı seviyenin %${s.dipAbovePct ?? 0.3} üstünde · Üst = 60. dk kapanışı seviyenin üstünde · Çekil = o ana kadarki tepeden en derin düşüş (medyan) · * ${MIN_N}'ten az örnek, yorumlanmaz · kazanç/kayıp değildir</i>`;
+  const parts = [
+    head,
+    summaryBlock(`RSI ${rsiMin}+ iken`, touchSum(rsiRows)),
+    summaryBlock('RSI şartı yokken', touchSum(other)),
+    `<b>Seviyeye göre — RSI ${rsiMin}+ iken</b>\n${levelTable(groups, g => g.rsi)}`,
+    `<b>Seviyeye göre — tüm temaslar</b>\n${levelTable(groups, g => g.all)}`,
+    baz,
+  ];
+  let out = parts.join('\n\n');
+  if (out.length > 4000) out = parts.slice(0, 4).join('\n\n') + '\n\n' + baz;
+  return out.slice(0, 4000);
+}
+
+module.exports = { median, pctS, fmtDate, compact, CLASSES, classTable, load, touchGroups, touchSum, touchText, TOUCH_ORDER };

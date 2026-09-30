@@ -57,6 +57,26 @@ const stats = { closes: 0, cards: 0, cardsToday: 0, day: null, seeded: 0, seedEr
 let startedAt = 0;
 let seedingAll = false;
 
+// Yetişiyor mu? — WS'ten gelen 1m kapanışların gecikmesi (mum kapanışı → bot işledi) ve işlem süresi.
+// Heartbeat'te (5 dk) sıfırlanır; /durum son tamamlanan pencereyi gösterir.
+const newDiag = () => ({ from: Date.now(), n: 0, lagSum: 0, lagMax: 0, busyMs: 0 });
+let diag = newDiag(), lastDiag = null;
+const STALE_MS = 3 * 60_000;             // son 1m mumu bundan eski olan hazır coin "geride"
+function staleList(now = Date.now()) {
+  const out = [];
+  for (const [sym, sr] of series) {
+    if (busy.has(sym) || !sr.ready()) continue;
+    const t = sr.lastT('1m');
+    if (t == null || now - (t + 60_000) > STALE_MS) out.push(sym);
+  }
+  return out;
+}
+function diagText(d, now = Date.now()) {
+  if (!d || !d.n) return 'veri yok';
+  const win = Math.max(1, (d.to ?? now) - d.from);
+  return `${d.n} mum · gecikme ort ${(d.lagSum / d.n / 1000).toFixed(1)} sn, en fazla ${(d.lagMax / 1000).toFixed(1)} sn · işlem yükü %${(d.busyMs / win * 100).toFixed(1)}`;
+}
+
 // ── Değerlendirme bağlamı ─────────────────────────────────────────────────
 
 function btc1h() {
@@ -120,6 +140,11 @@ function toCandle(k) {
 }
 
 function processCandle(sr, c, live) {
+  const t0 = process.hrtime.bigint();
+  try { processCandle0(sr, c, live); } finally { diag.busyMs += Number(process.hrtime.bigint() - t0) / 1e6; }
+}
+
+function processCandle0(sr, c, live) {
   stats.closes++;
   const closed = sr.apply1m(c);
   store?.onCandle(sr.symbol, c);
@@ -181,6 +206,8 @@ function onKline(symbol, tf, k, isFinal) {
   const c = toCandle(k);
   const sr = series.get(symbol);
   if (!sr) return;                             // evren dışı (listeden yeni çıkmış) — dinlenmez
+  const lag = Math.max(0, Date.now() - (c.t + 60_000));   // mum kapanışından bu yana (WS + olay döngüsü gecikmesi)
+  diag.n++; diag.lagSum += lag; if (lag > diag.lagMax) diag.lagMax = lag;
   if (busy.has(symbol)) pending.get(symbol)?.push(c);
   else processCandle(sr, c, true);
 }
@@ -320,6 +347,8 @@ function statusText() {
   const mem = Math.round(process.memoryUsage().rss / 1024 / 1024);
   return `🟢 <b>Bilgi botu</b> · ${Math.floor(up / 60)}s ${up % 60}dk çalışıyor
 Coin: ${series.size} izleniyor · ${readyCount()} hazır${busy.size ? ` · ${busy.size} yükleniyor` : ''}${failed.size ? ` · ${failed.size} hata` : ''}
+${(() => { const st = staleList(); return st.length ? `⚠️ Geride (son 3 dk mum yok): ${st.length} coin — ${st.slice(0, 8).join(', ')}${st.length > 8 ? '…' : ''}` : '✅ Tüm hazır coinlerde son 3 dk mumu var'; })()}
+Son 5 dk: ${diagText(lastDiag && lastDiag.n ? lastDiag : diag)}
 Evren: 24s hacim ≥ ${s.minVolumeM}M $
 Bugün: ${stats.cardsToday} kart · Telegram kuyruğu: ${telegram.queueLength()}
 Hareket: ${s.moveAlertPct > 0 ? `1 dk ≥ %${s.moveAlertPct} → RSI kartına eklenir (RSI şartı varsa)` : 'kapalı'}
@@ -339,10 +368,14 @@ function heartbeat() {
   stats.cards = 0;
   store?.sweep();
   touches.sweep();
+  lastDiag = { ...diag, to: Date.now() };
+  const dTxt = diagText(diag), stale = staleList();
+  diag = newDiag();
   console.log(
     `[HEARTBEAT] WS ${ws?.open ?? 0}/${ws?.connections ?? 0} bağlı (${ws?.streams ?? 0} stream)` +
     ` | son ${mins}dk: ${closes} 1m kapanış, ${ws?.skipped ?? 0} ara güncelleme atlandı, ${cards} kart` +
-    ` | coin: ${readyCount()}/${series.size} hazır${busy.size ? `, ${busy.size} yükleniyor` : ''}` +
+    ` | coin: ${readyCount()}/${series.size} hazır${busy.size ? `, ${busy.size} yükleniyor` : ''}${stale.length ? `, ${stale.length} GERİDE` : ''}` +
+    ` | ${dTxt}` +
     ` | takipte ${store?.openCount() ?? 0} kart, ${touches.openCount()} seviye teması` +
     ` | telegram: ${tg.sent} gönderildi, ${tg.queued} kuyrukta${tg.failed ? `, ${tg.failed} BAŞARISIZ` : ''}` +
     ` | bellek: ${mem} MB`,
@@ -350,6 +383,8 @@ function heartbeat() {
   if (ws && ws.open > 0 && closes === 0 && !seedingAll) {
     console.warn(`[UYARI] Son ${mins} dakikada hiç 1m kapanışı işlenmedi — veri akışı kontrol edilmeli`);
   }
+  if (stale.length) console.warn(`[UYARI] ${stale.length} coinde son 3 dk'da 1m mumu yok: ${stale.slice(0, 15).join(', ')}${stale.length > 15 ? '…' : ''}`);
+  if (lastDiag.n && lastDiag.lagMax > 20_000) console.warn(`[UYARI] 1m mum gecikmesi ${Math.round(lastDiag.lagMax / 1000)} sn'ye çıktı — bot yetişemiyor olabilir`);
   if (ws && ws.reconnects > 0) console.warn(`[UYARI] Son ${mins} dakikada ${ws.reconnects} WebSocket yeniden bağlanması`);
 }
 

@@ -155,8 +155,10 @@ aynı (Fib 0.236–0.786, günlük bölge / trend çizgisi, 7/30g en yüksek, MA
 - 60 dk'da: **çekilme** (o ana kadarki en yüksekten en derin geri çekilme, %) · **EMA21'e dönüş** (1m mum 3dk EMA21'e
   indi mi, kaç dk sonra) · **kırdı** (5dk kapanış seviyenin %`dipAbovePct` üstünde; EMA21'e döndükten sonra mı) ·
   **üstte kaldı** (60. dk kapanışı seviyenin üstünde)
-- `/seviye [gün] [ad]` — seviye türüne göre tablo: tümü ve RSI şartlı ayrı (ör. `/seviye 7 fib`, `/seviye 14 bölge`).
-  Kazanç/kayıp değildir. Backtest aynı tabloyu geçmiş veriden hemen verir (aşağıda).
+- `/seviye [gün] [ad]` — önce iki özet (RSI 85+ iken / RSI şartı yokken: EMA21'e inme %, medyan çekilme, kırdı %,
+  60 dk sonra üstünde %), sonra seviye türüne göre yüzde tablosu (ör. `/seviye 7 fib`, `/seviye 14 bölge`); 5'ten az
+  örnek `*` ile işaretlenir, en altta ölçüm tanımları. EMA21 oranına temas anında zaten EMA21'e yapışık yükselenler
+  katılmaz (onlarda "geri çekilme" yok). Kazanç/kayıp değildir. Backtest aynı tabloyu geçmiş veriden hemen verir (aşağıda).
 
 ### Konulu (forum) gruba bağlama
 Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı konularına** gönderilebilir.
@@ -179,7 +181,7 @@ Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı kon
 | `/gecmis ETH [adet]` · `/istatistik [gün]` | herkes | kart geçmişi ve sınıf istatistiği |
 | `/seviye [gün] [ad]` | herkes | seviye tepkisi: temastan sonra çekilme / 3dk EMA21'e dönüş / kırılım (ör. `/seviye 7 fib`) |
 | `/konu [ad]` · `/konu sil ad` | liste herkes, bağlama yönetici | konulu grupta yönlendirme |
-| `/durum` · `/benkimim` · `/yardim` | herkes | |
+| `/durum` · `/benkimim` · `/yardim` | herkes | `/durum`: izlenen/hazır coin, **geride kalan coinler** (son 3 dk'da 1m mumu gelmeyen), son 5 dk'da işlenen mum sayısı, **gecikme** (mum kapanışı → bot işledi; ort / en fazla) ve işlem yükü. Gecikme 20 sn'yi aşarsa ya da geride coin varsa `fly logs`'ta `[UYARI]` |
 
 Yönetici: `TELEGRAM_ADMIN_IDS` (virgüllü kullanıcı ID'leri; `/benkimim` ile öğrenilir) tanımlıysa o liste,
 değilse **grubun yöneticileri**. Ayarlar `/data/info-settings.json`'a yazılır → deploy sonrası korunur.

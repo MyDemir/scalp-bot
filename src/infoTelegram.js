@@ -328,7 +328,7 @@ ${mv.join('\n')}` : ''}`.slice(0, 4000);
       const dIdx = parts.findIndex(x => /^\d+$/.test(x));
       const days = Math.max(1, Math.min(60, dIdx >= 0 ? Number(parts.splice(dIdx, 1)[0]) : 7));
       const rows = store.touchesSince(Date.now() - days * 86_400_000);
-      return touchText(rows, { title: `son ${days} gün · ${rows.length} temas`, filter: parts.join(' ') });
+      return touchText(rows, { title: `son ${days} gün · ${rows.length} temas`, filter: parts.join(' '), s: settings.get() });
     },
 
     konu: async (args, msg) => {
