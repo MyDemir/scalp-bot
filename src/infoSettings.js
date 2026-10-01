@@ -15,6 +15,13 @@ const cfg  = require('./config');
 
 // type: 'num' | 'int' | 'bool' | 'enum' (options listesinden biri; −/+ ile sırayla değişir)
 const DEFS = [
+  { key: 'grade4Min', short: '4 daire skor', label: '4 daire için en az güven skoru', type: 'int', min: 1, max: 15, step: 1 },
+  { key: 'seriesMinRsi5m', short: 'Seri 5m RSI', label: 'Seri içi kart için min 5m RSI', type: 'int', min: 50, max: 100, step: 1 },
+  { key: 'sfpAbovePct', short: 'SFP üst %', label: 'SFP kırılım eşiği %', type: 'num', min: 0.1, max: 2, step: 0.1 },
+  { key: 'sepPct2', short: 'EMA %2', label: 'EMA21 ayrışma ≥ %2', type: 'num', min: 0.5, max: 20, step: 0.5 },
+  { key: 'sepPct5', short: 'EMA %5', label: 'EMA21 ayrışma ≥ %5', type: 'num', min: 1, max: 30, step: 0.5 },
+  { key: 'sepPct10', short: 'EMA %10', label: 'EMA21 ayrışma ≥ %10', type: 'num', min: 2, max: 50, step: 0.5 },
+  { key: 'levelsWeeklyZone', short: 'Haftalık bölge', label: 'Direnç: haftalık bölge', type: 'bool' },
   { key: 'rsiMin', short: 'Kart eşiği', label: 'Kart eşiği RSI (🔴)', type: 'int', min: 50, max: 100, step: 1 },
   { key: 'rsiMin2', short: 'RSI 🔴🔴', label: 'RSI 🔴🔴 işareti', type: 'int', min: 50, max: 100, step: 1 },
   { key: 'rsiEntryMax', short: 'RSI üst sınır', label: 'Kontrol: 3m/5m RSI aralığı üstü', type: 'int', min: 80, max: 100, step: 1 },
