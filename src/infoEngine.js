@@ -333,13 +333,21 @@ function vwapState(series, price) {
 }
 
 function levelsOf(series, s = {}) {
-  const swing = s.levelsSwing !== false, fib = s.levelsFib !== false, bars = s.swingBars || 3, zoneTouches = s.zoneTouches || 3;
-  const key = `${series.lastT('1h')}:${series.lastT('4h')}:${series.lastT('1d')}:${swing}:${fib}:${bars}:${zoneTouches}`;
+  const swing = s.levelsSwing !== false;
+  const fib = s.levelsFib !== false;
+  const bars = s.swingBars || 3;
+  const zoneTouches = s.zoneTouches || 3;
+  const weeklyZone = s.levelsWeeklyZone !== false;
+  const key = `\( {series.lastT('1h')}: \){series.lastT('4h')}:\( {series.lastT('1d')}: \){swing}:\( {fib}: \){bars}:\( {zoneTouches}: \){weeklyZone}`;
   if (series._lv && series._lv.key === key) return series._lv.levels;
   const d = series.d['1d'];
   const days = d.t.map((_, i) => ({ high: d.h[i], close: d.c[i] }));
   const major = calcLevelSet(series.d['4h'].c, days);
-  const { levels: extra, leg } = calcExtraLevels({ h1: series.d['1h'], h4: series.d['4h'], d1: series.d['1d'] }, { swing, fib, bars, zoneTouches }, major);
+  const { levels: extra, leg } = calcExtraLevels(
+    { h1: series.d['1h'], h4: series.d['4h'], d1: series.d['1d'] },
+    { swing, fib, bars, zoneTouches, weeklyZone },
+    major
+  );
   const levels = [...major, ...extra];
   series._lv = { key, levels, leg };
   return levels;
