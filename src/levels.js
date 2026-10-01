@@ -201,14 +201,13 @@ function calcExtraLevels({ h1, h4, d1 }, o, base = []) {
   }
   // Haftalık bölge (son \~52 haftanın 1d verisinden; minTouch aynı)
   if (o.weeklyZone !== false && d1ok) {
-  // Basit yaklaşım: son 7 günlük high/low pivot kümesi yerine
-  // günlük zone listesinden "haftalık" etiketiyle en güçlü (çok temaslı) bölgeleri de ekle
-  // veya ayrı weeklyZones hesabı:
-  const wZones = dailyZones(d1.t, dh, d1.l, { lookback: 365, bars: 5, tol: 0.02, minTouch: o.zoneTouches || 3 });
-  for (const z of wZones.slice(0, 3)) {
-    add('Haftalık bölge', z.lo, 'zone', { zoneInfo: z, weekly: true });
+    const wZones = dailyZones(d1.t, dh, d1.l, {
+      lookback: 365, bars: 5, tol: 0.02, minTouch: o.zoneTouches || 3,
+    });
+    for (const z of wZones.slice(0, 3)) {
+      add('Haftalık bölge', z.lo, 'zone', { zoneInfo: z, weekly: true });
+    }
   }
-}
   // Fib: 1 SAATLİK geniş bacak (son ~2 hafta = 336 mum), yön otomatik — grafikteki bacakla aynı
   const leg = h1 && h1.t && h1.h.length >= 30 ? majorLeg(h1.t, h1.h, h1.l, 336) : null;
   if (o.fib && leg) {
