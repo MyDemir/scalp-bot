@@ -211,7 +211,10 @@ function checklist(snap, s) {
 function rsiGrade(snap, s) {
   if (!(snap.hits >= s.minTFs)) return 0;
   const sc = snap.check ? snap.check.score : 0;
-  return sc >= s.grade3Min ? 3 : sc >= s.grade2Min ? 2 : 1;
+  if (sc >= (s.grade4Min ?? 7)) return 4;
+  if (sc >= (s.grade3Min ?? 5)) return 3;
+  if (sc >= (s.grade2Min ?? 3)) return 2;
+  return 1;
 }
 
 /**
