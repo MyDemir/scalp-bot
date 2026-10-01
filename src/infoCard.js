@@ -207,8 +207,15 @@ function formatCard(card, s, opt = {}) {
 
 /** Kontrol listesinde eksik maddelerin kısa adları */
 const CHECK_SHORT = s => ({
-  daily: 'günlük direnç', confluence: 'çakışan direnç', band: `RSI ${s.strongRsi}–${s.rsiEntryMax}`, rsi15: `15dk ≥ ${s.strongRsi}`,
-  rsi5_15: `5dk+15dk ≥ ${s.strongRsi}`, htf: `1s/4s ≥ ${s.confRsi}`, sep: 'EMA21 ayrışma', neg: 'negatif tepe',
+  daily: 'günlük direnç',
+  confluence: 'çakışan direnç',
+  band: `RSI \( {s.strongRsi}– \){s.rsiEntryMax}`,
+  rsi15: `15dk ≥ ${s.strongRsi}`,
+  rsi5_15: `5dk+15dk ≥ ${s.strongRsi}`,
+  htf: `1s/4s ≥ ${s.confRsi}`,
+  sep: 'EMA21 ayrışma',
+  neg: 'negatif tepe',
+  macd: 'MACD sat kesişimi',
 });
 
 /** Sayıdan sonra "-(s)ında/-(s)inde" eki: 6'sında · 7'sinde · 10'unda … (yaklaşık, 0–10 için) */
