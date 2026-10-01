@@ -73,8 +73,7 @@ function targetLine(snap, price) {
   const items = ['3m', '5m'].map(tf => {
     const p = snap.sepPct?.[tf];
     if (p == null || !Number.isFinite(p)) return null;
-    // EMA'ya uzaklık: fiyat EMA üstündeyse hedef aşağıda → negatif d
-    return { tf, d: -p };
+    return { tf, d: -p }; // pozitif sepPct = EMA üstünde → hedef aşağıda
   }).filter(Boolean);
   if (!items.length) return null;
   const side = d => (d <= 0 ? 'aşağıda' : 'yukarıda');
