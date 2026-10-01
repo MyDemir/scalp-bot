@@ -68,12 +68,18 @@ function rsiLines(sn) {
 }
 
 /** Hedef (3m / 5m EMA21): "Hedef: 3m EMA21 %0.2 · 5m EMA21 %0.3 aşağıda" */
+/** Hedef (3m / 5m EMA21): sepPct = fiyatın EMA21'e % mesafesi (pozitif = üstünde) */
 function targetLine(snap, price) {
-  const items = ['3m', '5m'].map(tf => snap.sep?.[tf] ? { tf, d: (snap.sep[tf].ema - price) / price * 100 } : null).filter(Boolean);
+  const items = ['3m', '5m'].map(tf => {
+    const p = snap.sepPct?.[tf];
+    if (p == null || !Number.isFinite(p)) return null;
+    // EMA'ya uzaklık: fiyat EMA üstündeyse hedef aşağıda → negatif d
+    return { tf, d: -p };
+  }).filter(Boolean);
   if (!items.length) return null;
   const side = d => (d <= 0 ? 'aşağıda' : 'yukarıda');
   const same = items.every(x => side(x.d) === side(items[0].d));
-  return `<b>Hedef:</b> ${items.map(x => `${x.tf.replace("m", "dk")} EMA21 ${pa(x.d, 1)}${same ? '' : ` ${side(x.d)}`}`).join(' · ')}${same ? ` ${side(items[0].d)}` : ''}`;
+  return `<b>Hedef:</b> \( {items.map(x => ` \){x.tf.replace('m', 'dk')} EMA21 \( {pa(x.d, 1)} \){same ? '' : ` \( {side(x.d)}`}`).join(' · ')} \){same ? ` ${side(items[0].d)}` : ''}`;
 }
 
 function tgLinks(sym) {
