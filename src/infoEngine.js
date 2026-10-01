@@ -227,17 +227,12 @@ const circles = (n, color = 'red') => (n > 0 ? (DOT[color] || DOT.red).repeat(n)
 const dirColor = (dirOrMove) => (dirOrMove === 'buy' || (typeof dirOrMove === 'number' && dirOrMove > 0) ? 'green'
   : dirOrMove === 'sell' || (typeof dirOrMove === 'number' && dirOrMove < 0) ? 'red' : 'white');
 
-function separation(series, tf, price) {
-  const c = series.col(tf, 'c'), h = series.col(tf, 'h'), l = series.col(tf, 'l');
-  const e = ta.emaSeries(c, 21), a = ta.atrSeries(h, l, c, 14);
-  if (!e.length || !a.length) return null;
-  const ema = e[e.length - 1], atr = a[a.length - 1];
-  let touched = false;
-  for (let k = 1; k <= 3 && k <= e.length; k++) {
-    const i = c.length - k, ev = e[e.length - k];
-    if (l[i] <= ev && ev <= h[i]) { touched = true; break; }
-  }
-  return { ema, atr, dist: atr > 0 ? (price - ema) / atr : 0, touched };
+function separationPct(series, tf, price) {
+  const c = series.col(tf, 'c');
+  const e = ta.emaSeries(c, 21);
+  if (!e.length || !(price > 0)) return null;
+  const ema = e[e.length - 1];
+  return ((price - ema) / ema) * 100;   // pozitif = EMA üstünde
 }
 
 /**
