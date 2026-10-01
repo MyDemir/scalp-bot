@@ -142,17 +142,20 @@ function checklist(snap, s) {
   const macdDown = ['3m', '5m'].some(tf => snap.macd?.[tf]?.cross === 'down');
 
   const items = [
-    { key: 'daily', ok: Boolean(daily), pts: 1, text: daily ? `Günlük/haftalık direnç ${kala(daily.dist)} (${daily.name})` : `Günlük direnç %${s.levelMaxPct} içinde yok` },
+    { key: 'daily', ok: Boolean(daily), pts: 1, text: daily ? `Günlük/haftalık direnç \( {kala(daily.dist)} ( \){daily.name})` : `Günlük direnç %${s.levelMaxPct} içinde yok` },
     { key: 'confluence', ok: Boolean(conf), pts: 1, text: conf ? `Çakışan direnç: ${ref.name} + ${conf.name}` : 'Çakışan direnç yok' },
-    { key: 'band', ok: band.length > 0, pts: 1, text: band.length ? `3m/5m RSI ${s.strongRsi}–${s.rsiEntryMax} (${band.map(tf => `${tf}${f1(r[tf].v)}`).join(' · ')})` : over.length ? `3m/5m RSI ${s.rsiEntryMax} üstü — aşırı` : `3m/5m RSI ${s.strongRsi}–${s.rsiEntryMax} değil` },
-    { key: 'rsi15', ok: r['15m'].v >= s.strongRsi, pts: 1, text: `15m RSI ≥ ${s.strongRsi} (${f1(r['15m'].v)})` },
+    { key: 'band', ok: band.length > 0, pts: 1, text: band.length
+      ? `3m/5m RSI \( {s.strongRsi}– \){s.rsiEntryMax} (\( {band.map(tf => ` \){tf} ${f1(r[tf].v)}`).join(' · ')})`
+      : over.length
+        ? `3m/5m RSI ${s.rsiEntryMax} üstü — aşırı`
+        : `3m/5m RSI \( {s.strongRsi}– \){s.rsiEntryMax} değil` },
+    { key: 'rsi15', ok: r['15m'].v >= s.strongRsi, pts: 1, text: `15m RSI ≥ \( {s.strongRsi} ( \){f1(r['15m'].v)})` },
     { key: 'rsi5_15', ok: r['5m'].v >= s.strongRsi && r['15m'].v >= s.strongRsi, pts: 1, text: `5m + 15m ≥ ${s.strongRsi}` },
-    { key: 'htf', ok: h1 >= s.confRsi && h4 >= s.confRsi, pts: 1, text: `1h/4h RSI ≥ ${s.confRsi} (${f1(h1)} · ${f1(h4)})` },
+    { key: 'htf', ok: h1 >= s.confRsi && h4 >= s.confRsi, pts: 1, text: `1h/4h RSI ≥ \( {s.confRsi} ( \){f1(h1)} · ${f1(h4)})` },
     { key: 'sep', ok: sepPts > 0, pts: sepPts, text: `EMA21 % ayrışma ${sepTxt}` },
     { key: 'neg', ok: Math.max(n1, n3) >= 2, pts: 1, text: `Negatif tepe ≥ 2 (1m ${n1} · 3m ${n3})` },
     { key: 'macd', ok: macdDown, pts: 1, text: macdDown ? 'MACD 3m/5m sat kesişimi' : 'MACD sat kesişimi yok' },
   ];
-
   const score = items.reduce((sum, x) => sum + (x.ok ? x.pts : 0), 0);
   const warn = ['3m', '5m'].some(tf => r[tf].v >= s.strongRsi) && sepPts === 0
     ? `⚠️ RSI ${s.strongRsi} üstü ama EMA21 yakın`
