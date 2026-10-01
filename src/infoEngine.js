@@ -167,21 +167,20 @@ function checklist(snap, s) {
   const band = ['3m', '5m'].filter(tf => inBand(r[tf].v));
   const over = ['3m', '5m'].filter(tf => r[tf].v > s.rsiEntryMax);
 
-  // EMA21 yüzde ayrışma (max mesafe 3m/5m)
+  // EMA21 yüzde ayrışma (3m/5m max) — kademeli puan
   const sepPct = Math.max(
-    snap.sepPct?.['3m'] ?? 0,
-    snap.sepPct?.['5m'] ?? 0
+    Math.abs(snap.sepPct?.['3m'] ?? 0),
+    Math.abs(snap.sepPct?.['5m'] ?? 0)
   );
   let sepPts = 0;
   let sepTxt = 'yok';
-  if (sepPct >= (s.sepPct10 ?? 10)) { sepPts = 3; sepTxt = `≥%\( {s.sepPct10} ( \){sepPct.toFixed(1)}%)`; }
-  else if (sepPct >= (s.sepPct5 ?? 5)) { sepPts = 2; sepTxt = `≥%\( {s.sepPct5} ( \){sepPct.toFixed(1)}%)`; }
-  else if (sepPct >= (s.sepPct2 ?? 2)) { sepPts = 1; sepTxt = `≥%\( {s.sepPct2} ( \){sepPct.toFixed(1)}%)`; }
+  if (sepPct >= (s.sepPct10 ?? 10)) { sepPts = 3; sepTxt = `≥%\( {s.sepPct10 ?? 10} ( \){sepPct.toFixed(1)}%)`; }
+  else if (sepPct >= (s.sepPct5 ?? 5)) { sepPts = 2; sepTxt = `≥%\( {s.sepPct5 ?? 5} ( \){sepPct.toFixed(1)}%)`; }
+  else if (sepPct >= (s.sepPct2 ?? 2)) { sepPts = 1; sepTxt = `≥%\( {s.sepPct2 ?? 2} ( \){sepPct.toFixed(1)}%)`; }
 
   const n1 = snap.neg?.['1m']?.count ?? 0, n3 = snap.neg?.['3m']?.count ?? 0;
   const h1 = snap.conf?.h1, h4 = snap.conf?.h4;
 
-  // MACD 3m veya 5m sat kesişimi
   const macdDown = ['3m', '5m'].some(tf => snap.macd?.[tf]?.cross === 'down');
 
   const items = [
@@ -196,7 +195,7 @@ function checklist(snap, s) {
     { key: 'macd', ok: macdDown, pts: 1, text: macdDown ? 'MACD 3m/5m sat kesişimi' : 'MACD sat kesişimi yok' },
   ];
 
-  const score = items.reduce((s, x) => s + (x.ok ? x.pts : 0), 0);
+  const score = items.reduce((sum, x) => sum + (x.ok ? x.pts : 0), 0);
   const warn = ['3m', '5m'].some(tf => r[tf].v >= s.strongRsi) && sepPts === 0
     ? `⚠️ RSI ${s.strongRsi} üstü ama EMA21 yakın`
     : null;
