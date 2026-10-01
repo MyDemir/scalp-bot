@@ -226,12 +226,13 @@ const circles = (n, color = 'red') => (n > 0 ? (DOT[color] || DOT.red).repeat(n)
 const dirColor = (dirOrMove) => (dirOrMove === 'buy' || (typeof dirOrMove === 'number' && dirOrMove > 0) ? 'green'
   : dirOrMove === 'sell' || (typeof dirOrMove === 'number' && dirOrMove < 0) ? 'red' : 'white');
 
+/** EMA21'e yüzde mesafe (pozitif = EMA üstünde) */
 function separationPct(series, tf, price) {
   const c = series.col(tf, 'c');
   const e = ta.emaSeries(c, 21);
   if (!e.length || !(price > 0)) return null;
   const ema = e[e.length - 1];
-  return ((price - ema) / ema) * 100;   // pozitif = EMA üstünde
+  return ((price - ema) / ema) * 100;
 }
 
 /**
