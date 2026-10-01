@@ -785,15 +785,14 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
   const tfs = RSI_TFS.filter(tf => closedTfs.has(tf));
   const burst = detectBurst(series, s);
   if (burst) burst.grade = volGrade(burst.body, burst.volX, burst.taker, s);
-  // Sahte kırılım takibi her 5m kapanışında (kart şartından bağımsız)
+
   let sfp = null;
   if (s.sfpCards !== false && closedTfs.has('5m')) {
     const w = tracker.sfpWatch(sym);
     sfp = detectSfp(series, s, w);
-    // Bekleme: bir sahte kırılım kartından sonra sfpBars × 5 dk yeni SFP kartı yok (aynı bölgede art arda kart olmasın)
     if (sfp && w.until && series.lastT('1m') + MIN < w.until) sfp = null;
   }
-  // 1 dk hareket (≥ moveAlertPct): günlük sayaca yazılır; RSI şartı sağlanıyorsa karta girer (ayrı uyarı yok)
+
   let move = null;
   if (s.moveAlertPct > 0) {
     const d = series.d['1m'], i = d.c.length - 1;
@@ -808,24 +807,34 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
       tracker.countMove(sym, move.t, pct);
     }
   }
-  if (!tfs.length && !burst && !move) return null;
+
+  // Kontrol anı: yalnız 3m/5m/15m kapanışı veya SFP veya (RSI varken) hareket
+  // Hacimli mum TEK BAŞINA evaluate/kart tetiklemez
+  if (!tfs.length && !sfp && !move) return null;
 
   let snap = evaluate(series, s, ctx);
-  // Sahte kırılım kartı yalnızca KART ANINDA da RSI şartı sağlanıyorsa (kırılım anındaki şart yetmez)
   if (sfp && !snap.rsiOk) sfp = null;
   if (sfp) { const w = tracker.sfpWatch(sym); w.until = snap.t + s.sfpBars * 5 * MIN; }
+
   let inSeries = false;
   if (!snap.ok) {
-    // Şart dışı ama yine de kart: (a) sahte kırılım, (b) seri sürerken gelen hacimli mum
-    // (ör. tepedeki sert satış mumu RSI'ı 90'ın altına indirse de bildirilir)
-    const seriesBurst = Boolean(burst && s.seriesBursts && tracker.active(sym));
-    const moveCard = Boolean(move && snap.rsiOk);           // hareket: yalnızca RSI şartı sağlanan coinlerde kart
+    // Seri içi: hacimli mum + seri aktif + 5m RSI ≥ seriesMinRsi5m (varsayılan 85)
+    const rsi5 = ta.rsiLast(series.col('5m', 'c', true), s.rsiPeriod);
+    const seriesBurst = Boolean(
+      burst &&
+      s.seriesBursts &&
+      tracker.active(sym) &&
+      (rsi5 ?? 0) >= (s.seriesMinRsi5m ?? 85)
+    );
+    const moveCard = Boolean(move && snap.rsiOk);
     if (!sfp && !seriesBurst && !moveCard) return null;
     if (!snap.rsiOk) snap = evaluate(series, s, ctx, true);
     inSeries = seriesBurst;
-    if (sfp && !(snap.grade > 0)) {             // SFP kartında derece kontrol listesinden (RSI eşiği aranmaz)
+    if (sfp && !(snap.grade > 0)) {
       const sc = snap.check ? snap.check.score : 0;
-      snap.grade = sc >= s.grade3Min ? 3 : sc >= s.grade2Min ? 2 : 1;
+      snap.grade = sc >= (s.grade4Min ?? 7) ? 4
+        : sc >= (s.grade3Min ?? 5) ? 3
+        : sc >= (s.grade2Min ?? 3) ? 2 : 1;
     }
   }
   if (ctx.isMuted && ctx.isMuted(sym, snap.t)) return null;
@@ -843,7 +852,7 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
   const followed = ctx.isFollowed ? ctx.isFollowed(sym) : false;
   const dip = snap.level?.zone === 'dip';
   const tags = [
-    `#${sym}`, `#DERECE${snap.grade}`,
+    `#\( {sym}`, `#DERECE \){snap.grade}`,
     snap.level ? (dip ? '#DIRENCTE' : '#YAKLASIYOR') : null,
     burst ? '#HACIM' : null,
     move ? '#HAREKET' : null,
@@ -856,12 +865,12 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
   ].filter(Boolean);
 
   return {
-    id: `${sym}-${snap.t}`, symbol: sym, seq, t: snap.t, price: snap.price,
+    id: `\( {sym}- \){snap.t}`, symbol: sym, seq, t: snap.t, price: snap.price,
     snap, news, trig, tags, followed, inSeries,
     moveStats: tracker.moveStats(sym, snap.t),
     grade: snap.grade,
-    // Bildirim: cardSound açıksa her kart sesli; kapalıysa yalnız 🔴🔴🔴 ve takipteki coinler
-    silent: !(s.cardSound !== false || snap.grade === 3 || followed),
+    // 4 daire de sesli olabilir
+    silent: !(s.cardSound !== false || snap.grade >= 3 || followed),
   };
 }
 
