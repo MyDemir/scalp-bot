@@ -41,7 +41,10 @@ const CLASSES = [
   ['İlk kart (#1)',        c => c.seq === 1],
   ['Derece 🔴',            c => c.grade === 1],
   ['Derece 🔴🔴',          c => c.grade === 2],
-  ['Derece 🔴🔴🔴 (sesli)', c => c.grade === 3],
+  ['Derece 🔴🔴🔴',        c => c.grade === 3],
+  ['Derece 🔴🔴🔴🔴',      c => c.grade === 4],
+  // ...
+  ['  ↳ seri içi',         c => c.inSeries],  // "şartsız" kaldır
   ['Kontrol: 15m RSI ≥ 95',  c => (c.checkOk || []).includes('rsi15')],
   ['Kontrol: 5m+15m ≥ 95',   c => (c.checkOk || []).includes('rsi5_15')],
   ['Kontrol: çakışan direnç', c => (c.checkOk || []).includes('confluence')],
