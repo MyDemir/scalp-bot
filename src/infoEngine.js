@@ -2,21 +2,6 @@
 
 /**
  * Bilgi botu motoru — canlı bot ve backtest AYNI fonksiyonları kullanır.
- *
- *   Kontrol anı : her kapanan 1m mumda Series.apply1m() çağrılır; değerlendirme yalnızca
- *                 (a) 3m / 5m / 15m mumlarından biri kapandıysa ya da (b) bu 1m mum hacimli bir
- *                 patlamaysa yapılır. Kapanmamış dilimlerin RSI'ı devam eden mumla hesaplanır (canlı, "~").
- *   Şart        : 3m/5m/15m'den en az minTFs tanesinde RSI ≥ rsiMin
- *   Derece      : kurulum kontrol listesi skoru (8 madde) — 🔴 < grade2Min · 🔴🔴 ≥ grade2Min · 🔴🔴🔴 ≥ grade3Min
- *                 + (levelRequired) fiyatın üstünde en fazla %levelMaxPct uzakta bir seviye
- *                 + isteğe bağlı: ayrışma / destek / MACD şartları
- *   Yeni kart   : şart sağlanıyor VE önceki karttan bu yana yeni veri var (patlama, RSI dilim sayısı,
- *                 güçlü RSI, seviye/bölge, MACD ya da Stoch RSI kesişimi). Yeni veri yoksa kart yok.
- *   Negatif tepe: 1m/3m'de fiyat ≥ önceki tepe, RSI < önceki tepe (ardışık sayı) — artış yeni veri sayılır.
- *   Seri içi    : (seriesBursts) seri sürerken gelen hacimli mum ŞART ARANMADAN kart olur (#SERI).
- *   Numara      : aynı coinde kartlar #1, #2 … diye artar; kapanmış 5m RSI < resetRsi olunca sıfırlanır.
- *
- * Bu modülün yan etkisi yok (ağ/Telegram açmaz).
  */
 
 const ta = require('./ta');
@@ -28,7 +13,6 @@ const MIN = 60_000;
 
 // ── Hacim patlamaları ──────────────────────────────────────────────────────
 
-/** 1m tamponunun i. mumu patlama mı? */
 function burstAt(d, i, s) {
   const n = s.volAvgN;
   if (i < n) return null;
@@ -49,17 +33,11 @@ function burstAt(d, i, s) {
   };
 }
 
-/** Son kapanan 1m mum patlama mı? */
 function detectBurst(series, s) {
   const d = series.d['1m'];
   return burstAt(d, d.t.length - 1, s);
 }
 
-/**
- * Pencerelerdeki patlama sayaçları. Art arda gelen patlama mumları TEK patlama sayılır
- * (yön: bloğun toplam taker oranı, kademe: bloktaki en büyük gövde).
- * @returns {{[win:number]: {p1:{buy,sell,neutral}, p2:{buy,sell,neutral}}}}
- */
 function burstCounts(series, s, windows) {
   const d = series.d['1m'];
   const n = d.t.length;
@@ -97,7 +75,6 @@ function burstCounts(series, s, windows) {
   return out;
 }
 
-/** Taker net akış (USDT): Σ(taker alış − taker satış) son w dakika */
 function takerNet(series, w) {
   const d = series.d['1m'];
   const n = d.t.length;
@@ -113,13 +90,6 @@ function rsiOf(series, tf, period = 14) {
   return { v: ta.rsiLast(series.col(tf, 'c', true), period), live };
 }
 
-/**
- * Hacim derecesi (hacimli mum ve ⚡ hareket için ortak):
- *   1 = temel şart · 2 = + hacim ≥ volGrade2X × ortalama · 3 = + alış/satış oranı hareket yönünde ≥ dirGrade3Pct
- * @param {number} move   hareket/gövde yüzdesi (işaret yönü verir)
- * @param {number|null} volX  hacim / ortalama
- * @param {number|null} taker taker alış oranı (%)
- */
 function volGrade(move, volX, taker, s) {
   if (!(volX >= s.volGrade2X)) return 1;
   const agree = taker == null ? 0 : move >= 0 ? taker : 100 - taker;
@@ -128,18 +98,6 @@ function volGrade(move, volX, taker, s) {
 
 const DAILY_LEVELS = ['1d MA200', '1d EMA200', '30 günlük tepe', '30 günlük en yüksek', '7 günlük en yüksek', 'Günlük bölge'];
 
-/**
- * Kurulum kontrol listesi (8 madde, yalnızca bilgi — kart göndermeyi engellemez):
- *   1 günlük dirence yakın (1d MA200 / 1d EMA200 / 30 günlük tepe, üstte ≤ %levelMaxPct)
- *   2 çakışan direnç (başka bir seviye %confluencePct içinde)
- *   3 3m ya da 5m RSI strongRsi–rsiEntryMax aralığında (95–98)
- *   4 15m RSI ≥ strongRsi (95)
- *   5 5m ve 15m birlikte ≥ strongRsi
- *   6 1h ve 4h RSI ≥ confRsi (şişkin)
- *   7 3m ve 5m EMA21'den ayrışmış (≥ sepATR ATR, son 3 mumda dokunmamış)
- *   8 1m ya da 3m'de ≥ 2 negatif tepe
- * Ayrıca uyarı: 3m/5m RSI ≥ 95 ama EMA21'e yakın.
- */
 function checklist(snap, s) {
   const r = snap.rsi;
   const f1 = v => (v == null || !Number.isFinite(v) ? '—' : v.toFixed(1));
@@ -203,10 +161,6 @@ function checklist(snap, s) {
   return { items, score, total: items.length, warn, daily, confluence: conf };
 }
 
-/**
- * Kart derecesi — kontrol listesi skoruna göre (kart şartı sağlanmışsa):
- *   🔴 skor < grade2Min · 🔴🔴 skor ≥ grade2Min · 🔴🔴🔴 skor ≥ grade3Min (sesli)
- */
 function rsiGrade(snap, s) {
   if (!(snap.hits >= s.minTFs)) return 0;
   const sc = snap.check ? snap.check.score : 0;
@@ -216,17 +170,11 @@ function rsiGrade(snap, s) {
   return 1;
 }
 
-/**
- * Derece daireleri. Renk yönü gösterir: 'red' = düşüş/satış ya da aşırı alım (short tarafı),
- * 'green' = yükseliş/alış, 'white' = nötr. 0 derece → ⚪ (şart dışı).
- */
 const DOT = { red: '🔴', green: '🟢', white: '⚪' };
 const circles = (n, color = 'red') => (n > 0 ? (DOT[color] || DOT.red).repeat(n) : '⚪');
-/** Hacimli mum / hareket yönüne göre renk */
 const dirColor = (dirOrMove) => (dirOrMove === 'buy' || (typeof dirOrMove === 'number' && dirOrMove > 0) ? 'green'
   : dirOrMove === 'sell' || (typeof dirOrMove === 'number' && dirOrMove < 0) ? 'red' : 'white');
 
-/** EMA21'e yüzde mesafe (pozitif = EMA üstünde) */
 function separationPct(series, tf, price) {
   const c = series.col(tf, 'c');
   const e = ta.emaSeries(c, 21);
@@ -235,19 +183,13 @@ function separationPct(series, tf, price) {
   return ((price - ema) / ema) * 100;
 }
 
-/**
- * EMA21 takip / kopuş (yalnızca Detay'da gösterilir). Kapanmış 3m mumlar:
- *   değme  : mumun aralığı EMA21'i (±%0.1) içeriyor
- *   izliyor: son 10 mumun ≥ 6'sında değdi (fiyat EMA21'i trend gibi takip ediyor)
- *   koptu  : son 3 mumdan önceki 10 mumun ≥ 6'sında değmişti, son 3 mumda değmedi ve fiyat ≥ 1.5 ATR yukarıda
- */
 const RIDE = { win: 10, min: 6, breakATR: 1.5 };
 function emaRide(series, tf = '3m') {
   const c = series.col(tf, 'c', false), h = series.col(tf, 'h', false), l = series.col(tf, 'l', false);
   const e = ta.emaSeries(c, 21), a = ta.atrSeries(h, l, c, 14);
   const n = c.length;
   if (e.length < RIDE.win + 3 || !a.length) return null;
-  const off = n - e.length;                                // e[j] ↔ c[j + off]
+  const off = n - e.length;
   const touch = i => { const ev = e[i - off]; return l[i] <= ev * 1.001 && h[i] >= ev * 0.999; };
   const count = (from, to) => { let k = 0; for (let i = from; i < to; i++) if (touch(i)) k++; return k; };
   const recent = count(n - RIDE.win, n), before = count(n - RIDE.win - 3, n - 3), last3 = count(n - 3, n);
@@ -257,14 +199,6 @@ function emaRide(series, tf = '3m') {
   return { tf, state, recent, before, last3, dist, win: RIDE.win };
 }
 
-// ── Short'a karşı sinyaller (yalnızca Detay'da; dereceyi etkilemez) ─────────
-
-/**
- * Gizli pozitif uyumsuzluk (gizli PU): son iki dip — fiyat daha YÜKSEK dip, RSI daha DÜŞÜK dip → yükseliş devam eğilimi.
- *   Dip: low[i] solundaki `bars` mumdan düşük, sağındaki `bars` mumdan düşük-eşit (kapanmış mumlar).
- *   İkinci dip son `fresh` mum içinde olmalı (güncel). RSI farkı en az 1 puan.
- * @param {number[]} lows  @param {number[]} rsi  lows ile hizalı (tanımsız başı NaN)
- */
 function findHiddenPU(lows, rsi, { bars = 3, lookback = 60, fresh = 10 } = {}) {
   const n = lows.length;
   const piv = [];
@@ -288,11 +222,6 @@ function hiddenPU(series, tf, period) {
   return res ? { tf, ...res } : null;
 }
 
-/**
- * Günlük golden cross (SMA50 / SMA200, kapanmış günlük mumlar):
- *   'crossed' — son 10 günde SMA50, SMA200'ü aşağıdan yukarı kesti
- *   'near'    — SMA50 hâlâ altında ama fark ≤ %2 ve 5 gün öncesine göre daralıyor
- */
 function findGoldenCross(closes) {
   const n = closes.length;
   if (n < 211) return null;
@@ -309,7 +238,7 @@ function findGoldenCross(closes) {
 }
 
 function macdState(series, tf) {
-  const c = series.col(tf, 'c', false);                 // yalnızca kapanmış mumlar (kararlı)
+  const c = series.col(tf, 'c', false);
   const m = ta.macdTail(c, 12, 26, 9, 6);
   if (m.length < 3) return null;
   const h = m.map(x => x.hist);
@@ -341,20 +270,12 @@ function stochState(series, tf) {
   return { k: q.k, d: q.d, cross, crossKey: cross ? `${tf}:${cross}:${series.lastT(tf)}` : null };
 }
 
-/**
- * Negatif tepe (düşüş uyumsuzluğu) — fiyat eşit ya da daha yüksek tepe yaparken RSI daha düşük tepe.
- *   Tepe (pivot): high[i] > high[i-1] ve high[i] ≥ high[i+1] (sağında 1 kapanmış mumla teyitli).
- *   Son `lookback` kapanmış mumdaki tepeler sırayla karşılaştırılır; ardışık negatif tepe sayısı
- *   son tepede biten seridir (arada RSI'ı yükselen ya da fiyatı alçalan tepe gelirse sıfırlanır).
- *   Son tepe 6 mumdan eskiyse sayı 0 (bayat uyumsuzluk gösterilmez).
- * @returns {{count:number, key:string|null, lastAgo:number|null}|null}
- */
 function negPeaks(series, tf, lookback = 40, period = 14) {
   const h = series.col(tf, 'h', false), c = series.col(tf, 'c', false), t = series.col(tf, 't', false);
   const n = c.length;
   if (n < 30) return null;
   const r = ta.rsiSeries(c, period);
-  const off = n - r.length;                               // r[j] ↔ c[j + off]
+  const off = n - r.length;
   const piv = [];
   for (let i = Math.max(off + 1, n - lookback); i < n - 1; i++) {
     if (h[i] > h[i - 1] && h[i] >= h[i + 1]) piv.push({ i, h: h[i], r: r[i - off] });
@@ -371,12 +292,6 @@ function negPeaks(series, tf, lookback = 40, period = 14) {
   return { count: fresh ? cnt : 0, key: last ? `${tf}:${t[last.i]}` : null, lastAgo };
 }
 
-/**
- * Hacim ve alış–satış (USDT) — 15 dk / 1 saat / 4 saat / 24 saat. Bellekteki mumlardan, ek istek yok.
- *   hacim  : pencerenin USDT hacmi · kat: o uzunluktaki pencerelerin normaline oranı
- *            (15 dk ve 1 saat → son 24 saatin ortalaması · 4 saat ve 24 saat → son 7 günün ortalaması)
- *   alış % : taker alış hacmi / hacim · net: alış − satış (USDT)
- */
 function volStats(series) {
   const last = (tf, n, incl) => {
     const q = series.col(tf, 'q', incl), tq = series.col(tf, 'tq', incl);
@@ -415,11 +330,6 @@ function vwapState(series, price) {
   return { ...r, pos: r.sigma > 0 ? (price - r.vwap) / r.sigma : 0 };
 }
 
-/**
- * Seviyeler — yalnızca KAPANMIŞ 1h / 4h / 1d mumlardan (devam eden mumun tepesi "direnç" sayılmaz;
- * sayılsaydı yükselen fiyat hep kendi tepesinin "dibinde" görünürdü). Mumlar kapanınca yeniden hesaplanır.
- *   majör (MA200/EMA200, 30 günlük tepe) + 7/30 günlük en yüksek + (levelsSwing) 1h/4h tepe + (levelsFib) Fib
- */
 function levelsOf(series, s = {}) {
   const swing = s.levelsSwing !== false, fib = s.levelsFib !== false, bars = s.swingBars || 3, zoneTouches = s.zoneTouches || 3;
   const key = `${series.lastT('1h')}:${series.lastT('4h')}:${series.lastT('1d')}:${swing}:${fib}:${bars}:${zoneTouches}`;
@@ -433,13 +343,8 @@ function levelsOf(series, s = {}) {
   return levels;
 }
 
-/** Seviye kimliği (aynı adda birden fazla seviye olabilir: "1h tepe") */
 const lvKey = L => (L ? `${L.name}@${L.value}` : null);
 
-/**
- * Fiyat keşfi: %levelMaxPct içinde direnç yok ama fiyat son 24 saatte bir seviyeyi (Fib hariç) yukarı kırmış.
- * @returns {{broken:object, above:object|null, ext:{r:number,value:number}[]}|null}
- */
 function discoveryOf(series, price, all) {
   const h1l = series.d['1h'].l, m1l = series.d['1m'].l;
   let low = Infinity;
@@ -455,17 +360,6 @@ function discoveryOf(series, price, all) {
   return { broken, above, ext: fibExtensions(series._lv?.leg, price, 2) };
 }
 
-/**
- * Sahte kırılım (SFP) — her kapanmış 5m mumda çağrılır. `watch` coin başına kalıcı takip listesidir.
- *   Kırılım : 5m mum seviyenin %dipAbovePct'ten fazla üstünde kapanır (önceki mum altındaydı) ve o an
- *             RSI kart şartı sağlanıyor (3m/5m/15m'den en az minTFs tanesi ≥ rsiMin) → sfpBars mum boyunca izlenir.
- *   Seviyeler: yalnızca güçlü olanlar — MA200/EMA200, 30 günlük tepe, 7/30 günlük en yüksek, 4h tepe
- *             (1h tepe ve Fib izlenmez; kartta direnç olarak görünmeye devam eder).
- *   Sahte   : izlenirken bir 5m mum seviyenin ALTINDA kapanırsa ('close'),
- *             ya da aynı 5m mumun fitili seviyeyi ≥ %0.5 aşıp gövdesi ≥ %0.2 ALTINDA kapanırsa ve mumun hacmi
- *             önceki 20 mumun ortalamasının üstündeyse ('wick' — sıradan direnç temasını elemek için sıkı).
- * Aynı mumda birden fazla olay varsa en önemlisi (majör/en yüksek → salınım → Fib) döner.
- */
 const KIND_RANK = { major: 0, high: 0, swing: 1, fib: 2 };
 function detectSfp(series, s, watch) {
   const d = series.d['5m'];
@@ -484,12 +378,14 @@ function detectSfp(series, s, watch) {
       watch.delete(k);
     } else if (--w.left <= 0) watch.delete(k);
   }
-  // Kırılım yalnızca RSI kart şartı sağlanırken izlenir (normal RSI kartıyla aynı şart)
+
   const hits = RSI_TFS.filter(tf => (rsiOf(series, tf, s.rsiPeriod).v ?? 0) >= s.rsiMin).length;
   if (hits < s.minTFs) return ev;
-  const up = s.dipAbovePct / 100;
+
+  // DÜZELTME: sfpAbovePct kullanıldı (%0.5)
+  const up = (s.sfpAbovePct ?? 0.5) / 100;
   for (const L of levelsOf(series, s)) {
-    if (L.kind === 'fib' || L.name === '1h tepe') continue;          // yalnızca güçlü seviyeler
+    if (L.kind === 'fib' || L.name === '1h tepe') continue;
     const thr = L.value * (1 + up), key = lvKey(L);
     if (watch.has(key)) continue;
     if (c > thr && cPrev <= thr) watch.set(key, { name: L.name, value: L.value, kind: L.kind, t, left: s.sfpBars });
@@ -517,11 +413,6 @@ function pickLevel(price, levels, s) {
 
 // ── Değerlendirme ──────────────────────────────────────────────────────────
 
-/**
- * O anki durumun tam fotoğrafı. RSI şartı tutmuyorsa ucuz yoldan döner (ok:false).
- * @param {object} ctx    { funding(sym), btc1h(t) }
- * @param {boolean} force RSI şartı tutmasa da tüm alanları hesapla (/coin komutu)
- */
 function evaluate(series, s, ctx = {}, force = false) {
   const price = series.price();
   const t = series.lastT('1m') + MIN;
@@ -543,20 +434,12 @@ function evaluate(series, s, ctx = {}, force = false) {
   snap.fibLeg = series._lv?.leg ?? null;
   snap.discovery = !level && s.discoveryCards !== false ? discoveryOf(series, price, all) : null;
 
-  // EMA21 % mesafe (güven skoru) + eski ATR ayrışma (sepOk / #AYRISMA)
   snap.sepPct = {
     '3m': separationPct(series, '3m', price),
     '5m': separationPct(series, '5m', price),
   };
-  // Eski ATR separation hâlâ dosyada varsa:
-  if (typeof separation === 'function') {
-    snap.sep = { '3m': separation(series, '3m', price), '5m': separation(series, '5m', price) };
-    snap.sepOk = ['3m', '5m'].every(tf => snap.sep[tf] && snap.sep[tf].dist >= s.sepATR && !snap.sep[tf].touched);
-  } else {
-    // sadece % varsa: abs mesafe ≥ sepPct2 ve pozitif (üstte) ise ayrışmış say
-    snap.sep = null;
-    snap.sepOk = ['3m', '5m'].every(tf => (snap.sepPct[tf] ?? 0) >= (s.sepPct2 ?? 2));
-  }
+  snap.sep = null;
+  snap.sepOk = ['3m', '5m'].every(tf => (snap.sepPct[tf] ?? 0) >= (s.sepPct2 ?? 2));
 
   snap.neg = { '1m': negPeaks(series, '1m', 40, s.rsiPeriod), '3m': negPeaks(series, '3m', 40, s.rsiPeriod) };
   snap.ride = emaRide(series, '3m');
@@ -565,7 +448,6 @@ function evaluate(series, s, ctx = {}, force = false) {
   const r4h = ta.rsiLast(series.col('4h', 'c'), s.rsiPeriod);
   snap.conf = { h1: r1h, h4: r4h, score: (r1h >= s.confRsi ? 1 : 0) + (r4h >= s.confRsi ? 1 : 0) };
 
-  // MACD 3m + 5m + 15m
   snap.macd = {
     '3m': macdState(series, '3m'),
     '5m': macdState(series, '5m'),
@@ -601,28 +483,23 @@ function evaluate(series, s, ctx = {}, force = false) {
   return snap;
 }
 
-// ── Kart takibi (yeni veri tespiti + numaralandırma) ─────────────────────────
+// ── Kart takibi ─────────────────────────────────────────────────────────────
 
-// Yüzde metinleri (Türkçe: %1.25) — kart okunaklı olsun diye işaret yerine kelime kullanılır
 const pa = (v, d = 2) => `%${Math.abs(v).toFixed(d)}`;
 const ps = (v, d = 2) => `${v > 0 ? '+' : v < 0 ? '−' : ''}%${Math.abs(v).toFixed(d)}`;
 const distTxt = dist => (dist <= 0 ? `${pa(dist)} kala` : `${pa(dist)} üstünde`);
 const fpx = v => String(+(+v).toPrecision(6));
 
-/** Sahte kırılım yeniliği */
 function sfpText(e) {
   return e.type === 'wick'
     ? `⚠️ Sahte kırılım (fitil): ${e.name} ${fpx(e.value)} · 5dk mum üstüne çıktı, altında kapandı`
     : `⚠️ Sahte kırılım: ${e.name} ${fpx(e.value)} · ${e.ago} dk önce üstüne çıktı, şimdi altında kapandı`;
 }
 
-/** Fiyat keşfi yeniliği (ayrıntı — kırılan seviye, sonraki direnç, Fib uzantı — kartın gövdesinde) */
 function discoveryText(dc) {
   return `🚀 Fiyat keşfi: ${dc.broken.name} kırıldı`;
 }
 
-/** Hacimli mum yeniliği. Yön ve renk FİYATTAN (🟢 yükselen · 🔴 düşen mum); alış/satış oranı ayrıca yazılır,
- *  fiyatın tersine ağırsa belirtilir (ör. yükselen mumda satış %78). */
 function burstText(b) {
   const up = b.body >= 0;
   const buyHeavy = b.taker >= 50;
@@ -631,14 +508,12 @@ function burstText(b) {
   return `${circles(b.grade || 1, up ? 'green' : 'red')} Hacimli ${up ? 'yükselen' : 'düşen'} mum: ${ps(b.body, 1)} · hacim ${b.volX.toFixed(1)} kat · ${share}${against}`;
 }
 
-/** 1 dk hareket yeniliği (RSI kartının içinde): "⚡🟢🟢🟢 1 dk +%3.29 · hacim 34.0 kat · alış %70" */
 function moveText(m) {
   const up = m.pct > 0;
   const share = m.taker == null ? null : m.taker >= 50 ? `alış ${pa(m.taker, 0)}` : `satış ${pa(100 - m.taker, 0)}`;
   return [`⚡${circles(m.grade || 1, up ? 'green' : 'red')} 1 dk ${ps(m.pct)}`, m.volX != null ? `hacim ${m.volX.toFixed(1)} kat` : null, share].filter(Boolean).join(' · ');
 }
 
-/** Gün anahtarı (gösterim saat dilimi, varsayılan İstanbul) — günlük hareket sayacı bu günde sıfırlanır */
 let dayFmt = null;
 function dayKey(t) {
   try {
@@ -647,10 +522,10 @@ function dayKey(t) {
   } catch { return new Date(t).toISOString().slice(0, 10); }
 }
 
-const GRADE_TXT = { 0: 'şart dışı', 1: 'kart şartı', 2: 'kontrol listesi', 3: 'kontrol listesi' };
+const GRADE_TXT = { 0: 'şart dışı', 1: 'kart şartı', 2: 'kontrol listesi', 3: 'kontrol listesi', 4: 'kontrol listesi' };
 
 function createTracker() {
-  const mem = new Map();   // symbol → { seq, last, log: [{t, price, seq}] }
+  const mem = new Map();
 
   const get = sym => {
     let m = mem.get(sym);
@@ -659,29 +534,27 @@ function createTracker() {
   };
 
   return {
-    /** Kapanmış 5m RSI resetRsi'nin altındaysa seri biter → sonraki kart #1 */
     observe5m(sym, rsi5mClosed, s) {
       if (rsi5mClosed == null || rsi5mClosed >= s.resetRsi) return;
       const m = mem.get(sym);
       if (m && m.seq) { m.seq = 0; m.last = null; }
     },
 
-    /** Yeni veri listesi (boşsa kart gönderilmez) — düz Türkçe, her biri kartta ayrı satır */
     news(sym, snap, trig, s) {
       const m = get(sym);
       const L = m.last;
       const out = [];
       const above = RSI_TFS.filter(tf => snap.rsi[tf].v >= s.rsiMin);
       if (!L) {
-        if (snap.rsiOk !== false) out.push('İlk kart');        // RSI ve direnç zaten kartta ayrı satırlarda
+        if (snap.rsiOk !== false) out.push('İlk kart');
         if (snap.discovery) out.push(discoveryText(snap.discovery));
         if (trig.move) out.push(moveText(trig.move));
         else if (trig.burst) out.push(burstText(trig.burst));
         return out;
       }
-      if (trig.move) out.push(moveText(trig.move));          // aynı mum hem hareket hem hacimli mumsa yalnız hareket
+      if (trig.move) out.push(moveText(trig.move));
       else if (trig.burst) out.push(burstText(trig.burst));
-      // RSI eşik geçişleri — aynı olay tek satırda: "RSI 85 üstüne çıktı: 3m 86.1 · 5m 85.4"
+
       const prevAbove = L.above || [];
       const f1 = tf => `${tf} ${snap.rsi[tf].v.toFixed(1)}`;
       const line = (txt, tfs) => { if (tfs.length) out.push(`${txt}: ${tfs.map(f1).join(' · ')}`); };
@@ -700,7 +573,7 @@ function createTracker() {
       if (discNew) out.push(discoveryText(snap.discovery));
       const key = lvKey(snap.level);
       if (key !== L.levelKey) {
-        if (discNew) { /* kırılım fiyat keşfi satırında yazıldı */ } else if (L.level && snap.price > L.level.value * (1 + s.dipAbovePct / 100)) {
+        if (discNew) { /* ok */ } else if (L.level && snap.price > L.level.value * (1 + s.dipAbovePct / 100)) {
           out.push(`⚠️ ${L.level.name} seviyesi kırıldı${snap.level ? ` · sıradaki: ${snap.level.name} (${distTxt(snap.level.dist)})` : ' · yakında başka direnç yok'}`);
         } else if (snap.level) {
           out.push(`Yeni direnç: ${snap.level.name} (${distTxt(snap.level.dist)})`);
@@ -727,7 +600,6 @@ function createTracker() {
       return out;
     },
 
-    /** Kart gönderildi → durumu kaydet, numarayı döndür */
     commit(sym, snap, s) {
       const m = get(sym);
       m.seq++;
@@ -752,10 +624,8 @@ function createTracker() {
       return m.seq;
     },
 
-    /** Seri devam ediyor mu? (bu coinde kart gitmiş ve 5m RSI henüz resetRsi'nin altında kapanmamış) */
     active: sym => (mem.get(sym)?.seq ?? 0) > 0,
 
-    /** Günlük 1 dk hareket sayacı (bellekte; diske yazılmaz, gün değişince sıfırlanır) */
     countMove(sym, t, dir) {
       const m = get(sym), k = dayKey(t);
       if (!m.mv || m.mv.day !== k) m.mv = { day: k, up: 0, down: 0 };
@@ -766,7 +636,6 @@ function createTracker() {
       return mv && mv.day === dayKey(t) ? { up: mv.up, down: mv.down } : { up: 0, down: 0 };
     },
 
-    /** Sahte kırılım takip listesi (coin başına, seri sıfırlansa da korunur) */
     sfpWatch(sym) { const m = get(sym); if (!m.sfp) m.sfp = new Map(); return m.sfp; },
 
     log: sym => mem.get(sym)?.log ?? [],
@@ -774,11 +643,6 @@ function createTracker() {
   };
 }
 
-/**
- * Bir 1m kapanışı sonrası tek adım: gerekirse değerlendirir, kart nesnesi ya da null döner.
- * @param {Set<string>} closedTfs  Series.apply1m()'in döndürdüğü küme
- * @param {object} ctx  { funding, btc1h, isMuted(sym,t), isFollowed(sym) }
- */
 function step(series, closedTfs, s, tracker, ctx = {}) {
   if (!series.ready()) return null;
   const sym = series.symbol;
@@ -810,8 +674,7 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
     }
   }
 
-  // Kontrol anı: yalnız 3m/5m/15m kapanışı veya SFP veya (RSI varken) hareket
-  // Hacimli mum TEK BAŞINA evaluate/kart tetiklemez
+  // Kontrol anı: 1m hacimli mum tek başına değerlendirme tetiklemez
   if (!tfs.length && !sfp && !move) return null;
 
   let snap = evaluate(series, s, ctx);
@@ -820,7 +683,6 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
 
   let inSeries = false;
   if (!snap.ok) {
-    // Seri içi: hacimli mum + seri aktif + 5m RSI ≥ seriesMinRsi5m (varsayılan 85)
     const rsi5 = ta.rsiLast(series.col('5m', 'c', true), s.rsiPeriod);
     const seriesBurst = Boolean(
       burst &&
@@ -871,15 +733,10 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
     snap, news, trig, tags, followed, inSeries,
     moveStats: tracker.moveStats(sym, snap.t),
     grade: snap.grade,
-    // 4 daire de sesli olabilir
     silent: !(s.cardSound !== false || snap.grade >= 3 || followed),
   };
 }
 
-/**
- * 1 dakikalık fiyat hareketi: kapanış, bir önceki 1m kapanışa göre (önceki yoksa açılışa göre).
- * @returns {number|null} yüzde değişim
- */
 function movePct(prevClose, prevT, c) {
   const base = prevClose > 0 && prevT === c.t - MIN ? prevClose : c.o;
   return base > 0 ? (c.c - base) / base * 100 : null;
