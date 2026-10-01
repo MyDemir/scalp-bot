@@ -524,7 +524,7 @@ function pickLevel(price, levels, s) {
  */
 function evaluate(series, s, ctx = {}, force = false) {
   const price = series.price();
-  const t = series.lastT('1m') + MIN;                    // son 1m mumun kapanış anı
+  const t = series.lastT('1m') + MIN;
   const rsi = {};
   let hits = 0, hits2 = 0, strong = 0;
   for (const tf of RSI_TFS) {
@@ -540,19 +540,37 @@ function evaluate(series, s, ctx = {}, force = false) {
   snap.level = level;
   snap.levels = all;
   snap.levelOk = !!level;
-  snap.fibLeg = series._lv?.leg ?? null;              // 1 saatlik geniş Fib bacağı (grafik + Detay)
-  // Fiyat keşfi: yakında direnç yok ama fiyat bir seviyeyi yeni kırmış → kart engellenmez, bilgi olarak gelir
+  snap.fibLeg = series._lv?.leg ?? null;
   snap.discovery = !level && s.discoveryCards !== false ? discoveryOf(series, price, all) : null;
 
-  snap.sep = { '3m': separation(series, '3m', price), '5m': separation(series, '5m', price) };
+  // EMA21 % mesafe (güven skoru) + eski ATR ayrışma (sepOk / #AYRISMA)
+  snap.sepPct = {
+    '3m': separationPct(series, '3m', price),
+    '5m': separationPct(series, '5m', price),
+  };
+  // Eski ATR separation hâlâ dosyada varsa:
+  if (typeof separation === 'function') {
+    snap.sep = { '3m': separation(series, '3m', price), '5m': separation(series, '5m', price) };
+    snap.sepOk = ['3m', '5m'].every(tf => snap.sep[tf] && snap.sep[tf].dist >= s.sepATR && !snap.sep[tf].touched);
+  } else {
+    // sadece % varsa: abs mesafe ≥ sepPct2 ve pozitif (üstte) ise ayrışmış say
+    snap.sep = null;
+    snap.sepOk = ['3m', '5m'].every(tf => (snap.sepPct[tf] ?? 0) >= (s.sepPct2 ?? 2));
+  }
+
   snap.neg = { '1m': negPeaks(series, '1m', 40, s.rsiPeriod), '3m': negPeaks(series, '3m', 40, s.rsiPeriod) };
   snap.ride = emaRide(series, '3m');
-  snap.sepOk = ['3m', '5m'].every(tf => snap.sep[tf] && snap.sep[tf].dist >= s.sepATR && !snap.sep[tf].touched);
 
-  const r1h = ta.rsiLast(series.col('1h', 'c'), s.rsiPeriod), r4h = ta.rsiLast(series.col('4h', 'c'), s.rsiPeriod);
+  const r1h = ta.rsiLast(series.col('1h', 'c'), s.rsiPeriod);
+  const r4h = ta.rsiLast(series.col('4h', 'c'), s.rsiPeriod);
   snap.conf = { h1: r1h, h4: r4h, score: (r1h >= s.confRsi ? 1 : 0) + (r4h >= s.confRsi ? 1 : 0) };
 
-  snap.macd = { '5m': macdState(series, '5m'), '15m': macdState(series, '15m') };
+  // MACD 3m + 5m + 15m
+  snap.macd = {
+    '3m': macdState(series, '3m'),
+    '5m': macdState(series, '5m'),
+    '15m': macdState(series, '15m'),
+  };
   snap.stoch = stochState(series, '5m');
   snap.vwap = vwapState(series, price);
   snap.vol = volStats(series);
@@ -565,7 +583,7 @@ function evaluate(series, s, ctx = {}, force = false) {
 
   snap.funding = ctx.funding ? ctx.funding(series.symbol) : null;
   snap.btc1h = ctx.btc1h ? ctx.btc1h(t) : null;
-  // Kart başlığındaki dairelerin rengi: son shortWindowMin (15) dk fiyat yönü (🟢 yükseliş · 🔴 düşüş)
+
   const c1 = series.d['1m'].c, k = c1.length - 1 - s.shortWindowMin;
   snap.chg = k >= 0 && c1[k] > 0 ? (price - c1[k]) / c1[k] * 100 : null;
   snap.chgMin = s.shortWindowMin;
