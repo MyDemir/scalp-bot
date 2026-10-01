@@ -151,7 +151,7 @@ function checklist(snap, s) {
     if (L.dist > s.dipAbovePct || L.dist < -s.levelMaxPct) continue;
     if (!daily || Math.abs(L.dist) < Math.abs(daily.dist)) daily = L;
   }
-  const kala = d => (d <= 0 ? `%\( {Math.abs(d).toFixed(2)} kala` : `% \){d.toFixed(2)} üstünde`);
+  const kala = d => (d <= 0 ? `%${Math.abs(d).toFixed(2)} kala` : `%${d.toFixed(2)} üstünde`);
 
   const ref = daily || snap.level;
   let conf = null;
@@ -174,9 +174,9 @@ function checklist(snap, s) {
   );
   let sepPts = 0;
   let sepTxt = 'yok';
-  if (sepPct >= (s.sepPct10 ?? 10)) { sepPts = 3; sepTxt = `≥%\( {s.sepPct10 ?? 10} ( \){sepPct.toFixed(1)}%)`; }
-  else if (sepPct >= (s.sepPct5 ?? 5)) { sepPts = 2; sepTxt = `≥%\( {s.sepPct5 ?? 5} ( \){sepPct.toFixed(1)}%)`; }
-  else if (sepPct >= (s.sepPct2 ?? 2)) { sepPts = 1; sepTxt = `≥%\( {s.sepPct2 ?? 2} ( \){sepPct.toFixed(1)}%)`; }
+  if (sepPct >= (s.sepPct10 ?? 10)) { sepPts = 3; sepTxt = `≥%${s.sepPct10 ?? 10} (${sepPct.toFixed(1)}%)`; }
+  else if (sepPct >= (s.sepPct5 ?? 5)) { sepPts = 2; sepTxt = `≥%${s.sepPct5 ?? 5} (${sepPct.toFixed(1)}%)`; }
+  else if (sepPct >= (s.sepPct2 ?? 2)) { sepPts = 1; sepTxt = `≥%${s.sepPct2 ?? 2} (${sepPct.toFixed(1)}%)`; }
 
   const n1 = snap.neg?.['1m']?.count ?? 0, n3 = snap.neg?.['3m']?.count ?? 0;
   const h1 = snap.conf?.h1, h4 = snap.conf?.h4;
@@ -184,12 +184,12 @@ function checklist(snap, s) {
   const macdDown = ['3m', '5m'].some(tf => snap.macd?.[tf]?.cross === 'down');
 
   const items = [
-    { key: 'daily', ok: Boolean(daily), pts: 1, text: daily ? `Günlük/haftalık direnç \( {kala(daily.dist)} ( \){daily.name})` : `Günlük direnç %${s.levelMaxPct} içinde yok` },
+    { key: 'daily', ok: Boolean(daily), pts: 1, text: daily ? `Günlük/haftalık direnç ${kala(daily.dist)} (${daily.name})` : `Günlük direnç %${s.levelMaxPct} içinde yok` },
     { key: 'confluence', ok: Boolean(conf), pts: 1, text: conf ? `Çakışan direnç: ${ref.name} + ${conf.name}` : 'Çakışan direnç yok' },
-    { key: 'band', ok: band.length > 0, pts: 1, text: band.length ? `3m/5m RSI \( {s.strongRsi}– \){s.rsiEntryMax} (\( {band.map(tf => ` \){tf} ${f1(r[tf].v)}`).join(' · ')})` : over.length ? `3m/5m RSI ${s.rsiEntryMax} üstü — aşırı` : `3m/5m RSI \( {s.strongRsi}– \){s.rsiEntryMax} değil` },
-    { key: 'rsi15', ok: r['15m'].v >= s.strongRsi, pts: 1, text: `15m RSI ≥ \( {s.strongRsi} ( \){f1(r['15m'].v)})` },
+    { key: 'band', ok: band.length > 0, pts: 1, text: band.length ? `3m/5m RSI (${s.strongRsi}–${s.rsiEntryMax}) (${band.map(tf => `${tf} ${f1(r[tf].v)}`).join(' · ')})` : over.length ? `3m/5m RSI ${s.rsiEntryMax} üstü — aşırı` : `3m/5m RSI (${s.strongRsi}–${s.rsiEntryMax}) değil` },
+    { key: 'rsi15', ok: r['15m'].v >= s.strongRsi, pts: 1, text: `15m RSI ≥ ${s.strongRsi} (${f1(r['15m'].v)})` },
     { key: 'rsi5_15', ok: r['5m'].v >= s.strongRsi && r['15m'].v >= s.strongRsi, pts: 1, text: `5m + 15m ≥ ${s.strongRsi}` },
-    { key: 'htf', ok: h1 >= s.confRsi && h4 >= s.confRsi, pts: 1, text: `1h/4h RSI ≥ \( {s.confRsi} ( \){f1(h1)} · ${f1(h4)})` },
+    { key: 'htf', ok: h1 >= s.confRsi && h4 >= s.confRsi, pts: 1, text: `1h/4h RSI ≥ ${s.confRsi} (${f1(h1)} · ${f1(h4)})` },
     { key: 'sep', ok: sepPts > 0, pts: sepPts, text: `EMA21 % ayrışma ${sepTxt}` },
     { key: 'neg', ok: Math.max(n1, n3) >= 2, pts: 1, text: `Negatif tepe ≥ 2 (1m ${n1} · 3m ${n3})` },
     { key: 'macd', ok: macdDown, pts: 1, text: macdDown ? 'MACD 3m/5m sat kesişimi' : 'MACD sat kesişimi yok' },
@@ -711,11 +711,11 @@ function createTracker() {
           : `Fiyat dirençten geri çekildi: ${snap.level.name} (${distTxt(snap.level.dist)})`);
       }
       for (const tf of ['3m', '5m', '15m']) {
-  const k = snap.macd?.[tf]?.crossKey;
-  if (k && k !== (L.macdKeys || {})[tf]) {
-    out.push(`${tf} MACD ${snap.macd[tf].cross === 'down' ? 'aşağı' : 'yukarı'} kesti`);
-  }
-}
+        const k = snap.macd?.[tf]?.crossKey;
+        if (k && k !== (L.macdKeys || {})[tf]) {
+          out.push(`${tf} MACD ${snap.macd[tf].cross === 'down' ? 'aşağı' : 'yukarı'} kesti`);
+        }
+      }
       const sk = snap.stoch?.crossKey;
       if (sk && sk !== L.stochKey) out.push(`5m Stoch RSI ${snap.stoch.cross === 'down' ? 'aşağı' : 'yukarı'} kesti`);
       for (const tf of ['1m', '3m']) {
@@ -854,7 +854,7 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
   const followed = ctx.isFollowed ? ctx.isFollowed(sym) : false;
   const dip = snap.level?.zone === 'dip';
   const tags = [
-    `#\( {sym}`, `#DERECE \){snap.grade}`,
+    `#${sym}`, `#DERECE${snap.grade}`,
     snap.level ? (dip ? '#DIRENCTE' : '#YAKLASIYOR') : null,
     burst ? '#HACIM' : null,
     move ? '#HAREKET' : null,
@@ -867,7 +867,7 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
   ].filter(Boolean);
 
   return {
-    id: `\( {sym}- \){snap.t}`, symbol: sym, seq, t: snap.t, price: snap.price,
+    id: `${sym}-${snap.t}`, symbol: sym, seq, t: snap.t, price: snap.price,
     snap, news, trig, tags, followed, inSeries,
     moveStats: tracker.moveStats(sym, snap.t),
     grade: snap.grade,
