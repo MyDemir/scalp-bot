@@ -2,70 +2,70 @@
 
 module.exports = {
 
-  // ── BİLGİ BOTU ────────────────────────────────────────
-  // Buradakiler VARSAYILAN değerler. Telegram'dan /ayarlar ile değiştirilenler /data/info-settings.json'a
-  // yazılır ve bunların önüne geçer (deploy sonrası korunur). Anlamları: src/infoSettings.js
   info: {
-    // Kart şartı: 3m/5m/15m'den en az minTFs tanesinde RSI ≥ rsiMin + (levelRequired) üstte %levelMaxPct içinde seviye.
-    // Kart derecesi (başlıktaki daireler) kurulum KONTROL LİSTESİ skoruna göre (8 madde, src/infoEngine.js checklist):
-    //   🔴 skor < grade2Min · 🔴🔴 skor ≥ grade2Min · 🔴🔴🔴 skor ≥ grade3Min (sesli)
-    rsiMin:        85,     // kart eşiği (🔴)
-    rsiMin2:       90,     // RSI değerlerinde 🔴🔴 işareti
-    rsiEntryMax:   98,     // kontrol: 3m/5m RSI strongRsi–rsiEntryMax (95–98) aralığında; üstü "aşırı"
-    confluencePct: 0.5,    // kontrol: iki seviye bu kadar yakınsa "çakışan direnç"
-    grade2Min:     3,      // 🔴🔴 için en az kontrol skoru (8 üzerinden) — 🔴 0–2 · 🔴🔴 3–5 · 🔴🔴🔴 6–8
-    grade3Min:     6,      // 🔴🔴🔴 için en az kontrol skoru
-    minTFs:        2,      // eşiği geçmesi gereken dilim sayısı (3 üzerinden)
-    strongRsi:     95,     // kontrol: RSI 95 eşiği · RSI değerlerinde 🔴🔴🔴 · "95 üstüne çıktı" yeniliği
-    rsiPeriod:     14,     // RSI periyodu (Binance/TradingView varsayılanı 14; Binance uygulamasındaki RSI(6) daha oynaktır)
-    levelMaxPct:   2.5,    // ZORUNLU: fiyatın üstünde en fazla bu kadar uzakta bir seviye
-    dipBelowPct:   0.5,    // ⭐ Dirençte: seviyenin en fazla %0.5 altında …
-    dipAbovePct:   0.3,    // … ya da en fazla %0.3 üstünde (fitil payı). Daha yukarısı = seviye kırıldı
+    rsiMin:        85,
+    rsiMin2:       90,
+    rsiEntryMax:   100,
+    confluencePct: 0.5,
+
+    // Güven skoru (max 4 daire)
+    // 1–2 → 1 · 3–4 → 2 · 5–6 → 3 · 7+ → 4
+    grade2Min:     3,
+    grade3Min:     5,
+    grade4Min:     7,
+
+    minTFs:        2,
+    strongRsi:     95,
+    rsiPeriod:     14,
+    levelMaxPct:   2.5,
+    dipBelowPct:   0.5,
+    dipAbovePct:   0.5,    // SFP + Dirençte üst payı %0.5
     levelRequired: true,
-    // Ek direnç türleri (src/levels.js): 7/30 günlük gerçek en yüksek her zaman; aşağıdakiler aç-kapa
-    levelsSwing:   true,   // 1h / 4h salınım tepeleri (iki yanında swingBars mumdan yüksek tepe)
+
+    levelsSwing:   true,
     swingBars:     3,
-    zoneTouches:   3,      // Günlük bölge: en az bu kadar günlük tepe/dip teması (son ~13 ay, %1.5 içinde)
-    levelsFib:     true,   // son 1h itki bacağının Fib 0.236 / 0.382 / 0.618 düzeltmesi (grafikteki bacak)
-    // Sahte kırılım (SFP): 5m mum, RSI kart şartı varken güçlü bir seviyenin %dipAbovePct üstünde kapanır; sfpBars mum içinde
-    // altında kapanırsa (ya da fitil üstüne çıkıp gövde altında kalırsa) şart aranmadan kart (#SAHTEKIRILIM)
+    zoneTouches:   3,
+    levelsFib:     true,
+    levelsWeeklyZone: true,  // YENİ: haftalık bölge
+
     sfpCards:      true,
-    sfpBars:       6,      // 6 × 5m = 30 dk
-    // Fiyat keşfi: RSI şartı var, %levelMaxPct içinde direnç yok ama son 24 saatte bir seviye kırıldı →
-    // kart engellenmez; kırılan seviye + Fib uzantı hedefleri (1.272 / 1.618) yazılır (#FIYATKESFI)
+    sfpBars:       6,
+    sfpAbovePct:   0.5,      // YENİ: SFP kırılım eşiği %0.5
+
     discoveryCards: true,
-    burstPct1:     1.0,    // hacim patlaması: 1m mum gövdesi ≥ %1 …
-    burstPct2:     1.5,    // … ikinci kademe ≥ %1.5
-    volMult:       2.0,    // hacim ≥ önceki volAvgN mumun ortalaması × volMult
+    burstPct1:     1.0,
+    burstPct2:     1.5,
+    volMult:       2.0,
     volAvgN:       20,
-    takerBuyPct:   55,     // taker alış oranı > %55 → alım
-    takerSellPct:  45,     // < %45 → satış (arası nötr)
-    // Hacim derecesi (hacimli mum ve ⚡ hareket uyarısı):
-    //   🔴 temel şart (hacimli mum / 1 dk ≥ %2) · 🔴🔴 + hacim ≥ volGrade2X × ortalama
-    //   🔴🔴🔴 + alış/satış oranı hareket yönünde ≥ %dirGrade3Pct
+    takerBuyPct:   55,
+    takerSellPct:  45,
     volGrade2X:    3,
     dirGrade3Pct:  65,
-    windowMin:     60,     // sayaç penceresi (dk)
-    shortWindowMin: 15,    // kısa sayaç penceresi (dk)
-    resetRsi:      75,     // 5m RSI bunun altında kapanınca kart numarası sıfırlanır (#1'den başlar)
-    seriesBursts:  true,   // seri sürerken (numara sıfırlanmadan) gelen hacimli mum şart aranmadan kart olur
-    sepATR:        0.5,    // EMA21 ayrışması (3m & 5m, ATR cinsinden)
+    windowMin:     60,
+    shortWindowMin: 15,
+    resetRsi:      75,
+
+    seriesBursts:  true,
+    seriesMinRsi5m: 85,      // YENİ: seri içi için 5m RSI ≥ 85
+
+    // EMA21 yüzde ayrışma (güven skoru kademeli)
+    sepPct2:       2,
+    sepPct5:       5,
+    sepPct10:      10,
+    sepATR:        0.5,      // eski ATR (isteğe bağlı bilgi)
     sepRequired:   false,
-    confRsi:       80,     // kontrol: 1h ve 4h RSI ≥ bu → "şişkin"
-    confRequired:  false,  // açıksa 1h veya 4h'ten en az biri ≥ confRsi olmalı
-    macdRequired:  false,  // açıksa 5m MACD histogramı zayıflıyor (düşüyor ya da ≤ 0) olmalı
-    minVolumeM:    3,      // izlenen evren: 24s hacim ≥ 3 milyon USDT
-    // Hareket: izlenen coinde 1m kapanış, bir önceki 1m kapanışa göre ≥ %moveAlertPct → günlük sayaç (Detay'da);
-    // RSI şartı sağlanıyorsa RSI kartına ⚡ satırı olarak girer (ayrı uyarı kartı yok)
-    moveAlertPct:  2,      // 0 = kapalı
-    cardSound:     true,   // her yeni kart bildirimli (sesli). Kapalıysa yalnız 🔴🔴🔴 ve takipteki coinler sesli
-    // Grafik (5m mumlar + Ichimoku + hacim + seviye) — kartlara ve ⚡ uyarılara fotoğraf olarak eklenir
+
+    confRsi:       80,
+    confRequired:  false,
+    macdRequired:  false,
+
+    minVolumeM:    3,
+    moveAlertPct:  2,
+    cardSound:     true,
     chart:         true,
-    chartTf:       '1h',   // grafik zaman dilimi: 5m / 15m / 1h / 4h
-    chartFib:      true,   // grafikte Fibonacci düzeltme seviyeleri (görünen penceredeki dip–tepe)
-    chartIchi:     true,   // grafikte Ichimoku (kapatınca yalnız mum + EMA21 3m/5m + seviyeler)
-    // Ichimoku — KivancOzbilgic "ICHIMOKU Kinko Hyo by KIVANC" düzeni (5 parametre). Kripto önerisi 1-3-3-6-3
-    // oranında 10/30/30/60/30 (klasik: 9/26/26/52/26). /ayar ichiTenkan 9 … ile değişir.
+    chartTf:       '1h',
+    chartFib:      true,
+    chartIchi:     true,
     ichiTenkan:    10,
     ichiKijun:     30,
     ichiChikou:    30,
@@ -73,21 +73,15 @@ module.exports = {
     ichiShift:     30,
   },
 
-  // Evrenden hariç tutulan baz varlıklar (stabil coinler) — TAM eşleşme
   autoFilter: {
     excludeBaseAssets: ['USDC', 'FDUSD', 'TUSD', 'USDP', 'BUSD', 'DAI', 'USDE', 'USD1', 'USDS', 'PYUSD', 'RLUSD'],
   },
 
-  // ── SİSTEM ────────────────────────────────────────────
-  // WebSocket: ping/pong ve yeniden bağlanma streamClient.js'te (combined stream)
   ws: {
-    streamsPerConnection: 800,   // Binance limiti 1024
-    staleMs:              60_000, // bu süre veri gelmezse bağlantı yenilenir
+    streamsPerConnection: 800,
+    staleMs:              60_000,
   },
 
-  // Her 5 dk'da bir tek satırlık sağlık özeti
   heartbeatMs: 5 * 60 * 1000,
-
-  // Telegram grup limiti dakikada 20 mesaj → mesajlar arası en az ~3 sn
   telegramMinIntervalMs: 3_100,
 };
