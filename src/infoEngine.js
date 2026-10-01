@@ -109,7 +109,7 @@ function checklist(snap, s) {
     if (L.dist > s.dipAbovePct || L.dist < -s.levelMaxPct) continue;
     if (!daily || Math.abs(L.dist) < Math.abs(daily.dist)) daily = L;
   }
-  const kala = d => (d <= 0 ? `%${Math.abs(d).toFixed(2)} kala` : `%${d.toFixed(2)} üstünde`);
+  const kala = d => (d <= 0 ? `%\( {Math.abs(d).toFixed(2)} kala` : `% \){d.toFixed(2)} üstünde`);
 
   const ref = daily || snap.level;
   let conf = null;
