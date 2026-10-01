@@ -560,7 +560,7 @@ function createTracker() {
       const prevAbove = L.above || [];
       const f1 = tf => `${tf} ${snap.rsi[tf].v.toFixed(1)}`;
       const line = (txt, tfs) => { if (tfs.length) out.push(`${txt}: ${tfs.map(f1).join(' · ')}`); };
-      line(`RSI ${s.rsiMin} üstüne çıktı`, RSI_TFS.filter(tf => above.includes(tf) && !prevAbove.includes(tf)));
+      line(`RSI ${s.strongRsi} üstüne çıktı`, RSI_TFS.filter(tf => snap.rsi[tf].v >= s.strongRsi && !(L.strong || []).includes(tf)));
       line(`RSI ${s.rsiMin} altına indi`, RSI_TFS.filter(tf => !above.includes(tf) && prevAbove.includes(tf)));
       if (s.rsiMin2 > s.rsiMin) line(`RSI ${s.rsiMin2} üstüne çıktı`, RSI_TFS.filter(tf => snap.rsi[tf].v >= s.rsiMin2 && !(L.above2 || []).includes(tf)));
       line(`RSI ${s.strongRsi} üstüne çıktı`, RSI_TFS.filter(tf => snap.rsi[tf].v >= s.strongRsi && !L.strong.includes(tf)));
