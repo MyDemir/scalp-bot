@@ -710,10 +710,12 @@ function createTracker() {
           ? `⭐ Fiyat dirence dayandı: ${snap.level.name} (${distTxt(snap.level.dist)})`
           : `Fiyat dirençten geri çekildi: ${snap.level.name} (${distTxt(snap.level.dist)})`);
       }
-      for (const tf of ['5m', '15m']) {
-        const k = snap.macd[tf]?.crossKey;
-        if (k && k !== L.macdKeys[tf]) out.push(`${tf} MACD ${snap.macd[tf].cross === 'down' ? 'aşağı' : 'yukarı'} kesti`);
-      }
+      for (const tf of ['3m', '5m', '15m']) {
+  const k = snap.macd?.[tf]?.crossKey;
+  if (k && k !== (L.macdKeys || {})[tf]) {
+    out.push(`${tf} MACD ${snap.macd[tf].cross === 'down' ? 'aşağı' : 'yukarı'} kesti`);
+  }
+}
       const sk = snap.stoch?.crossKey;
       if (sk && sk !== L.stochKey) out.push(`5m Stoch RSI ${snap.stoch.cross === 'down' ? 'aşağı' : 'yukarı'} kesti`);
       for (const tf of ['1m', '3m']) {
