@@ -186,7 +186,7 @@ function checklist(snap, s) {
   const items = [
     { key: 'daily', ok: Boolean(daily), pts: 1, text: daily ? `Günlük/haftalık direnç ${kala(daily.dist)} (${daily.name})` : `Günlük direnç %${s.levelMaxPct} içinde yok` },
     { key: 'confluence', ok: Boolean(conf), pts: 1, text: conf ? `Çakışan direnç: ${ref.name} + ${conf.name}` : 'Çakışan direnç yok' },
-    { key: 'band', ok: band.length > 0, pts: 1, text: band.length ? `3m/5m RSI (${s.strongRsi}–${s.rsiEntryMax}) (${band.map(tf => `${tf}${f1(r[tf].v)}`).join(' · ')})` : over.length ? `3m/5m RSI ${s.rsiEntryMax} üstü — aşırı` : `3m/5m RSI (${s.strongRsi}–${s.rsiEntryMax}) değil` },
+    { key: 'band', ok: band.length > 0, pts: 1, text: band.length ? `3m/5m RSI ${s.strongRsi}–${s.rsiEntryMax} (${band.map(tf => `${tf}${f1(r[tf].v)}`).join(' · ')})` : over.length ? `3m/5m RSI ${s.rsiEntryMax} üstü — aşırı` : `3m/5m RSI ${s.strongRsi}–${s.rsiEntryMax} değil` },
     { key: 'rsi15', ok: r['15m'].v >= s.strongRsi, pts: 1, text: `15m RSI ≥ ${s.strongRsi} (${f1(r['15m'].v)})` },
     { key: 'rsi5_15', ok: r['5m'].v >= s.strongRsi && r['15m'].v >= s.strongRsi, pts: 1, text: `5m + 15m ≥ ${s.strongRsi}` },
     { key: 'htf', ok: h1 >= s.confRsi && h4 >= s.confRsi, pts: 1, text: `1h/4h RSI ≥ ${s.confRsi} (${f1(h1)} · ${f1(h4)})` },
