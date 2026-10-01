@@ -742,7 +742,7 @@ function createTracker() {
         discKey: snap.discovery ? lvKey(snap.discovery.broken) : null,
         level: snap.level,
         zone: snap.level ? snap.level.zone : null,
-        macdKeys: { '5m': snap.macd['5m']?.crossKey ?? (m.last?.macdKeys['5m'] ?? null), '15m': snap.macd['15m']?.crossKey ?? (m.last?.macdKeys['15m'] ?? null) },
+        macdKeys: {'3m': snap.macd?.['3m']?.crossKey ?? null,'5m': snap.macd?.['5m']?.crossKey ?? null,'15m': snap.macd?.['15m']?.crossKey ?? null,},
         stochKey: snap.stoch?.crossKey ?? (m.last?.stochKey ?? null),
         neg: { '1m': snap.neg?.['1m']?.count ?? 0, '3m': snap.neg?.['3m']?.count ?? 0 },
         negKey: { '1m': snap.neg?.['1m']?.key ?? null, '3m': snap.neg?.['3m']?.key ?? null },
