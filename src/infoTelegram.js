@@ -1,11 +1,7 @@
 'use strict';
 
 /**
- * Bilgi botunun Telegram komutları ve buton işleyicileri.
- *
- *   Herkes      : /yardim /ayarlar (görüntüleme) /coin /durum /sessiz /takip (liste) /benkimim, ℹ️ Özet
- *   Yöneticiler : ayar butonları, /ayar, /sustur, /ac, /takip SEMBOL, 🔕 ve ⭐ butonları
- *                 (TELEGRAM_ADMIN_IDS tanımlıysa o liste, değilse grubun yöneticileri)
+ * Bilgi botunun Telegram komutları ve buton işleyicileri[span_4](start_span)[span_4](end_span).
  */
 
 const { formatCard, summaryText, esc, px, pct, dayTime } = require('./infoCard');
@@ -15,10 +11,9 @@ const { rowToStat } = require('./cardStore');
 
 const HOUR = 3_600_000;
 
-// Konulu (forum) grupta yönlendirme: konu adı → açıklama
 const TOPICS = {
   kart:     'RSI kartları (tümü)',
-  kart3:    '🔴🔴🔴 kartlar (ayrıca bu konuya; boşsa "kart" konusuna)',
+  kart3:    '🔴🔴🔴 ve 🔴🔴🔴🔴 kartlar (ayrıca bu konuya; boşsa "kart" konusuna)',
   sistem:   'bot mesajları ("hazır" vb.)',
   backtest: 'backtest raporları (--telegram)',
 };
@@ -29,28 +24,17 @@ function normSym(x) {
   return s.endsWith('USDT') ? s : s + 'USDT';
 }
 
-/**
- * @param {object} p
- * @param {object} p.telegram   telegram.js
- * @param {object} p.settings   infoSettings
- * @param {object} p.tracker    infoEngine tracker
- * @param {function} p.getSeries (sym) → Series | undefined
- * @param {function} p.ctx       değerlendirme bağlamı { funding, btc1h }
- * @param {function} p.status    () → durum metni
- * @param {object}   [p.store]   kart geçmişi (cardStore)
- */
 function installInfoTelegram({ telegram, settings, tracker, store = null, details = null, getSeries, ctx, status, chartFor = null }) {
   const defs = settings.defs;
 
-  // ── /ayarlar: ana sayfa (bölümler + özet) → bölüm (ayar butonları) → tek ayar (− / +) ──
   const DEF = Object.fromEntries(defs.map(d => [d.key, d]));
   const SECTIONS = [
-    { id: 'rsi', title: '📊 RSI kartı', keys: ['rsiMin', 'rsiMin2', 'strongRsi', 'rsiEntryMax', 'minTFs', 'rsiPeriod', 'resetRsi', 'seriesBursts'],
-      sum: v => `eşik ${v.rsiMin} · ${v.minTFs}/3 dilim · RSI(${v.rsiPeriod})` },
-    { id: 'lvl', title: '🎯 Direnç ve kırılım', keys: ['levelRequired', 'levelMaxPct', 'dipBelowPct', 'dipAbovePct', 'confluencePct', 'levelsSwing', 'swingBars', 'zoneTouches', 'levelsFib', 'sfpCards', 'sfpBars', 'discoveryCards'],
-      sum: v => `${v.levelRequired ? 'şart açık' : 'şart kapalı'} · %${v.levelMaxPct} içinde · sahte kırılım ${v.sfpCards ? 'açık' : 'kapalı'} · fiyat keşfi ${v.discoveryCards ? 'açık' : 'kapalı'}` },
-    { id: 'grd', title: '🏅 Derece ve kontrol listesi', keys: ['grade2Min', 'grade3Min', 'confRsi', 'sepATR', 'sepRequired', 'confRequired', 'macdRequired'],
-      sum: v => `🔴🔴 ≥ ${v.grade2Min} · 🔴🔴🔴 ≥ ${v.grade3Min} (8 madde)` },
+    { id: 'rsi', title: '📊 RSI kartı', keys: ['rsiMin', 'rsiMin2', 'strongRsi', 'rsiEntryMax', 'minTFs', 'rsiPeriod', 'resetRsi', 'seriesBursts', 'seriesMinRsi5m'],
+      sum: v => `eşik ${v.rsiMin} · ${v.minTFs}/3 dilim · RSI(${v.rsiPeriod}) · seri 5m≥${v.seriesMinRsi5m ?? 85}` },
+    { id: 'lvl', title: '🎯 Direnç ve kırılım', keys: ['levelRequired', 'levelMaxPct', 'dipBelowPct', 'dipAbovePct', 'sfpAbovePct', 'confluencePct', 'levelsSwing', 'swingBars', 'zoneTouches', 'levelsFib', 'levelsWeeklyZone', 'sfpCards', 'sfpBars', 'discoveryCards'],
+      sum: v => `${v.levelRequired ? 'şart açık' : 'şart kapalı'} · %${v.levelMaxPct} içinde · haftalık bölge ${v.levelsWeeklyZone ? 'açık' : 'kapalı'} · SFP ${v.sfpCards ? 'açık' : 'kapalı'}` },
+    { id: 'grd', title: '🏅 Derece ve kontrol listesi', keys: ['grade2Min', 'grade3Min', 'grade4Min', 'sepPct2', 'sepPct5', 'sepPct10', 'confRsi', 'sepATR', 'sepRequired', 'confRequired', 'macdRequired'],
+      sum: v => `🔴🔴≥${v.grade2Min} · 🔴🔴🔴≥${v.grade3Min} · 🔴🔴🔴🔴≥${v.grade4Min ?? 7} (9 madde)` },
     { id: 'vol', title: '📦 Hacimli mum', keys: ['burstPct1', 'burstPct2', 'volMult', 'volAvgN', 'takerBuyPct', 'takerSellPct', 'volGrade2X', 'dirGrade3Pct', 'windowMin', 'shortWindowMin'],
       sum: v => `gövde ≥ %${v.burstPct1} · hacim ≥ ${v.volMult}×` },
     { id: 'mov', title: '⚡ Hareket', keys: ['moveAlertPct'],
@@ -62,7 +46,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
     { id: 'uni', title: '🌐 İzlenen coinler', keys: ['minVolumeM'],
       sum: v => `24s hacim ≥ ${v.minVolumeM}M $` },
   ];
-  { // menüde olup hiçbir bölüme yazılmamış ayar kalmasın
+  {
     const used = new Set(SECTIONS.flatMap(x => x.keys));
     const rest = defs.filter(d => d.menu !== false && !used.has(d.key)).map(d => d.key);
     if (rest.length) SECTIONS.push({ id: 'etc', title: '🧩 Diğer', keys: rest, sum: () => `${rest.length} ayar` });
@@ -120,7 +104,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
   const show = async (cq, m) => { await telegram.editMessage(cq.message.chat.id, cq.message.message_id, m.text, m.keyboard); };
 
   const denied = { text: 'Bu işlem için grup yöneticisi olmalısın.', alert: true };
-  const detailSent = new Map();   // aynı kişiye aynı kartın detayı 10 sn içinde tekrar gönderilmesin
+  const detailSent = new Map();
   function detailFor(id) {
     const html = details ? details.get(id) : null;
     if (!html) return null;
@@ -128,7 +112,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
     const sr = getSeries(sym);
     return `${html}\n\n<i>${esc(summaryText(sym, tracker.log(sym), sr ? sr.price() : null))}</i>`;
   }
-  // Özel sohbet: /start d_<kartId> → grup üyesiyse o kartın Detay'ı
+
   if (telegram.onPrivateStart) {
     telegram.onPrivateStart(async (param, msg) => {
       if (!(await telegram.isMember(msg.from?.id))) return 'Bu bot yalnızca grup üyeleri içindir.';
@@ -144,7 +128,6 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
 
     const [kind, a, b] = data.split(':');
     if (kind === 'd') {
-      // 📋 Detay (herkes): YALNIZCA basan kişiye özel mesajla — grupta hiçbir şey görünmez
       const id = data.slice(2);
       const html = detailFor(id);
       if (!html) return { text: 'Bu kartın ayrıntıları artık yok (bot yeniden başladı).', alert: true };
@@ -155,7 +138,6 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
         if (detailSent.size > 1000) detailSent.delete(detailSent.keys().next().value);
         return { text: '📋 Detay özel mesajla gönderildi.' };
       }
-      // Bot bu kullanıcıyla hiç konuşmamış → özel sohbeti "Başlat" parametresiyle aç; /start d_<id> gelince gönderilir
       const bot = telegram.getBotUsername ? telegram.getBotUsername() : null;
       if (!bot) return { text: 'Önce botla özel sohbeti başlat (bota /start yaz), sonra tekrar bas.', alert: true };
       return { url: `https://t.me/${bot}?start=d_${id}` };
@@ -164,7 +146,6 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
       const sr = getSeries(a);
       return { text: summaryText(a, tracker.log(a), sr ? sr.price() : null), alert: true };
     }
-    // Menüde gezinme herkese açık (yalnız görüntüleme)
     if (kind === 'g') { await show(cq, a === 'main' ? menu() : sectionMenu(a)); return null; }
     if (kind === 'e') { await show(cq, editMenu(a)); return null; }
     if (!(await telegram.isAdmin(uid))) return denied;
@@ -210,11 +191,11 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
 /benkimim — Telegram kullanıcı ID'n
 
 <b>Derece daireleri</b>
-Kart: kurulum kontrol listesi skoru (8 madde: günlük direnç, çakışan direnç, 3m/5m RSI ${settings.get().strongRsi}–${settings.get().rsiEntryMax}, 15m ≥ ${settings.get().strongRsi}, 5m+15m ≥ ${settings.get().strongRsi}, 1h/4h ≥ ${settings.get().confRsi}, EMA21 ayrışma, ≥2 negatif tepe) — 🔴 &lt; ${settings.get().grade2Min} · 🔴🔴 ≥ ${settings.get().grade2Min} · 🔴🔴🔴 ≥ ${settings.get().grade3Min} (sesli)
+Kart: kurulum kontrol listesi skoru (9 madde: günlük/haftalık direnç, çakışan direnç, 3m/5m RSI ${settings.get().strongRsi}–${settings.get().rsiEntryMax}, 15m ≥ ${settings.get().strongRsi}, 5m+15m ≥ ${settings.get().strongRsi}, 1h/4h ≥ ${settings.get().confRsi}, kademeli EMA21 ayrışma, ≥2 negatif tepe, MACD 3m/5m sat kesişimi) — 🔴 &lt; ${settings.get().grade2Min} · 🔴🔴 ≥ ${settings.get().grade2Min} · 🔴🔴🔴 ≥ ${settings.get().grade3Min} · 🔴🔴🔴🔴 ≥ ${settings.get().grade4Min ?? 7} (sesli)
 Hacimli mum / ⚡: 1 daire temel · 2 daire hacim ≥ ${settings.get().volGrade2X}× · 3 daire + yön uyumu ≥ %${settings.get().dirGrade3Pct} — 🟢 alış/yükseliş · 🔴 satış/düşüş · ⚪ nötr
 RSI periyodu: ${settings.get().rsiPeriod}
 
-Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesinde RSI ≥ <b>${settings.get().rsiMin}</b>${settings.get().levelRequired ? ` ve fiyatın üstünde en fazla <b>%${settings.get().levelMaxPct}</b> uzakta bir seviye (4h/1d MA200 · EMA200 · 30 günlük tepe)` : ''}. Kontrol: 3m/5m/15m kapanışları + hacimli her 1m mum. Önceki karttan bu yana yeni veri yoksa kart gitmez.${settings.get().seriesBursts ? ' Seri sürerken (5m RSI ' + settings.get().resetRsi + ' altına inmeden) gelen hacimli mumlar şart aranmadan kart olur (#SERI).' : ''}${settings.get().moveAlertPct > 0 ? `\n\n⚡ İzlenen coinde 1 dakikada ≥ %${settings.get().moveAlertPct} fiyat değişimi: RSI şartı sağlanıyorsa RSI kartına eklenir; bugünkü ▲/▼ sayısı 📋 Detay'da.` : ''}`.trim();
+Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesinde RSI ≥ <b>${settings.get().rsiMin}</b>${settings.get().levelRequired ? ` ve fiyatın üstünde en fazla <b>%${settings.get().levelMaxPct}</b> uzakta bir seviye (4h/1d MA200 · EMA200 · 30 günlük tepe)` : ''}. Kontrol: 3m/5m/15m kapanışları + hacimli her 1m mum. Önceki karttan bu yana yeni veri yoksa kart gitmez.${settings.get().seriesBursts ? ' Seri sürerken (5m RSI ' + (settings.get().seriesMinRsi5m ?? 85) + ' üzerinde) gelen hacimli mumlar şart aranmadan kart olur (#SERI).' : ''}${settings.get().moveAlertPct > 0 ? `\n\n⚡ İzlenen coinde 1 dakikada ≥ %${settings.get().moveAlertPct} fiyat değişimi: RSI şartı sağlanıyorsa RSI kartına eklenir; bugünkü ▲/▼ sayısı 📋 Detay'da.` : ''}`.trim();
 
   const commands = {
     help, yardim: help, start: help,
@@ -360,7 +341,6 @@ ${mv.join('\n')}` : ''}`.slice(0, 4000);
   };
 
   telegram.setCommands(commands);
-  // "/" menüsü (Telegram'a kayıtlı liste) — sıra önem sırasıdır
   const MENU = [
     ['ayarlar', 'Ayar menüsü (bölümler → ayar → −/+)'],
     ['coin', 'Coinin anlık durumu + grafik · örn. /coin ETH'],
