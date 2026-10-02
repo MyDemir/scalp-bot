@@ -10,7 +10,7 @@
 # polling) — HTTP servisi açmıyor, bu yüzden [http_service] bloğu YOK.
 # O blok olursa Fly makineyi "trafik yok" diye uyutmaya çalışır.
 
-app = "scalp-bot-CHANGEME"
+app = "scalp-bot-vip"
 primary_region = "fra"
 
 [build]
