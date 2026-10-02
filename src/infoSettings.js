@@ -1,23 +1,14 @@
 'use strict';
 
 /**
- * Bilgi botu ayarları — varsayılanlar config.info'dan, değişiklikler JSON dosyasında.
- *
- *   Dosya: <DB_PATH klasörü>/info-settings.json  (Fly'da /data → deploy sonrası korunur)
- *   İçerik: { values: {...}, mutes: {SYMBOL: bitişMs}, follows: [SYMBOL] }
- *
- * Telegram /ayarlar menüsü ve /ayar komutu buradaki DEFS'i kullanır (etiket, sınır, adım).
+ * Bilgi botu ayarları[span_11](start_span)[span_11](end_span).
  */
 
 const fs   = require('fs');
 const path = require('path');
 const cfg  = require('./config');
 
-// type: 'num' | 'int' | 'bool' | 'enum' (options listesinden biri; −/+ ile sırayla değişir)
 const DEFS = [
-  { key: 'grade2Min', short: '2 daire skor', label: '2 daire için en az güven skoru', type: 'int', min: 1, max: 15, step: 1 },
-  { key: 'grade3Min', short: '3 daire skor', label: '3 daire için en az güven skoru', type: 'int', min: 1, max: 15, step: 1 },
-  { key: 'seriesBursts', short: 'Seri patlama', label: 'Seri içi patlama kartı (5m RSI ≥ seriesMinRsi5m)', type: 'bool' },
   { key: 'grade4Min', short: '4 daire skor', label: '4 daire için en az güven skoru', type: 'int', min: 1, max: 15, step: 1 },
   { key: 'seriesMinRsi5m', short: 'Seri 5m RSI', label: 'Seri içi kart için min 5m RSI', type: 'int', min: 50, max: 100, step: 1 },
   { key: 'sfpAbovePct', short: 'SFP üst %', label: 'SFP kırılım eşiği %', type: 'num', min: 0.1, max: 2, step: 0.1 },
@@ -29,13 +20,13 @@ const DEFS = [
   { key: 'rsiMin2', short: 'RSI 🔴🔴', label: 'RSI 🔴🔴 işareti', type: 'int', min: 50, max: 100, step: 1 },
   { key: 'rsiEntryMax', short: 'RSI üst sınır', label: 'Kontrol: 3m/5m RSI aralığı üstü', type: 'int', min: 80, max: 100, step: 1 },
   { key: 'confluencePct', short: 'Çakışma %', label: 'Kontrol: çakışan direnç mesafesi %', type: 'num', min: 0.1, max: 3, step: 0.1 },
-  { key: 'grade2Min', short: '🔴🔴 skor', label: '🔴🔴 için en az kontrol skoru', type: 'int', min: 1, max: 8, step: 1 },
-  { key: 'grade3Min', short: '🔴🔴🔴 skor', label: '🔴🔴🔴 için en az kontrol skoru', type: 'int', min: 1, max: 8, step: 1 },
+  { key: 'grade2Min', short: '🔴🔴 skor', label: '🔴🔴 için en az kontrol skoru', type: 'int', min: 1, max: 15, step: 1 },
+  { key: 'grade3Min', short: '🔴🔴🔴 skor', label: '🔴🔴🔴 için en az kontrol skoru', type: 'int', min: 1, max: 15, step: 1 },
   { key: 'rsiPeriod', short: 'RSI periyot', label: 'RSI periyodu', type: 'int', min: 2, max: 30, step: 1 },
-  { key: 'minTFs', short: 'Dilim sayısı',        label: 'Eşiği geçen dilim (3m/5m/15m)', type: 'int', min: 1, max: 3, step: 1 },
-  { key: 'strongRsi', short: 'RSI 🔴🔴🔴',     label: 'RSI 🔴🔴🔴 (satırda) eşiği',         type: 'int', min: 60, max: 100, step: 1 },
-  { key: 'levelMaxPct', short: 'Uzaklık %',   label: 'Seviyeye yakınlık %',     type: 'num', min: 0.5, max: 10, step: 0.5 },
-  { key: 'levelRequired', short: 'Seviye şartı', label: 'Seviye şartı',            type: 'bool' },
+  { key: 'minTFs', short: 'Dilim sayısı', label: 'Eşiği geçen dilim (3m/5m/15m)', type: 'int', min: 1, max: 3, step: 1 },
+  { key: 'strongRsi', short: 'RSI 🔴🔴🔴', label: 'RSI 🔴🔴🔴 (satırda) eşiği', type: 'int', min: 60, max: 100, step: 1 },
+  { key: 'levelMaxPct', short: 'Uzaklık %', label: 'Seviyeye yakınlık %', type: 'num', min: 0.5, max: 10, step: 0.5 },
+  { key: 'levelRequired', short: 'Seviye şartı', label: 'Seviye şartı', type: 'bool' },
   { key: 'levelsSwing', short: 'Salınım tepeleri', label: 'Direnç: 1h/4h salınım tepeleri', type: 'bool' },
   { key: 'swingBars', short: 'Salınım mum', label: 'Salınım tepesi: iki yanında en az … mum', type: 'int', min: 2, max: 10, step: 1 },
   { key: 'zoneTouches', short: 'Bölge teması', label: 'Günlük bölge: en az … temas', type: 'int', min: 2, max: 6, step: 1 },
@@ -45,23 +36,23 @@ const DEFS = [
   { key: 'discoveryCards', short: 'Fiyat keşfi', label: 'Fiyat keşfi kartı (yakında direnç yok, seviye kırıldı)', type: 'bool' },
   { key: 'dipBelowPct', short: 'Dirençte alt %', label: 'Dirençte: direncin en fazla % altında', type: 'num', min: 0.1, max: 3, step: 0.1 },
   { key: 'dipAbovePct', short: 'Dirençte üst %', label: 'Dirençte: direncin en fazla % üstünde (fitil payı)', type: 'num', min: 0, max: 2, step: 0.1 },
-  { key: 'burstPct1', short: 'Patlama1 %',     label: 'Patlama gövde % (1. kademe)', type: 'num', min: 0.2, max: 10, step: 0.1 },
-  { key: 'burstPct2', short: 'Patlama2 %',     label: 'Patlama gövde % (2. kademe)', type: 'num', min: 0.2, max: 10, step: 0.1 },
-  { key: 'volMult', short: 'Hacim ×',       label: 'Hacim katı (×ortalama)',  type: 'num', min: 1, max: 10, step: 0.5 },
-  { key: 'volAvgN', short: 'Ort. mum',       label: 'Hacim ortalaması (mum)',  type: 'int', min: 5, max: 100, step: 5 },
-  { key: 'takerBuyPct', short: 'Alım >%',   label: 'Alım: taker > %',         type: 'int', min: 50, max: 90, step: 1 },
-  { key: 'takerSellPct', short: 'Satış <%',  label: 'Satış: taker < %',        type: 'int', min: 10, max: 50, step: 1 },
+  { key: 'burstPct1', short: 'Patlama1 %', label: 'Patlama gövde % (1. kademe)', type: 'num', min: 0.2, max: 10, step: 0.1 },
+  { key: 'burstPct2', short: 'Patlama2 %', label: 'Patlama gövde % (2. kademe)', type: 'num', min: 0.2, max: 10, step: 0.1 },
+  { key: 'volMult', short: 'Hacim ×', label: 'Hacim katı (×ortalama)', type: 'num', min: 1, max: 10, step: 0.5 },
+  { key: 'volAvgN', short: 'Ort. mum', label: 'Hacim ortalaması (mum)', type: 'int', min: 5, max: 100, step: 5 },
+  { key: 'takerBuyPct', short: 'Alım >%', label: 'Alım: taker > %', type: 'int', min: 50, max: 90, step: 1 },
+  { key: 'takerSellPct', short: 'Satış <%', label: 'Satış: taker < %', type: 'int', min: 10, max: 50, step: 1 },
   { key: 'volGrade2X', short: 'Hacim 🔴🔴 ×', label: 'Hacim 🔴🔴: ortalamanın en az … katı', type: 'num', min: 1, max: 20, step: 0.5 },
   { key: 'dirGrade3Pct', short: 'Yön 🔴🔴🔴 %', label: 'Hacim 🔴🔴🔴: yön uyumu (alış/satış) ≥ %', type: 'int', min: 50, max: 95, step: 1 },
-  { key: 'windowMin', short: 'Pencere dk',     label: 'Sayaç penceresi (dk)',    type: 'int', min: 15, max: 200, step: 15 },
-  { key: 'shortWindowMin', short: 'Kısa dk', label: 'Kısa pencere (dk)',      type: 'int', min: 5, max: 60, step: 5 },
-  { key: 'resetRsi', short: 'Sıfırlama RSI',      label: 'Kart no. sıfırlama (5m RSI <)', type: 'int', min: 40, max: 95, step: 1 },
-  { key: 'seriesBursts', short: 'Seri patlama', label: 'Seri içi patlama → şartsız kart', type: 'bool' },
-  { key: 'sepATR', short: 'Ayrışma ATR',        label: 'EMA21 ayrışma (ATR)',     type: 'num', min: 0, max: 5, step: 0.1 },
-  { key: 'sepRequired', short: 'Ayrışma şartı',   label: 'Ayrışma şartı',           type: 'bool' },
-  { key: 'confRsi', short: 'Destek RSI',       label: 'Kontrol: 1h/4h RSI şişkin ≥',    type: 'int', min: 50, max: 95, step: 1 },
-  { key: 'confRequired', short: 'Destek şartı',  label: 'Destek şartı (1h/4h biri)', type: 'bool' },
-  { key: 'macdRequired', short: 'MACD şartı',  label: 'MACD 5m zayıflama şartı', type: 'bool' },
+  { key: 'windowMin', short: 'Pencere dk', label: 'Sayaç penceresi (dk)', type: 'int', min: 15, max: 200, step: 15 },
+  { key: 'shortWindowMin', short: 'Kısa dk', label: 'Kısa pencere (dk)', type: 'int', min: 5, max: 60, step: 5 },
+  { key: 'resetRsi', short: 'Sıfırlama RSI', label: 'Kart no. sıfırlama (5m RSI <)', type: 'int', min: 40, max: 95, step: 1 },
+  { key: 'seriesBursts', short: 'Seri patlama', label: 'Seri içi patlama (5m RSI ≥ seriesMinRsi5m)', type: 'bool' },
+  { key: 'sepATR', short: 'Ayrışma ATR', label: 'EMA21 ayrışma (ATR)', type: 'num', min: 0, max: 5, step: 0.1 },
+  { key: 'sepRequired', short: 'Ayrışma şartı', label: 'Ayrışma şartı', type: 'bool' },
+  { key: 'confRsi', short: 'Destek RSI', label: 'Kontrol: 1h/4h RSI şişkin ≥', type: 'int', min: 50, max: 95, step: 1 },
+  { key: 'confRequired', short: 'Destek şartı', label: 'Destek şartı (1h/4h biri)', type: 'bool' },
+  { key: 'macdRequired', short: 'MACD şartı', label: 'MACD 5m zayıflama şartı', type: 'bool' },
   { key: 'moveAlertPct', short: 'Hareket %', label: 'Hareket: 1 dk ≥ % (RSI kartına eklenir · 0 = kapalı)', type: 'num', min: 0, max: 20, step: 0.5 },
   { key: 'cardSound', short: 'Kart sesli', label: 'Her kart bildirimli (sesli)', type: 'bool' },
   { key: 'chart', short: 'Grafik', label: 'Kartlarda grafik', type: 'bool' },
@@ -73,7 +64,7 @@ const DEFS = [
   { key: 'ichiChikou', short: 'Chikou', label: 'Ichimoku Chikou kaydırma', type: 'int', min: 1, max: 200, step: 1, menu: false },
   { key: 'ichiSenkouB', short: 'Senkou B', label: 'Ichimoku Senkou B', type: 'int', min: 2, max: 300, step: 1, menu: false },
   { key: 'ichiShift', short: 'Kaydırma', label: 'Ichimoku bulut kaydırma', type: 'int', min: 1, max: 200, step: 1, menu: false },
-  { key: 'minVolumeM', short: 'Hacim M$',    label: 'Evren: 24s hacim ≥ (milyon $)', type: 'num', min: 0, max: 500, step: 1 },
+  { key: 'minVolumeM', short: 'Hacim M$', label: 'Evren: 24s hacim ≥ (milyon $)', type: 'num', min: 0, max: 500, step: 1 },
 ];
 const DEF_BY_KEY = Object.fromEntries(DEFS.map(d => [d.key, d]));
 
@@ -91,7 +82,7 @@ function createSettings({ file = defaultFile(), defaults = cfg.info, persist = t
   let values  = { ...defaults };
   let mutes   = {};
   let follows = new Set();
-  let topics  = {};   // konu adı → message_thread_id (konulu grup)
+  let topics  = {};
   const listeners = [];
 
   function load() {
@@ -118,7 +109,6 @@ function createSettings({ file = defaultFile(), defaults = cfg.info, persist = t
     }
   }
 
-  /** Doğrulayıp ayarlar. @returns {{ok:boolean, value?, error?:string}} */
   function set(key, raw) {
     const d = DEF_BY_KEY[key];
     if (!d) return { ok: false, error: `bilinmeyen ayar: ${key}` };
