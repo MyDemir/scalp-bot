@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Bilgi botu motoru — canlı bot ve backtest AYNI fonksiyonları kullanır.
+ * Bilgi botu motoru — canlı bot ve backtest AYNI fonksiyonları kullanır[span_1](start_span)[span_1](end_span).
  */
 
 const ta = require('./ta');
@@ -13,6 +13,12 @@ const MIN = 60_000;
 
 // ── Hacim patlamaları ──────────────────────────────────────────────────────
 
+/**
+ * 1m tamponunun i. mumu patlama mı?[span_2](start_span)[span_2](end_span)
+ * @param {object} d - Series.d['1m']
+ * @param {number} i - Mum indeksi
+ * @param {object} s - Ayarlar
+ */
 function burstAt(d, i, s) {
   const n = s.volAvgN;
   if (i < n) return null;
@@ -33,6 +39,11 @@ function burstAt(d, i, s) {
   };
 }
 
+/**
+ * Son kapanan 1m mum patlama mı?[span_3](start_span)[span_3](end_span)
+ * @param {object} series - Series nesnesi
+ * @param {object} s - Ayarlar
+ */
 function detectBurst(series, s) {
   const d = series.d['1m'];
   return burstAt(d, d.t.length - 1, s);
@@ -98,6 +109,11 @@ function volGrade(move, volX, taker, s) {
 
 const DAILY_LEVELS = ['1d MA200', '1d EMA200', '30 günlük tepe', '30 günlük en yüksek', '7 günlük en yüksek', 'Günlük bölge'];
 
+/**
+ * Kurulum kontrol listesi (9 madde)[span_4](start_span)[span_4](end_span)
+ * @param {object} snap 
+ * @param {object} s 
+ */
 function checklist(snap, s) {
   const r = snap.rsi;
   const f1 = v => (v == null || !Number.isFinite(v) ? '—' : v.toFixed(1));
@@ -109,7 +125,7 @@ function checklist(snap, s) {
     if (L.dist > s.dipAbovePct || L.dist < -s.levelMaxPct) continue;
     if (!daily || Math.abs(L.dist) < Math.abs(daily.dist)) daily = L;
   }
-  const kala = d => (d <= 0 ? `%\( {Math.abs(d).toFixed(2)} kala` : `% \){d.toFixed(2)} üstünde`);
+  const kala = d => (d <= 0 ? `%${Math.abs(d).toFixed(2)} kala` : `%${d.toFixed(2)} üstünde`);
 
   const ref = daily || snap.level;
   let conf = null;
@@ -125,36 +141,33 @@ function checklist(snap, s) {
   const band = ['3m', '5m'].filter(tf => inBand(r[tf].v));
   const over = ['3m', '5m'].filter(tf => r[tf].v > s.rsiEntryMax);
 
-  // EMA21 yüzde ayrışma (3m/5m max) — kademeli puan
   const sepPct = Math.max(
     Math.abs(snap.sepPct?.['3m'] ?? 0),
     Math.abs(snap.sepPct?.['5m'] ?? 0)
   );
   let sepPts = 0;
   let sepTxt = 'yok';
-  if (sepPct >= (s.sepPct10 ?? 10)) { sepPts = 3; sepTxt = `≥%\( {s.sepPct10 ?? 10} ( \){sepPct.toFixed(1)}%)`; }
-  else if (sepPct >= (s.sepPct5 ?? 5)) { sepPts = 2; sepTxt = `≥%\( {s.sepPct5 ?? 5} ( \){sepPct.toFixed(1)}%)`; }
-  else if (sepPct >= (s.sepPct2 ?? 2)) { sepPts = 1; sepTxt = `≥%\( {s.sepPct2 ?? 2} ( \){sepPct.toFixed(1)}%)`; }
+  if (sepPct >= (s.sepPct10 ?? 10)) { sepPts = 3; sepTxt = `≥%${s.sepPct10 ?? 10} (${sepPct.toFixed(1)}%)`; }
+  else if (sepPct >= (s.sepPct5 ?? 5)) { sepPts = 2; sepTxt = `≥%${s.sepPct5 ?? 5} (${sepPct.toFixed(1)}%)`; }
+  else if (sepPct >= (s.sepPct2 ?? 2)) { sepPts = 1; sepTxt = `≥%${s.sepPct2 ?? 2} (${sepPct.toFixed(1)}%)`; }
+
   const n1 = snap.neg?.['1m']?.count ?? 0, n3 = snap.neg?.['3m']?.count ?? 0;
   const h1 = snap.conf?.h1, h4 = snap.conf?.h4;
 
   const macdDown = ['3m', '5m'].some(tf => snap.macd?.[tf]?.cross === 'down');
 
   const items = [
-    { key: 'daily', ok: Boolean(daily), pts: 1, text: daily ? `Günlük/haftalık direnç \( {kala(daily.dist)} ( \){daily.name})` : `Günlük direnç %${s.levelMaxPct} içinde yok` },
+    { key: 'daily', ok: Boolean(daily), pts: 1, text: daily ? `Günlük/haftalık direnç ${kala(daily.dist)} (${daily.name})` : `Günlük direnç %${s.levelMaxPct} içinde yok` },
     { key: 'confluence', ok: Boolean(conf), pts: 1, text: conf ? `Çakışan direnç: ${ref.name} + ${conf.name}` : 'Çakışan direnç yok' },
-    { key: 'band', ok: band.length > 0, pts: 1, text: band.length
-  ? `3m/5m RSI \( {s.strongRsi}– \){s.rsiEntryMax} (\( {band.map(tf => ` \){tf} ${f1(r[tf].v)}`).join(' · ')})`
-  : over.length
-    ? `3m/5m RSI ${s.rsiEntryMax} üstü — aşırı`
-    : `3m/5m RSI \( {s.strongRsi}– \){s.rsiEntryMax} değil` },
-    { key: 'rsi15', ok: r['15m'].v >= s.strongRsi, pts: 1, text: `15m RSI ≥ \( {s.strongRsi} ( \){f1(r['15m'].v)})` },
+    { key: 'band', ok: band.length > 0, pts: 1, text: band.length ? `3m/5m RSI ${s.strongRsi}–${s.rsiEntryMax} (${band.map(tf => `${tf} ${f1(r[tf].v)}`).join(' · ')})` : over.length ? `3m/5m RSI ${s.rsiEntryMax} üstü — aşırı` : `3m/5m RSI ${s.strongRsi}–${s.rsiEntryMax} değil` },
+    { key: 'rsi15', ok: r['15m'].v >= s.strongRsi, pts: 1, text: `15m RSI ≥ ${s.strongRsi} (${f1(r['15m'].v)})` },
     { key: 'rsi5_15', ok: r['5m'].v >= s.strongRsi && r['15m'].v >= s.strongRsi, pts: 1, text: `5m + 15m ≥ ${s.strongRsi}` },
-    { key: 'htf', ok: h1 >= s.confRsi && h4 >= s.confRsi, pts: 1, text: `1h/4h RSI ≥ \( {s.confRsi} ( \){f1(h1)} · ${f1(h4)})` },
+    { key: 'htf', ok: h1 >= s.confRsi && h4 >= s.confRsi, pts: 1, text: `1h/4h RSI ≥ ${s.confRsi} (${f1(h1)} · ${f1(h4)})` },
     { key: 'sep', ok: sepPts > 0, pts: sepPts, text: `EMA21 % ayrışma ${sepTxt}` },
     { key: 'neg', ok: Math.max(n1, n3) >= 2, pts: 1, text: `Negatif tepe ≥ 2 (1m ${n1} · 3m ${n3})` },
     { key: 'macd', ok: macdDown, pts: 1, text: macdDown ? 'MACD 3m/5m sat kesişimi' : 'MACD sat kesişimi yok' },
   ];
+
   const score = items.reduce((sum, x) => sum + (x.ok ? x.pts : 0), 0);
   const warn = ['3m', '5m'].some(tf => r[tf].v >= s.strongRsi) && sepPts === 0
     ? `⚠️ RSI ${s.strongRsi} üstü ama EMA21 yakın`
@@ -215,6 +228,7 @@ function findHiddenPU(lows, rsi, { bars = 3, lookback = 60, fresh = 10 } = {}) {
   if (n - 1 - b.i > fresh) return null;
   return b.low > a.low && b.rsi < a.rsi - 1 ? { low1: a.low, rsi1: a.rsi, low2: b.low, rsi2: b.rsi, ago: n - 1 - b.i } : null;
 }
+
 function hiddenPU(series, tf, period) {
   const l = series.col(tf, 'l', false), c = series.col(tf, 'c', false);
   if (c.length < 40) return null;
@@ -332,13 +346,15 @@ function vwapState(series, price) {
   return { ...r, pos: r.sigma > 0 ? (price - r.vwap) / r.sigma : 0 };
 }
 
+/**
+ * Seviyeler — haftalık bölge desteği ve cache anahtarı güncellendi.
+ * @param {object} series 
+ * @param {object} s 
+ */
 function levelsOf(series, s = {}) {
-  const swing = s.levelsSwing !== false;
-  const fib = s.levelsFib !== false;
-  const bars = s.swingBars || 3;
-  const zoneTouches = s.zoneTouches || 3;
+  const swing = s.levelsSwing !== false, fib = s.levelsFib !== false, bars = s.swingBars || 3, zoneTouches = s.zoneTouches || 3;
   const weeklyZone = s.levelsWeeklyZone !== false;
-  const key = `\( {series.lastT('1h')}: \){series.lastT('4h')}:\( {series.lastT('1d')}: \){swing}:\( {fib}: \){bars}:\( {zoneTouches}: \){weeklyZone}`;
+  const key = `${series.lastT('1h')}:${series.lastT('4h')}:${series.lastT('1d')}:${swing}:${fib}:${bars}:${zoneTouches}:${weeklyZone}`;
   if (series._lv && series._lv.key === key) return series._lv.levels;
   const d = series.d['1d'];
   const days = d.t.map((_, i) => ({ high: d.h[i], close: d.c[i] }));
@@ -392,7 +408,6 @@ function detectSfp(series, s, watch) {
   const hits = RSI_TFS.filter(tf => (rsiOf(series, tf, s.rsiPeriod).v ?? 0) >= s.rsiMin).length;
   if (hits < s.minTFs) return ev;
 
-  // DÜZELTME: sfpAbovePct kullanıldı (%0.5)
   const up = (s.sfpAbovePct ?? 0.5) / 100;
   for (const L of levelsOf(series, s)) {
     if (L.kind === 'fib' || L.name === '1h tepe') continue;
@@ -568,7 +583,7 @@ function createTracker() {
       const prevAbove = L.above || [];
       const f1 = tf => `${tf} ${snap.rsi[tf].v.toFixed(1)}`;
       const line = (txt, tfs) => { if (tfs.length) out.push(`${txt}: ${tfs.map(f1).join(' · ')}`); };
-      line(`RSI ${s.strongRsi} üstüne çıktı`, RSI_TFS.filter(tf => snap.rsi[tf].v >= s.strongRsi && !(L.strong || []).includes(tf)));
+      line(`RSI ${s.rsiMin} üstüne çıktı`, RSI_TFS.filter(tf => above.includes(tf) && !prevAbove.includes(tf)));
       line(`RSI ${s.rsiMin} altına indi`, RSI_TFS.filter(tf => !above.includes(tf) && prevAbove.includes(tf)));
       if (s.rsiMin2 > s.rsiMin) line(`RSI ${s.rsiMin2} üstüne çıktı`, RSI_TFS.filter(tf => snap.rsi[tf].v >= s.rsiMin2 && !(L.above2 || []).includes(tf)));
       line(`RSI ${s.strongRsi} üstüne çıktı`, RSI_TFS.filter(tf => snap.rsi[tf].v >= s.strongRsi && !L.strong.includes(tf)));
@@ -684,7 +699,6 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
     }
   }
 
-  // Kontrol anı: 1m hacimli mum tek başına değerlendirme tetiklemez
   if (!tfs.length && !sfp && !move) return null;
 
   let snap = evaluate(series, s, ctx);
