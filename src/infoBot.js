@@ -2,21 +2,6 @@
 
 /**
  * BİLGİ BOTU — canlı çalışma katmanı.
- *
- *   Evren    : tüm USDT perpetual'lar, 24s hacim ≥ minVolumeM milyon $ (stabil coinler hariç).
- *              Saatte bir yenilenir; yeni coinler eklenir, hacmi eşiğin %80'inin altına düşenler çıkar
- *              (eşiğin hemen altında gidip gelen coin sürekli eklenip çıkarılmasın diye).
- *   Veri     : coin başına TEK WebSocket akışı (1m kline, yalnızca kapanışlar). 3m/5m/15m/1h/4h/1d
- *              src/series.js'te 1m'lerden üretilir. Başlangıçta her TF REST'ten tohumlanır.
- *   Kopukluk : yeniden bağlanınca kaçan 1m mumlar REST'ten çekilip sırayla uygulanır (üst TF'ler de
- *              böylece düzelir); kopukluk 200 dk'dan uzunsa coin baştan tohumlanır.
- *   Karar    : src/infoEngine.js (backtest ile aynı). Kart biçimi: src/infoCard.js
- *   Funding  : premiumIndex 5 dk'da bir (tek istek). OI: yalnızca kart üretilen coin için, 2 dk önbellek.
- *   Hareket  : izlenen coinde 1m kapanış bir önceki kapanışa göre ≥ %moveAlertPct → motor günlük sayaca yazar;
- *              RSI şartı sağlanıyorsa RSI kartına ⚡ satırı olarak girer (ayrı uyarı kartı yok). Evren dışı dinlenmez.
- *   Geçmiş   : her kart/uyarı src/cardStore.js ile /data/cards.db'ye yazılır, sonrası 15/60/240 dk izlenir.
- *   Seviye   : izlenen coinde fiyat dirence alttan değince sonraki 60 dk'daki tepki kaydedilir (src/levelTouch.js,
- *              /seviye komutu). Kartı etkilemez.
  */
 
 const cfg      = require('./config');
@@ -32,36 +17,34 @@ const chart = require('./chart');
 const { createSettings } = require('./infoSettings');
 const { installInfoTelegram } = require('./infoTelegram');
 
-// 1m EN SON çekilir: böylece üst TF yarım mumlarıyla çakışan dakika sayısı en aza iner
 const SEED_ORDER = ['1d', '4h', '1h', '15m', '5m', '3m', '1m'];
 const PREMIUM_EVERY_MS  = 5 * 60_000;
 const UNIVERSE_EVERY_MS = 60 * 60_000;
 const OI_CACHE_MS       = 2 * 60_000;
 const GAP_FILL_MAX_MIN  = 200;
-const KEEP_BELOW_RATIO  = 0.8;       // evrenden çıkış: hacim < eşik × 0.8
+const KEEP_BELOW_RATIO  = 0.8;
 
 const settings = createSettings();
 const tracker  = eng.createTracker();
 const touches  = createTouchTracker();
-let store = null;             // kart geçmişi (main'de açılır)
+let store = null;
 
-const series  = new Map();   // sym → Series
-const busy    = new Set();   // tohumlanan / boşluğu doldurulan semboller
-const pending = new Map();   // sym → WS'ten gelen, iş bitince uygulanacak 1m mumlar
-const failed  = new Map();   // sym → deneme sayısı
+const series  = new Map();
+const busy    = new Set();
+const pending = new Map();
+const failed  = new Map();
 let premium   = new Map();
 const oiCache = new Map();
-let vols24    = new Map();   // sym → 24s hacim (USDT) — tüm işlemdeki pariteler
+let vols24    = new Map();
 
 const stats = { closes: 0, cards: 0, cardsToday: 0, day: null, seeded: 0, seedErrors: 0, gapFills: 0 };
 let startedAt = 0;
 let seedingAll = false;
 
-// Yetişiyor mu? — WS'ten gelen 1m kapanışların gecikmesi (mum kapanışı → bot işledi) ve işlem süresi.
-// Heartbeat'te (5 dk) sıfırlanır; /durum son tamamlanan pencereyi gösterir.
 const newDiag = () => ({ from: Date.now(), n: 0, lagSum: 0, lagMax: 0, busyMs: 0 });
 let diag = newDiag(), lastDiag = null;
-const STALE_MS = 3 * 60_000;             // son 1m mumu bundan eski olan hazır coin "geride"
+const STALE_MS = 3 * 60_000;
+
 function staleList(now = Date.now()) {
   const out = [];
   for (const [sym, sr] of series) {
@@ -71,6 +54,7 @@ function staleList(now = Date.now()) {
   }
   return out;
 }
+
 function diagText(d, now = Date.now()) {
   if (!d || !d.n) return 'veri yok';
   const win = Math.max(1, (d.to ?? now) - d.from);
@@ -123,11 +107,14 @@ async function emitCard(card) {
   const sr = series.get(card.symbol);
   let photo = null;
   if (s.chart && sr) photo = chartOf(sr, s, card.snap.level, card.snap.levels || [], `Kart ${card.seq}`);
-  const thread = (card.grade === 3 && settings.topic('kart3')) || settings.topic('kart');
+  
+  // DÜZELTME: Derece 3 ve 4 kartları kart3 konusuna yönlendir
+  const thread = (card.grade >= 3 && settings.topic('kart3')) || settings.topic('kart');
+  
   telegram.sendCard({ text, keyboard, silent: card.silent, photo, thread });
   store?.add({ id: card.id, kind: 'card', symbol: card.symbol, t: card.t, seq: card.seq, price: card.price, data: { ...compact(card), bursts: undefined, fwd: undefined } });
   const lv = card.snap.level;
-  console.log(`[KART] ${card.symbol} #${card.seq} derece ${card.grade} · RSI ${card.snap.hits}/3 · ${lv ? `${lv.name} ${lv.dist.toFixed(2)}% ${lv.zone}` : 'seviye yok'} · ${card.silent ? 'sessiz' : 'SESLİ'} · ${card.news.join(' | ')}`);
+  console.log(`[KART] ${card.symbol} #${card.seq} derece ${card.grade} · RSI ${card.snap.hits}/3 · ${lv ? `${lv.name} ${lv.dist.toFixed(2)}\%${lv.zone}` : 'seviye yok'} · ${card.silent ? 'sessiz' : 'SESLİ'} · ${card.news.join(' | ')}`);
 }
 
 // ── Mum işleme ────────────────────────────────────────────────────────────
@@ -164,7 +151,6 @@ function processCandle0(sr, c, live) {
   }
   if (card) {
     touches.noteCard(sr.symbol, card.t);
-    // Aynı coinin kartları sırayla kuyruğa girsin (OI isteği async — #3, #2'den önce gitmesin)
     const sym = sr.symbol;
     const prev = chains.get(sym) || Promise.resolve();
     const next = prev.then(() => emitCard(card)).catch(err => console.error(`[KART] ${sym} gönderilemedi:`, err?.message || err));
@@ -174,7 +160,6 @@ function processCandle0(sr, c, live) {
 }
 const chains = new Map();
 
-/** 📋 Detay butonunun metinleri (bellekte, son DETAIL_MAX kart; bot yeniden başlayınca eski kartların detayı yok) */
 const DETAIL_MAX = 3000;
 const details = {
   map: new Map(),
@@ -182,15 +167,10 @@ const details = {
   get(id) { return this.map.get(id) ?? null; },
 };
 
-/** Ayarlardaki Ichimoku parametreleri */
 function ichiOf(s) {
   return { tenkan: s.ichiTenkan, kijun: s.ichiKijun, chikou: s.ichiChikou, senkouB: s.ichiSenkouB, shift: s.ichiShift };
 }
 
-/**
- * Grafik (ayarlardaki zaman dilimi; varsayılan 1h). EMA21 3m/5m çizgileri yalnız 5m grafikte anlamlı.
- * @param {object[]} [candles] verilmezse series'ten alınır
- */
 function chartOf(sr, s, level, levels, subtitle, candles = null) {
   const tf = s.chartTf || '1h';
   const cs = candles || chart.candlesFromSeries(sr, tf);
@@ -205,14 +185,13 @@ function onKline(symbol, tf, k, isFinal) {
   if (!isFinal || tf !== '1m') return;
   const c = toCandle(k);
   const sr = series.get(symbol);
-  if (!sr) return;                             // evren dışı (listeden yeni çıkmış) — dinlenmez
-  const lag = Math.max(0, Date.now() - (c.t + 60_000));   // mum kapanışından bu yana (WS + olay döngüsü gecikmesi)
+  if (!sr) return;
+  const lag = Math.max(0, Date.now() - (c.t + 60_000));
   diag.n++; diag.lagSum += lag; if (lag > diag.lagMax) diag.lagMax = lag;
   if (busy.has(symbol)) pending.get(symbol)?.push(c);
   else processCandle(sr, c, true);
 }
 
-/** WebSocket'te olması gereken semboller: yalnızca izlenen evren */
 function wsSymbols() {
   return [...series.keys()];
 }
@@ -237,7 +216,7 @@ async function seedSymbol(sym) {
   try {
     for (const tf of SEED_ORDER) {
       const raw = await binance.fetchKlines(sym, tf, KEEP[tf] + 1);
-      if (!series.has(sym)) return false;             // bu arada evrenden çıkarıldı
+      if (!series.has(sym)) return false;
       const now = Date.now();
       sr.seed(tf, (raw || []).map(k => normKline(k, now)));
     }
@@ -252,7 +231,6 @@ async function seedSymbol(sym) {
     if (n < 3) setTimeout(() => { if (series.has(sym)) seedSymbol(sym).then(ok => ok && flushPending(sym)); }, 2 * 60_000);
     return false;
   } finally {
-    // başarısızsa da kilidi aç — bekleyen mumlar tohum olmadan uygulanmaz (ready() false kalır)
     if (!failed.has(sym)) flushPending(sym);
     else { busy.delete(sym); pending.delete(sym); }
   }
@@ -314,7 +292,6 @@ async function refreshUniverse(initial = false) {
 
   for (const s of removed) { series.delete(s); tracker.forget(s); pending.delete(s); busy.delete(s); }
   for (const s of added) { series.set(s, new Series(s)); if (!initial) { busy.add(s); pending.set(s, []); } }
-  // Başarısız tohumlar yeniden denensin
   const retry = [...failed.keys()].filter(s => series.has(s) && !added.includes(s));
   failed.clear();
 
@@ -414,7 +391,6 @@ async function main() {
   console.log(`${list.length} coin izlenecek (24s hacim ≥ ${s.minVolumeM}M $): ${list.slice(0, 10).join(', ')}${list.length > 10 ? ' …' : ''}`);
   for (const sym of list) { busy.add(sym); pending.set(sym, []); }
 
-  // WebSocket ÖNCE: tohumlama sürerken kapanan mumlar kaçmasın (pending'e yazılır)
   const wsList = wsSymbols();
   console.log(`WebSocket: ${wsList.length} parite (izlenen)`);
   binance.startWebSocket(wsList, ['1m'], onKline, { onGap: backfillGap, options: { ...cfg.ws, finalOnly: true } });
