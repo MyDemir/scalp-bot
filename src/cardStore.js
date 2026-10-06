@@ -173,6 +173,23 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
       for (const w of EVENT_WINDOWS) for (const k of ['low', 'high', 'close']) row[`${k}${w}`] = e.out?.[w]?.[k] ?? null;
       safe(() => st.eIns.run(row), 'düşüş kaydı');
     },
+    /**
+     * Haftalık rapordan sonra: cutoff'tan önceki kartlar, temaslar ve düşüşler silinir; disk VACUUM ile geri alınır.
+     * Bellekteki takipte olan (cutoff'tan önceki) kartlar da bırakılır.
+     */
+    purgeBefore(cutoff) {
+      const r = safe(() => ({
+        cards: db.prepare('DELETE FROM cards WHERE t < ?').run(cutoff).changes,
+        touches: db.prepare('DELETE FROM touches WHERE t < ?').run(cutoff).changes,
+        events: db.prepare('DELETE FROM events WHERE t < ?').run(cutoff).changes,
+      }), 'silme');
+      for (const [sym, arr] of open) {
+        for (let k = arr.length - 1; k >= 0; k--) if (arr[k].t < cutoff) { arr.splice(k, 1); openN--; }
+        if (!arr.length) open.delete(sym);
+      }
+      safe(() => { db.pragma('wal_checkpoint(TRUNCATE)'); db.exec('VACUUM'); }, 'vacuum');
+      return r;
+    },
     eventsSince: t => (safe(() => st.eSince.all(t), 'sorgu') || []).map(rowToEvent),
     touchesSince: t => (safe(() => st.tSince.all(t), 'sorgu') || []).map(rowToTouch),
 

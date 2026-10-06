@@ -171,11 +171,16 @@ Kart çıksın çıkmasın, **pompa tepesinden gelen her düşüş** kaydedilir 
   fotoğrafı alınır (daha yüksek tepe gelirse yenilenir).
 - **Düşüş:** tepeden sonraki 15 dk içinde fiyat tepenin %1.5 altına iner → olay. Coin başına 60 dk'da bir.
 - **Kartlı / kartsız:** o coinde tepeden 15 dk önce ile düşüşten 5 dk sonrası arasında kart çıktı mı.
-- **Fotoğraf (50 sütun):** RSI 3/5/15dk/1s/4s, RSI şartı ve dilim sayısı, kart şartları (`fails`: rsi / seviye …),
-  kontrol listesi puanı ve tutan maddeler, en yakın direnç (ad/tür/uzaklık/Dirençte), 3/5/15dk EMA21 uzaklığı (%), 5dk ATR %,
-  3dk EMA21 takibi, negatif tepe 1m/3m, MACD 3/5/15dk (kesişim / zayıf / güçlü), Stoch RSI, VWAP σ ve %, hacim katı ve alış %
-  (15dk/1s/4s/24s), hacimli mum alış/satış (1 saat), funding, BTC 1s, son 15 dk değişim, 4s gizli PU, günlük golden cross,
-  pompa büyüklüğü ve süresi.
+- **Tepe fotoğrafı (~130 sütun):**
+  - **1m / 3m / 5m / 15m / 1h / 4h** her biri için: RSI, EMA21'e uzaklık %, MACD (kesişim / zayıf / güçlü) ve histogram,
+    Stoch RSI K/D, ATR %, son mumun hacim katı, taker alış %
+  - **VWAP:** günlük / haftalık / aylık (UTC gün, Pazartesi, ay başı) % ve σ (±1/2/3σ bantları seviye olarak),
+    kayan 90 dk / 24 saat / 7 gün, pompa dibinden sabitlenmiş VWAP
+  - **Tepki seviyesi:** tepenin %0.3 içindeki en yakın seviye (Fib, günlük/haftalık bölge, trend çizgisi, 7/30g en yüksek,
+    MA200/EMA200, 1s/4s/15dk tepe, VWAP ve bantları, EMA21 3/5/15dk/1s) + %0.5 içindeki tüm seviyeler
+  - Kart şartları (`fails`), kontrol listesi, en yakın direnç, negatif tepe, hacim pencereleri, funding, BTC 1s, pompa büyüklüğü/süresi
+- **Dip:** tepeden sonraki 60 dk'nın en düşüğü — kaç % / kaç dk, %0.3 içindeki en yakın destek (aynı seviye listesi) ve
+  3/5/15dk EMA21 merdiveninde nereye indiği; 55. dk'dan sonraysa "hâlâ düşüyor".
 - **Sonrası:** tepeye göre 5 / 15 / 60 / 240 dk en düşük / en yüksek / kapanış (%).
 - Kartı ve tetik kurallarını etkilemez. `/data/cards.db` → `events` tablosu, 60 gün. Eşikler `src/config.js` → `events`.
 
@@ -196,7 +201,7 @@ Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı kon
    botu ekle, gruba bir komut yaz ve `fly logs`'ta `Tanımsız sohbetten mesaj yok sayıldı: … ID -100…` satırındaki
    ID'yi `fly secrets set TELEGRAM_CHAT_ID=-100…` ile tanımla.
 2. İstediğin konunun **içinde** (yönetici olarak) yaz: `/konu kart` · `/konu sistem` ·
-   `/konu kart3` (🔴🔴🔴'ler ayrı konuya) · `/konu backtest`. Bağlantı `/data`'da saklanır.
+   `/konu kart3` (🔴🔴🔴'ler ayrı konuya) · `/konu backtest` · `/konu rapor` (haftalık dosyalar). Bağlantı `/data`'da saklanır.
 3. `/konu` listeyi gösterir, `/konu sil kart` kaldırır. Bağlanmamış tür genel akışa gider; konu silinirse mesajlar
    kaybolmaz, genel akışa düşer. Komut yanıtları, komutun yazıldığı konuya gelir.
 
@@ -211,6 +216,7 @@ Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı kon
 | `/gecmis ETH [adet]` · `/istatistik [gün]` | herkes | kart geçmişi ve sınıf istatistiği |
 | `/kacan [gün]` | herkes | düşüş defteri: pompa tepesinden düşüşler, kartlı/kartsız, kartsızlarda eksik şart |
 | `/disaaktar [gün]` | yönetici | istatistik verisi CSV olarak özelden (düşüşler, kartlar, temaslar) |
+| `/haftalik` | yönetici | haftalık dosyanın ön izlemesi özelden (silmez); asıl dosya Pazartesi 03:01'de gruba gider |
 | `/seviye [gün] [ad]` | herkes | seviye tepkisi: temastan sonra çekilme / 3dk EMA21'e dönüş / kırılım (ör. `/seviye 7 fib`) |
 | `/konu [ad]` · `/konu sil ad` | liste herkes, bağlama yönetici | konulu grupta yönlendirme |
 | `/durum` · `/benkimim` · `/yardim` | herkes | `/durum`: izlenen/hazır coin, **geride kalan coinler** (son 3 dk'da 1m mumu gelmeyen), son 5 dk'da işlenen mum sayısı, **gecikme** (mum kapanışı → bot işledi; ort / en fazla) ve işlem yükü. Gecikme 20 sn'yi aşarsa ya da geride coin varsa `fly logs`'ta `[UYARI]` |
@@ -261,6 +267,8 @@ src/
 ├── cardStore.js      # Kart geçmişi (SQLite /data/cards.db) + 15/60/240 dk takip + seviye tepkisi tablosu
 ├── eventLog.js       # Düşüş defteri: pompa tepesi → düşüş, kartlı/kartsız, tüm göstergeler (canlı + backtest ortak)
 ├── exportData.js     # CSV dışa aktarma (/disaaktar ve komut satırı)
+├── marketSnap.js     # 1m–4h göstergeleri, VWAP seti, tepki/destek seviyesi eşleştirme (istatistik kaydı)
+├── weeklyReport.js   # Haftalık MD + CSV (Pazartesi 03:01 TSİ) → gruba, sonra veritabanından silme
 ├── levelTouch.js     # Seviye tepkisi: dirence alttan temas → 60 dk çekilme / EMA21 / kırılım (canlı + backtest ortak)
 ├── infoBacktest.js   # Bilgi botu backtest'i
 ├── levels.js         # 4h/1d MA200 · EMA200 · 30 günlük tepe · 7/30g en yüksek · 1h/4h tepe · Fib düzeltme/uzantı

@@ -13,7 +13,9 @@ const { formatCard } = require('./infoCard');
 const { compact } = require('./infoStats');
 const { createCardStore } = require('./cardStore');
 const { createTouchTracker } = require('./levelTouch');
-const { createDropLedger } = require('./eventLog');
+const { createDropLedger, DEFAULTS: DROP_DEFAULTS } = require('./eventLog');
+const { createWeeklyJob } = require('./weeklyReport');
+const path = require('path');
 const chart = require('./chart');
 const { createSettings } = require('./infoSettings');
 const { installInfoTelegram } = require('./infoTelegram');
@@ -30,6 +32,7 @@ const tracker  = eng.createTracker();
 const touches  = createTouchTracker();
 const drops    = createDropLedger(cfg.events);   // düşüş defteri (kartı etkilemez)
 let store = null;
+let weekly = null;            // haftalık rapor işi (main'de kurulur)
 
 const series  = new Map();
 const busy    = new Set();
@@ -407,6 +410,22 @@ async function main() {
   await pollPremium();
   setInterval(pollPremium, PREMIUM_EVERY_MS);
   setInterval(heartbeat, cfg.heartbeatMs);
+  // Haftalık istatistik dosyası (Pazartesi 03:01 TSİ) → gruba, sonra veritabanından sil
+  if (store?.enabled()) {
+    const dataDir = path.dirname(process.env.DB_PATH || path.join(__dirname, '..', 'data', 'signals.db'));
+    weekly = createWeeklyJob({
+      store, file: path.join(dataDir, 'weekly-state.json'), getSettings: () => settings.get(), E: { ...DROP_DEFAULTS, ...(cfg.events || {}) },
+      send: async (files, caption) => {
+        const thread = settings.topic('rapor') || settings.topic('sistem') || null;
+        for (const [k, f] of files.entries()) {
+          if (!(await telegram.sendDocument(f.name, f.buf, { caption: k === 0 ? caption : null, thread, type: f.type }))) return false;
+        }
+        return true;
+      },
+      purge: cutoff => store.purgeBefore(cutoff),
+    });
+    setInterval(() => { weekly.tick().catch(err => console.error('[HAFTALIK]', err?.message || err)); }, 30_000);
+  }
 
   seedingAll = true;
   console.log(`Geçmiş veri yükleniyor (${list.length} coin × ${SEED_ORDER.length} zaman dilimi) — REST limitine göre birkaç dakika sürer; hazır olan coinler hemen değerlendirilir.`);
@@ -426,4 +445,4 @@ async function main() {
   console.log('\n✅ Bilgi botu çalışıyor.\n');
 }
 
-module.exports = { main, _internal: { series, settings, tracker, touches, drops, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, statusText, stats, busy, pending, details, getStore: () => store } };
+module.exports = { main, _internal: { series, settings, tracker, touches, drops, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, statusText, stats, busy, pending, details, getStore: () => store, getWeekly: () => weekly } };

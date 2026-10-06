@@ -369,6 +369,29 @@ async function sendDocumentPrivate(userId, name, buf, caption = null, type = 'te
   }
 }
 
+/**
+ * Gruba dosya (haftalık rapor). Kuyruktan bağımsız; hız sınırı (429) ve ağ hatasında 3 kez dener.
+ * @returns {Promise<boolean>}
+ */
+async function sendDocument(name, buf, { caption = null, thread = null, type = 'text/csv' } = {}) {
+  for (let a = 1; a <= 3; a++) {
+    try {
+      const wait = lastSentAt + cfg.telegramMinIntervalMs - Date.now();
+      if (wait > 0) await sleep(wait);
+      await apiMultipart('sendDocument', { chat_id: CHAT_ID, message_thread_id: thread, caption, parse_mode: 'HTML', disable_notification: true }, buf, 120_000, { field: 'document', name, type });
+      lastSentAt = Date.now(); stats.sent++;
+      return true;
+    } catch (err) {
+      lastSentAt = Date.now();
+      if (thread && err.code === 400 && /thread|topic/i.test(err.message)) { thread = null; continue; }   // konu silinmiş → genel akış
+      console.warn(`[TELEGRAM] dosya gönderilemedi (${name}, ${err.code}: ${err.message}) — deneme ${a}/3`);
+      await sleep(err.code === 429 ? (err.retryAfter ?? 5) * 1000 : 5000 * a);
+    }
+  }
+  stats.failed++;
+  return false;
+}
+
 // Özel sohbette yalnızca "/start <parametre>" kabul edilir (📋 Detay bağlantısı) — işleyiciyi bilgi botu verir
 let privateStartHandler = null;
 function onPrivateStart(fn) { privateStartHandler = fn; }
@@ -475,6 +498,6 @@ function stop() {
 
 module.exports = {
   start, stop, sendText, sendCard, flush, takeStats, queueLength, esc,
-  sendPrivate, sendDocumentPrivate, onPrivateStart, isMember, getBotUsername: () => botUsername, setCommands, publishCommands, onCallback, isAdmin, editMessage,
+  sendPrivate, sendDocument, sendDocumentPrivate, onPrivateStart, isMember, getBotUsername: () => botUsername, setCommands, publishCommands, onCallback, isAdmin, editMessage,
   _internal: { handleUpdate, get commands() { return commands; }, queue },
 };

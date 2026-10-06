@@ -10,6 +10,7 @@ const { classTable, median, touchText } = require('./infoStats');
 const { rowToStat } = require('./cardStore');
 const { dropText } = require('./eventLog');
 const { buildExports } = require('./exportData');
+const { buildWeekly } = require('./weeklyReport');
 const cfgAll = require('./config');
 
 const HOUR = 3_600_000;
@@ -19,6 +20,7 @@ const TOPICS = {
   kart3:    '🔴🔴🔴 ve 🔴🔴🔴🔴 kartlar (ayrıca bu konuya; boşsa "kart" konusuna)',
   sistem:   'bot mesajları ("hazır" vb.)',
   backtest: 'backtest raporları (--telegram)',
+  rapor:    'haftalık istatistik dosyaları (Pazartesi 03:01; boşsa "sistem" konusuna)',
 };
 
 function normSym(x) {
@@ -191,7 +193,8 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
 /seviye [gün] [ad] — dirence alttan temastan sonraki 60 dk: geri çekilme, 3dk EMA21'e dönüş, kırılım (ör. <code>/seviye 7 fib</code>)
 /kacan [gün] — düşüş defteri: pompa tepesinden düşüşler, kartlı/kartsız, kartsızlarda eksik şart
 /disaaktar [gün] — (yönetici) istatistik verisi CSV olarak özelden: düşüşler, kartlar, temaslar
-/konu [ad] — konulu grupta yönlendirme (konunun içinde yaz: /konu kart · /konu sistem · /konu kart3 · /konu backtest)
+/haftalik — (yönetici) haftalık dosyanın ön izlemesi özelden (silmez). Asıl dosya her Pazartesi 03:01'de gruba gider ve veritabanı temizlenir
+/konu [ad] — konulu grupta yönlendirme (konunun içinde yaz: /konu kart · /konu sistem · /konu kart3 · /konu backtest · /konu rapor)
 /durum — bot durumu
 /benkimim — Telegram kullanıcı ID'n
 
@@ -341,6 +344,16 @@ ${mv.join('\n')}` : ''}`.slice(0, 4000);
       return `📤 ${sent} dosya özelden gönderildi (son ${days} gün): ${files.map(f => `${f.name} ${f.n}`).join(' · ')}`;
     }),
 
+    haftalik: adminOnly(async (args, msg) => {
+      if (!store || !store.enabled()) return 'Kart geçmişi kapalı (veritabanı açılamadı).';
+      const w = buildWeekly(store, { s: settings.get(), E: { ...require('./eventLog').DEFAULTS, ...(cfgAll.events || {}) } });
+      for (const [k, f] of w.files.entries()) {
+        const ok = await telegram.sendDocumentPrivate(msg.from?.id, f.name, f.buf, k === 0 ? `📦 Ön izleme · ${w.label} · ${w.counts.cards} kart · ${w.counts.drops} düşüş · ${w.counts.touches} temas (silinmedi)` : null, f.type);
+        if (!ok) { const bot = telegram.getBotUsername?.(); return `❌ Özelden gönderemedim. Önce bota özelden bir kez /start yaz${bot ? `: https://t.me/${bot}` : ''}.`; }
+      }
+      return `📦 Haftalık ön izleme özelden gönderildi (${w.files.length} dosya). Asıl rapor Pazartesi 03:01'de gruba gider, ardından veritabanı temizlenir.`;
+    }),
+
     konu: async (args, msg) => {
       const [a0, a1] = args.split(/\s+/).filter(Boolean).map(x => x.toLowerCase());
       const list = () => {
@@ -380,6 +393,7 @@ ${mv.join('\n')}` : ''}`.slice(0, 4000);
     ['seviye', 'Seviye tepkisi: temastan sonra çekilme / EMA21 / kırılım · örn. /seviye 7 fib'],
     ['kacan', 'Düşüş defteri: pompa tepesinden düşüşler, kartlı / kartsız · örn. /kacan 7'],
     ['disaaktar', '(yönetici) İstatistik verisi CSV olarak özelden · örn. /disaaktar 30'],
+    ['haftalik', '(yönetici) Haftalık dosyanın ön izlemesi özelden (silmez)'],
     ['takip', 'Takip listesi / ekle-çıkar (kartları hep sesli) · örn. /takip ETH'],
     ['sustur', 'Coini sustur (varsayılan 60 dk) · örn. /sustur ETH 30'],
     ['ac', 'Susturmayı aç · örn. /ac ETH'],

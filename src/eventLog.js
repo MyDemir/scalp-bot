@@ -9,6 +9,11 @@
  *   Kart       : o coinde tepeden cardBeforeMin (15) dk önce ile düşüşten 5 dk sonrası arasında kart çıktı mı (kartlı / kartsız).
  *   Sonrası    : tepeye göre windows (5/15/60/240) dk'da en düşük / en yüksek / kapanış (%). En uzun pencere dolunca kaydedilir.
  *   Tekrar     : coin başına cooldownMin (60) dk'da bir olay.
+ *   Tepede     : 1m/3m/5m/15m/1h/4h göstergeleri (src/marketSnap.js), VWAP seti (günlük/haftalık/aylık ±σ, kayan 90dk/24s/7g,
+ *                pompa dibi), fiyatın tepki aldığı seviye (tepenin %0.3 içindeki en yakın seviye: Fib, bölge, 1h/4h/15dk tepe,
+ *                VWAP bandı, EMA21 …) ve %0.5 içindeki tüm seviyeler.
+ *   Dipte      : tepeden sonraki 60 dk'nın en düşük noktası — kaç % / kaç dk, dibin %0.3 içindeki en yakın destek
+ *                (VWAP, EMA21, bölge, Fib …) ve 3/5/15dk EMA21 merdiveninde nereye indiği.
  *
  * Kartı ve tetik kurallarını ETKİLEMEZ — yalnızca kayıt (/data/cards.db → events) ve rapor (/kacan, dışa aktarma).
  * Rapor dili "eşlik eden durum"dur; neden-sonuç iddiası yoktur. Kazanç/kayıp hesabı yoktur.
@@ -16,8 +21,11 @@
 
 const { evaluate, separationPct } = require('./infoEngine');
 const ta = require('./ta');
+const { tfIndicators, vwapSet, vwapFeatures, refLevels, nearest, TF_COLS, VWAP_COLS } = require('./marketSnap');
+const { maLadder, stopOf } = require('./levelTouch');
 
 const MIN = 60_000;
+const TROUGH_MIN = 60;      // dip: tepeden sonraki 60 dk'nın en düşüğü
 const DEFAULTS = {
   pumpPct: 3, pumpLookbackMin: 240, localHighMin: 60,
   peakWindowMin: 15, dropPct: 1.5, cooldownMin: 60, cardBeforeMin: 15, cardAfterMin: 5,
@@ -61,7 +69,29 @@ function features(snap, series, extra = {}) {
     ...extra,
   };
 }
-const FEATURE_COLS = Object.keys(features({ price: 1 }, { col: () => [] }, { pumpPct: 0, pumpMin: 0 }));
+const PEAK_COLS = ['pumpPct', 'pumpMin', 'pkLv', 'pkLvKind', 'pkLvDist', 'pkNear'];
+const TROUGH_COLS = ['trPct', 'trMin', 'trLv', 'trLvKind', 'trLvDist', 'trNear', 'trEma', 'trFalling'];
+const FEATURE_COLS = [...Object.keys(features({ price: 1 }, { col: () => [] })), ...PEAK_COLS, ...TF_COLS, ...VWAP_COLS, ...TROUGH_COLS];
+
+/** Tepe anının tam fotoğrafı: temel göstergeler + çoklu zaman dilimi + VWAP seti + tepki seviyesi */
+function peakFeatures(series, s, ctx, high, pump, loT, tc) {
+  const snap = evaluate(series, s, ctx, true);
+  const vw = vwapSet(series, loT);
+  const nr = nearest(refLevels(series, s, vw), high);
+  return features(snap, series, {
+    pumpPct: num(pump), pumpMin: Math.round((tc - loT) / MIN),
+    pkLv: nr.best?.name ?? null, pkLvKind: nr.best?.kind ?? null, pkLvDist: nr.best?.dist ?? null, pkNear: nr.near.join('|'),
+    ...tfIndicators(series, s, snap.price), ...vwapFeatures(vw, snap.price),
+  });
+}
+
+/** Dip anı: en yakın destek + EMA21 merdiveni */
+function troughFeatures(series, s, low, anchorT) {
+  const vw = vwapSet(series, anchorT);
+  const nr = nearest(refLevels(series, s, vw), low);
+  const st = stopOf(low, maLadder(series));
+  return { trLv: nr.best?.name ?? null, trLvKind: nr.best?.kind ?? null, trLvDist: nr.best?.dist ?? null, trNear: nr.near.join('|'), trEma: st.stop };
+}
 
 function createDropLedger(opts = {}) {
   const E = { ...DEFAULTS, ...opts };
@@ -73,15 +103,21 @@ function createDropLedger(opts = {}) {
 
   function finish(e) {
     const cs = (cards.get(e.symbol) || []).filter(c => c.t >= e.t - E.cardBeforeMin * MIN && c.t <= e.dropT + E.cardAfterMin * MIN);
+    const trMin = e.trT != null ? Math.round((e.trT - e.t) / MIN) : null;
+    const trough = {
+      trPct: e.trLow < Infinity ? num((e.trLow - e.price) / e.price * 100, 3) : null, trMin,
+      trLv: null, trLvKind: null, trLvDist: null, trNear: '', trEma: null, ...(e.trSnap || {}), trFalling: trMin != null && trMin >= TROUGH_MIN - 5,
+    };
     return {
       id: e.id, symbol: e.symbol, t: e.t, price: e.price, dropT: e.dropT, dropMin: e.dropMin,
       card: cs.length > 0, cardGrade: cs.length ? Math.max(...cs.map(c => c.grade || 0)) : null,
-      feat: e.feat, out: e.out,
+      feat: { ...e.feat, ...trough }, out: e.out,
     };
   }
 
   function advance(e, c) {          // c: kapanmış 1m mum (t = açılış)
     if (c.t < e.t) return false;      // tepe dakikası ve öncesi
+    if (c.t + MIN - e.t <= TROUGH_MIN * MIN && c.l < e.trLow) { e.trLow = c.l; e.trT = c.t + MIN; e.trPending = true; }
     if (c.l < e.lo) e.lo = c.l;
     if (c.h > e.hi) e.hi = c.h;
     e.last = c.c;
@@ -108,9 +144,12 @@ function createDropLedger(opts = {}) {
       const c = { t: d.t[i], h: d.h[i], l: d.l[i], c: d.c[i] }, tc = c.t + MIN;
       const x = st(sym);
       const done = [];
-      // 1) açık olaylar
+      // 1) açık olaylar (yeni dip geldiyse o anki destek fotoğrafı)
       for (let k = x.open.length - 1; k >= 0; k--) {
-        if (advance(x.open[k], c)) { done.push(finish(x.open[k])); x.open.splice(k, 1); openN--; }
+        const e = x.open[k];
+        const full = advance(e, c);
+        if (e.trPending) { e.trSnap = troughFeatures(series, s, e.trLow, e.anchorT); e.trPending = false; }
+        if (full) { done.push(finish(e)); x.open.splice(k, 1); openN--; }
       }
       // 2) düşüş
       const pk = x.peak;
@@ -118,8 +157,9 @@ function createDropLedger(opts = {}) {
         if (tc - pk.t > E.peakWindowMin * MIN) x.peak = null;
         else if (c.l <= pk.high * (1 - E.dropPct / 100)) {
           const e = { id: `${sym}-${pk.t}`, symbol: sym, t: pk.t, price: pk.high, dropT: tc, dropMin: Math.round((tc - pk.t) / MIN),
-            feat: pk.feat, lo: Infinity, hi: -Infinity, last: null, out: {} };
+            feat: pk.feat, anchorT: pk.anchorT, lo: Infinity, hi: -Infinity, last: null, out: {}, trLow: Infinity, trT: null };
           for (let j = 0; j <= i; j++) if (d.t[j] >= pk.t && advance(e, { t: d.t[j], h: d.h[j], l: d.l[j], c: d.c[j] })) break;
+          if (e.trPending) { e.trSnap = troughFeatures(series, s, e.trLow, e.anchorT); e.trPending = false; }
           if (e.out[WMAX]) done.push(finish(e)); else { x.open.push(e); openN++; }
           x.coolUntil = pk.t + E.cooldownMin * MIN;
           x.peak = null;
@@ -134,8 +174,7 @@ function createDropLedger(opts = {}) {
       for (let j = Math.max(0, i - E.pumpLookbackMin + 1); j <= i; j++) if (d.l[j] < lo4h) { lo4h = d.l[j]; loT = d.t[j]; }
       const pump = (c.h / lo4h - 1) * 100;
       if (!(pump >= E.pumpPct)) return done;
-      const snap = evaluate(series, s, ctx, true);
-      x.peak = { t: tc, high: c.h, feat: features(snap, series, { pumpPct: num(pump), pumpMin: Math.round((tc - loT) / MIN) }) };
+      x.peak = { t: tc, high: c.h, anchorT: loT, feat: peakFeatures(series, s, ctx, c.h, pump, loT, tc) };
       return done;
     },
 
@@ -166,6 +205,18 @@ const pc = v => (v == null ? '—' : `%${Math.round(v)}`);
 const pS = (v, d = 1) => (v == null ? '—' : `${v > 0 ? '+' : v < 0 ? '−' : ''}%${Math.abs(v).toFixed(d)}`);
 const n0 = v => (v == null ? '—' : String(Math.round(v)));
 const rate = (a, f) => (a.length ? a.filter(f).length / a.length * 100 : null);
+const sgm = v => (v == null ? '—' : `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}`);
+
+/** En sık 6 değer: "▫️ Günlük VWAP +2σ — %18 (40)"; değeri olmayanlar `none` satırında */
+function topBlock(title, rows, f, none, max = 6) {
+  if (!rows.length) return null;
+  const m = new Map();
+  for (const r of rows) { const k = f(r) || '∅'; m.set(k, (m.get(k) || 0) + 1); }
+  const lines = [...m.entries()].filter(([k]) => k !== '∅').sort((a, b) => b[1] - a[1]).slice(0, max)
+    .map(([k, n]) => `▫️ ${k} — ${pc(n / rows.length * 100)} (${n})`);
+  if (m.get('∅')) lines.push(`▫️ ${none} — ${pc(m.get('∅') / rows.length * 100)} (${m.get('∅')})`);
+  return [title, ...lines].join('\n');
+}
 
 function failNames(s) {
   return {
@@ -213,6 +264,12 @@ function dropText(rows, { title = '', s = {}, E = DEFAULTS } = {}) {
       cmp('Negatif tepe ≥ 2', a => pc(rate(a, r => Math.max(r.feat?.neg1 || 0, r.feat?.neg3 || 0) >= 2))),
       cmp('Dirençte', a => pc(rate(a, r => r.feat?.lvZone === 'dip'))),
     ].join('\n'),
+    topBlock('🎯 <b>Tepe nereden tepki aldı</b>', rows, r => r.feat?.pkLv, 'Seviyeye değmedi'),
+    topBlock('🛑 <b>Düşüş nerede durdu</b> (60 dk dibi)', rows, r => r.feat?.trLv, 'Desteğe değmedi'),
+    topBlock('🪜 <b>Dip, EMA21 merdiveninde</b>', rows, r => (r.feat?.trEma === 'yok' ? null : r.feat?.trEma), 'EMA21\'e inmedi'),
+    ['📐 <b>Tepede VWAP</b> (medyan, σ)',
+      `Gün ${sgm(md(rows, 'vwD_sig'))} · Hafta ${sgm(md(rows, 'vwW_sig'))} · Ay ${sgm(md(rows, 'vwM_sig'))}`,
+      `90dk ${sgm(md(rows, 'vw90_sig'))} · pompa dibi VWAP ${pS(md(rows, 'avwLow_pct'))}`].join('\n'),
     ['📉 <b>Tepeden sonra</b> (medyan)',
       ...E.windows.filter(w => w >= 15).map(w => cmp(`${w >= 60 ? `${w / 60} s` : `${w} dk`} en düşük`, a => pS(median(a.map(r => r.out?.[w]?.low))))),
       cmp('60 dk kapanış', a => pS(median(a.map(r => r.out?.[60]?.close)))),
@@ -224,6 +281,8 @@ function dropText(rows, { title = '', s = {}, E = DEFAULTS } = {}) {
 • Kartlı: o coinde tepeden ${E.cardBeforeMin} dk önce ile düşüşten ${E.cardAfterMin} dk sonrası arasında kart çıktı
 • Eksik şart: tepe anında kart şartlarından tutmayanlar (biri birden fazla olabilir)
 • *Şart vardı, kart çıkmadı: yeni bilgi yoktu, coin susturulmuştu ya da kontrol anı (3/5/15 dk kapanışı) tepeye denk gelmedi
+• Tepki: tepenin %0.3 içindeki en yakın seviye — Fib, günlük/haftalık bölge, trend çizgisi, 7/30g en yüksek, MA200/EMA200, 1s/4s/15dk tepe, VWAP (gün/hafta/ay ±1/2/3σ, 90dk, 24s, 7g, pompa dibi), EMA21 (3/5/15dk/1s)
+• Durdu: tepeden sonraki 60 dk'nın dibine %0.3 içindeki en yakın seviye; EMA21 merdiveni: dibin indiği 3/5/15dk EMA21
 • Tepeden sonra: tepe fiyatına göre en düşük / kapanış
 • Coin başına ${E.cooldownMin} dk'da bir olay · kazanç/kayıp değildir, "eşlik eden durum"dur</blockquote>`,
   ].filter(Boolean);
@@ -251,4 +310,4 @@ function flatDrop(r, windows = DEFAULTS.windows) {
 }
 const dropCols = (windows = DEFAULTS.windows) => Object.keys(flatDrop({ out: {}, feat: {} }, windows));
 
-module.exports = { createDropLedger, features, FEATURE_COLS, DEFAULTS, dropText, toCsv, flatDrop, dropCols };
+module.exports = { createDropLedger, features, peakFeatures, FEATURE_COLS, TROUGH_COLS, DEFAULTS, dropText, toCsv, flatDrop, dropCols };
