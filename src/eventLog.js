@@ -69,8 +69,8 @@ function features(snap, series, extra = {}) {
     ...extra,
   };
 }
-const PEAK_COLS = ['pumpPct', 'pumpMin', 'pkLv', 'pkLvKind', 'pkLvDist', 'pkNear'];
-const TROUGH_COLS = ['trPct', 'trMin', 'trLv', 'trLvKind', 'trLvDist', 'trNear', 'trEma', 'trFalling'];
+const PEAK_COLS = ['pumpPct', 'pumpMin', 'pkLv', 'pkLvKind', 'pkLvDist', 'pkLvTouches', 'pkNear'];
+const TROUGH_COLS = ['trPct', 'trMin', 'trLv', 'trLvKind', 'trLvDist', 'trLvTouches', 'trNear', 'trEma', 'trFalling'];
 const FEATURE_COLS = [...Object.keys(features({ price: 1 }, { col: () => [] })), ...PEAK_COLS, ...TF_COLS, ...VWAP_COLS, ...TROUGH_COLS];
 
 /** Tepe anının tam fotoğrafı: temel göstergeler + çoklu zaman dilimi + VWAP seti + tepki seviyesi */
@@ -80,7 +80,7 @@ function peakFeatures(series, s, ctx, high, pump, loT, tc) {
   const nr = nearest(refLevels(series, s, vw), high);
   return features(snap, series, {
     pumpPct: num(pump), pumpMin: Math.round((tc - loT) / MIN),
-    pkLv: nr.best?.name ?? null, pkLvKind: nr.best?.kind ?? null, pkLvDist: nr.best?.dist ?? null, pkNear: nr.near.join('|'),
+    pkLv: nr.best?.name ?? null, pkLvKind: nr.best?.kind ?? null, pkLvDist: nr.best?.dist ?? null, pkLvTouches: nr.best?.touches ?? null, pkNear: nr.near.join('|'),
     ...tfIndicators(series, s, snap.price), ...vwapFeatures(vw, snap.price),
   });
 }
@@ -90,7 +90,7 @@ function troughFeatures(series, s, low, anchorT) {
   const vw = vwapSet(series, anchorT);
   const nr = nearest(refLevels(series, s, vw), low);
   const st = stopOf(low, maLadder(series));
-  return { trLv: nr.best?.name ?? null, trLvKind: nr.best?.kind ?? null, trLvDist: nr.best?.dist ?? null, trNear: nr.near.join('|'), trEma: st.stop };
+  return { trLv: nr.best?.name ?? null, trLvKind: nr.best?.kind ?? null, trLvDist: nr.best?.dist ?? null, trLvTouches: nr.best?.touches ?? null, trNear: nr.near.join('|'), trEma: st.stop };
 }
 
 function createDropLedger(opts = {}) {
@@ -106,7 +106,7 @@ function createDropLedger(opts = {}) {
     const trMin = e.trT != null ? Math.round((e.trT - e.t) / MIN) : null;
     const trough = {
       trPct: e.trLow < Infinity ? num((e.trLow - e.price) / e.price * 100, 3) : null, trMin,
-      trLv: null, trLvKind: null, trLvDist: null, trNear: '', trEma: null, ...(e.trSnap || {}), trFalling: trMin != null && trMin >= TROUGH_MIN - 5,
+      trLv: null, trLvKind: null, trLvDist: null, trLvTouches: null, trNear: '', trEma: null, ...(e.trSnap || {}), trFalling: trMin != null && trMin >= TROUGH_MIN - 5,
     };
     return {
       id: e.id, symbol: e.symbol, t: e.t, price: e.price, dropT: e.dropT, dropMin: e.dropMin,
@@ -265,6 +265,16 @@ function dropText(rows, { title = '', s = {}, E = DEFAULTS } = {}) {
       cmp('Dirençte', a => pc(rate(a, r => r.feat?.lvZone === 'dip'))),
     ].join('\n'),
     topBlock('🎯 <b>Tepe nereden tepki aldı</b>', rows, r => r.feat?.pkLv, 'Seviyeye değmedi'),
+    (() => {
+      const k = rows.filter(r => r.feat?.pkLvTouches != null);
+      if (!k.length) return null;
+      const minT = s.chartMinTouches ?? 4;
+      return ['💪 <b>Tepki seviyesinin gücü</b>',
+        `▫️ ${minT}+ kez test edilmiş — ${pc(rate(k, r => r.feat.pkLvTouches >= minT))} (${k.filter(r => r.feat.pkLvTouches >= minT).length})`,
+        `▫️ 1–${minT - 1} kez — ${pc(rate(k, r => r.feat.pkLvTouches >= 1 && r.feat.pkLvTouches < minT))}`,
+        `▫️ İlk kez — ${pc(rate(k, r => r.feat.pkLvTouches === 0))}`,
+        `▫️ Medyan: ${n0(median(k.map(r => r.feat.pkLvTouches)))} temas`].join('\n');
+    })(),
     topBlock('🛑 <b>Düşüş nerede durdu</b> (60 dk dibi)', rows, r => r.feat?.trLv, 'Desteğe değmedi'),
     topBlock('🪜 <b>Dip, EMA21 merdiveninde</b>', rows, r => (r.feat?.trEma === 'yok' ? null : r.feat?.trEma), 'EMA21\'e inmedi'),
     ['📐 <b>Tepede VWAP</b> (medyan, σ)',
@@ -282,6 +292,7 @@ function dropText(rows, { title = '', s = {}, E = DEFAULTS } = {}) {
 • Eksik şart: tepe anında kart şartlarından tutmayanlar (biri birden fazla olabilir)
 • *Şart vardı, kart çıkmadı: yeni bilgi yoktu, coin susturulmuştu ya da kontrol anı (3/5/15 dk kapanışı) tepeye denk gelmedi
 • Tepki: tepenin %0.3 içindeki en yakın seviye — Fib, günlük/haftalık bölge, trend çizgisi, 7/30g en yüksek, MA200/EMA200, 1s/4s/15dk tepe, VWAP (gün/hafta/ay ±1/2/3σ, 90dk, 24s, 7g, pompa dibi), EMA21 (3/5/15dk/1s)
+• Seviye gücü: seviyenin önceki ~100 günde (4s mumlar) kaç ayrı kez test edildiği (VWAP/EMA gibi hareketli seviyelerde yok)
 • Durdu: tepeden sonraki 60 dk'nın dibine %0.3 içindeki en yakın seviye; EMA21 merdiveni: dibin indiği 3/5/15dk EMA21
 • Tepeden sonra: tepe fiyatına göre en düşük / kapanış
 • Coin başına ${E.cooldownMin} dk'da bir olay · kazanç/kayıp değildir, "eşlik eden durum"dur</blockquote>`,

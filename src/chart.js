@@ -104,7 +104,7 @@ function fmtPx(v) {
  */
 const L0Name = L0 => L0.name;
 
-function renderChart({ symbol, candles, level = null, levels = [], overlays = [], ichi = DEFAULT_ICHI, showIchi = true, fib = true, fibDir = 'up', fibLeg = null, tf = '5m', subtitle = '', show = 100, tz = process.env.DISPLAY_TZ || 'Europe/Istanbul' }) {
+function renderChart({ symbol, candles, level = null, levels = [], overlays = [], ichi = DEFAULT_ICHI, showIchi = true, fib = true, fibDir = 'up', fibLeg = null, tf = '5m', subtitle = '', show = 100, minTouches = 4, tz = process.env.DISPLAY_TZ || 'Europe/Istanbul' }) {
   const L = lib();
   if (!L || !candles || candles.length < 20) return null;
   try {
@@ -146,7 +146,11 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
     const near = L0 => L0 && Number.isFinite(L0.value) && Math.abs(L0.value - last) / last < nearPct;
     const showLevel = near(level);
     if (showLevel) vals.push(level.value);
-    const otherLevels = levels.filter(L0 => near(L0) && L0.kind !== 'fib' && L0.kind !== 'swing' && (!level || L0.name !== level.name || L0.value !== level.value));
+    // Grafikte yalnız en az minTouches kez test edilmiş dirençler (Fib ayrı çizilir); kartın direnci her zaman gösterilir
+    const strong = L0 => L0 && Number.isFinite(L0.value) && L0.kind !== 'fib' && (L0.touches == null || L0.touches >= minTouches);
+    const isMain = L0 => level && L0.name === level.name && L0.value === level.value;
+    const otherLevels = levels.filter(L0 => near(L0) && strong(L0) && !isMain(L0))
+      .sort((a, b) => Math.abs(a.value - last) - Math.abs(b.value - last)).slice(0, 8);
     for (const L0 of otherLevels) vals.push(L0.value);
     let lo = Math.min(...vals), hi = Math.max(...vals);
     const pad = (hi - lo) * 0.05 || last * 0.01;
@@ -236,10 +240,10 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
         if (lI != null && lI >= start) { g.beginPath(); g.arc(xs(lI - start), ys(Lw), 3.5, 0, 7); g.fill(); }
       }
     }
-    // Uzaktaki günlük dirençler (MA/EMA200, günlük bölge, trend çizgisi, 7/30g en yüksek) → kenar etiketi
+    // Henüz geçilmemiş (fiyatın üstündeki) güçlü dirençler — görünen aralıkta olsun olmasın sağ üst listeye (en yakın 5)
     for (const L0 of levels) {
-      if (!L0 || !Number.isFinite(L0.value) || L0.kind === 'fib' || L0.kind === 'swing' || near(L0)) continue;
-      if (L0.value > hi) edge.push({ label: L0.name, value: L0.value, color: C.levelOther });
+      if (!strong(L0) || L0.value <= last) continue;
+      edge.push({ label: L0.name, value: L0.value, color: isMain(L0) ? C.level : C.levelOther, touches: L0.touches });
     }
 
     // Mumlar
@@ -262,8 +266,9 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
       }
     }
 
-    // Kenar etiketleri için ayrılan alan (sağ üst): görünen aralığın üstündeki en yakın 4 seviye
-    const ups = edge.filter(e => e.value > last).sort((a, b) => a.value - b.value).slice(0, 4);
+    // Sağ üst liste: fiyatın üstündeki en yakın 5 direnç (≥ minTouches temas) + görünen aralık dışındaki Fib'ler
+    const ups = edge.filter(e => e.value > last).sort((a, b) => a.value - b.value)
+      .filter((e, i, a) => !a.slice(0, i).some(p => p.label === e.label && Math.abs(p.value - e.value) / e.value < 0.003)).slice(0, 5);
     const reservedBottom = ups.length ? top + 16 + (ups.length - 1) * 17 + 4 : top - 20;
     // Diğer seviyeler (gri, ince) — etiket sağda; yakın seviyelerin etiketleri üst üste binmesin diye kaydırılır
     // (çizgi gerçek yerinde kalır, yalnız yazı kayar)
@@ -273,11 +278,13 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
       for (const it of items) {
         g.strokeStyle = C.levelOther; g.lineWidth = 1; g.setLineDash([4, 6]);
         g.beginPath(); g.moveTo(padL, it.y); g.lineTo(padL + plotW, it.y); g.stroke(); g.setLineDash([]);
+        // sağ üst listede yazılanın çizgisine ayrıca etiket yazılmaz (kalabalık olmasın)
+        if (ups.some(e => e.label === it.L0.name && Math.abs(e.value - it.L0.value) / it.L0.value < 0.003)) continue;
         let ly = it.y - 5;
         if (ly - 12 < reservedBottom) ly = Math.max(ly, reservedBottom + 14);       // kenar etiketlerinin altına
         for (const p of placed) if (Math.abs(ly - p) < 15) ly = p + 15;             // bir öncekinin altına
         placed.push(ly);
-        const txt = `${L0Name(it.L0)} ${fmtPx(it.L0.value)}`;
+        const txt = `${L0Name(it.L0)} ${fmtPx(it.L0.value)}${it.L0.touches != null ? ` · ${it.L0.touches} temas` : ''}`;
         g.font = '13px ChartSans'; g.textAlign = 'right';
         const tw = g.measureText(txt).width;
         g.fillStyle = 'rgba(15,20,27,0.8)'; g.fillRect(padL + plotW - tw - 10, ly - 12, tw + 8, 15);
@@ -291,7 +298,7 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
       g.strokeStyle = C.level; g.lineWidth = 1.5; g.setLineDash([8, 6]);
       g.beginPath(); g.moveTo(padL, y); g.lineTo(padL + plotW, y); g.stroke(); g.setLineDash([]);
       g.font = '15px ChartSansBold'; g.textAlign = 'left';
-      const lab = `${level.name}  ${fmtPx(level.value)}`;
+      const lab = `${level.name}  ${fmtPx(level.value)}${level.touches != null ? ` · ${level.touches} temas` : ''}`;
       const tw = g.measureText(lab).width;
       const lx0 = padL + plotW * 0.42;
       g.fillStyle = 'rgba(15,20,27,0.85)'; g.fillRect(lx0, y - 24, tw + 12, 20);
@@ -309,11 +316,11 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
       g.fillText(fmtPx(last), padL + plotW + 8, y + 5);
     }
 
-    // Kenar etiketleri: görünen aralığın üstündeki en yakın 4 seviye (↑ ad değer (+%uzaklık)), sağ üstte alt alta
+    // Sağ üst liste: ↑ ad değer (+%uzaklık · N temas), alt alta
     {
       g.font = '13px ChartSans'; g.textAlign = 'right';
       ups.forEach((e, i) => {
-        const txt = `↑ ${e.label} ${fmtPx(e.value)} (+%${((e.value - last) / last * 100).toFixed(1)})`;
+        const txt = `↑ ${e.label} ${fmtPx(e.value)} (+%${((e.value - last) / last * 100).toFixed(1)}${e.touches != null ? ` · ${e.touches} temas` : ''})`;
         const y = top + 16 + i * 17, tw = g.measureText(txt).width;
         g.fillStyle = 'rgba(15,20,27,0.85)'; g.fillRect(padL + plotW - tw - 10, y - 13, tw + 8, 16);
         g.fillStyle = e.color; g.fillText(txt, padL + plotW - 6, y);

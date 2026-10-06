@@ -64,8 +64,8 @@ const sg = v => (v == null || !Number.isFinite(v) ? '—' : `${v >= 0 ? '+' : '�
 function dropLine(r) {
   const f = r.feat || {};
   const rsi = ['1m', '3m', '5m', '15m', '1h', '4h'].map(tf => n0(f[`rsi_${tf}`])).join('/');
-  const pk = f.pkLv ? `${f.pkLv} (${pS(f.pkLvDist, 2)})` : 'seviye yok';
-  const tr = f.trLv ? `${f.trLv}` : (f.trEma && f.trEma !== 'yok' ? f.trEma : 'destek yok');
+  const pk = f.pkLv ? `${f.pkLv} (${pS(f.pkLvDist, 2)}${f.pkLvTouches != null ? ` · ${f.pkLvTouches} temas` : ''})` : 'seviye yok';
+  const tr = f.trLv ? `${f.trLv}${f.trLvTouches != null ? ` (${f.trLvTouches} temas)` : ''}` : (f.trEma && f.trEma !== 'yok' ? f.trEma : 'destek yok');
   return `- ${fmt(r.t)} **${r.symbol}** tepe ${+(+r.price).toPrecision(6)} · pompa ${pS(f.pumpPct, 1)} (${n0(f.pumpMin)} dk) · RSI 1/3/5/15dk/1s/4s ${rsi}`
     + ` · tepki: ${pk} · VWAP gün ${sg(f.vwD_sig)} / hafta ${sg(f.vwW_sig)} / 90dk ${pS(f.vw90_pct)}`
     + ` · dip ${pS(f.trPct)} (${n0(f.trMin)} dk) ${tr}${f.trEma && f.trEma !== 'yok' && f.trLv ? ` · EMA21: ${f.trEma}` : ''}`
@@ -75,7 +75,7 @@ function dropLine(r) {
 
 function cardLine(r) {
   const rsi = r.rsi ? ['3m', '5m', '15m'].map(tf => n0(r.rsi[tf])).join('/') : '—';
-  const lv = r.level ? `${r.level.name} ${pS(r.level.dist, 2)}` : 'seviye yok';
+  const lv = r.level ? `${r.level.name} ${pS(r.level.dist, 2)}${r.level.touches != null ? ` (${r.level.touches} temas)` : ''}` : 'seviye yok';
   const f60 = r.fwd?.[60];
   return `- ${fmt(r.t)} **${r.symbol}** #${r.seq ?? '—'} derece ${r.grade ?? '—'} · RSI 3/5/15dk ${rsi} · ${lv}`
     + `${r.sfp ? ` · sahte kırılım (${r.sfp.level})` : ''}${r.discovery ? ` · fiyat keşfi (${r.discovery.broken})` : ''}`
@@ -126,7 +126,8 @@ function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = now - L
     '## Sütunlar (CSV)',
     '- dususler.csv: rsi_<tf> · ema21_<tf> (EMA21\'e uzaklık %) · macd_<tf> (down/up/zayıf/güçlü) · hist_<tf> (% fiyat) · stk_/std_<tf> (Stoch RSI) · atr_<tf> (%) · volx_<tf> (son mum hacmi / önceki 20 ortalama) · buy_<tf> (taker alış %) — tf: 1m 3m 5m 15m 1h 4h',
     '- VWAP: vwD/vwW/vwM_pct ve _sig (günlük/haftalık/aylık; % ve σ), vw90_pct/_sig (kayan 90 dk), vw24h_pct, vw7d_pct, avwLow_pct (pompa dibinden sabitlenmiş)',
-    '- Tepe: pkLv / pkLvKind / pkLvDist (tepki seviyesi), pkNear (%0.5 içindeki tüm seviyeler) · Dip: trPct, trMin, trLv, trLvDist, trNear, trEma (3/5/15dk EMA21 merdiveni), trFalling',
+    '- Tepe: pkLv / pkLvKind / pkLvDist / pkLvTouches (tepki seviyesi ve önceki ~100 günde kaç kez test edildiği), pkNear (%0.5 içindeki tüm seviyeler) · Dip: trPct, trMin, trLv, trLvDist, trLvTouches, trNear, trEma (3/5/15dk EMA21 merdiveni), trFalling',
+    '- temaslar.csv: lvTouches = seviyenin önceki ~100 günde (4s mumlar) kaç ayrı kez test edildiği · kartlar.csv: level_touches',
     '- Kart şartı: rsiOk, hits, ok, fails (rsi|seviye…), score, checkOk · sonrası: low/high/close 5, 15, 60, 240 (tepeye göre %)',
     '',
   ].join('\n');

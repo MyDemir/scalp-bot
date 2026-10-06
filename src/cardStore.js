@@ -67,7 +67,7 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
       CREATE INDEX IF NOT EXISTS events_t ON events(t);`);
     // Sonradan eklenen sütunlar (eski veritabanı): dibin indiği ortalama
     const tcols = new Set(db.prepare('PRAGMA table_info(touches)').all().map(c => c.name));
-    for (const [c, type] of [['stop', 'TEXT'], ['stopdepth', 'REAL'], ['falling', 'INTEGER']]) {
+    for (const [c, type] of [['stop', 'TEXT'], ['stopdepth', 'REAL'], ['falling', 'INTEGER'], ['lvtouches', 'INTEGER']]) {
       if (!tcols.has(c)) db.exec(`ALTER TABLE touches ADD COLUMN ${c} ${type}`);
     }
     const n = recover ? db.prepare('UPDATE cards SET done = 1, partial = 1 WHERE done = 0').run().changes : 0;
@@ -84,8 +84,8 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
     recent: db.prepare('SELECT * FROM cards WHERE symbol = ? ORDER BY t DESC LIMIT ?'),
     since: db.prepare('SELECT * FROM cards WHERE t >= ? ORDER BY t'),
     prune: db.prepare('DELETE FROM cards WHERE t < ?'),
-    tIns: db.prepare(`INSERT OR IGNORE INTO touches (id, symbol, t, name, kind, value, hits, rsiok, card, emagap, pb, pbmin, emamin, brokemin, brokeafterema, held, up, dn, c60, stop, stopdepth, falling)
-      VALUES (@id, @symbol, @t, @name, @kind, @value, @hits, @rsiok, @card, @emagap, @pb, @pbmin, @emamin, @brokemin, @brokeafterema, @held, @up, @dn, @c60, @stop, @stopdepth, @falling)`),
+    tIns: db.prepare(`INSERT OR IGNORE INTO touches (id, symbol, t, name, kind, value, hits, rsiok, card, emagap, pb, pbmin, emamin, brokemin, brokeafterema, held, up, dn, c60, stop, stopdepth, falling, lvtouches)
+      VALUES (@id, @symbol, @t, @name, @kind, @value, @hits, @rsiok, @card, @emagap, @pb, @pbmin, @emamin, @brokemin, @brokeafterema, @held, @up, @dn, @c60, @stop, @stopdepth, @falling, @lvtouches)`),
     tSince: db.prepare('SELECT * FROM touches WHERE t >= ? ORDER BY t'),
     eIns: db.prepare(`INSERT OR IGNORE INTO events (id, symbol, t, price, dropt, dropmin, card, cardgrade, rsiok, hits, data, ${EVENT_WINDOWS.map(w => `low${w}, high${w}, close${w}`).join(', ')})
       VALUES (@id, @symbol, @t, @price, @dropt, @dropmin, @card, @cardgrade, @rsiok, @hits, @data, ${EVENT_WINDOWS.map(w => `@low${w}, @high${w}, @close${w}`).join(', ')})`),
@@ -163,7 +163,7 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
         hits: e.hits, rsiok: e.rsiOk ? 1 : 0, card: e.card ? 1 : 0, emagap: e.emaGap ?? null,
         pb: e.pb, pbmin: e.pbMin, emamin: e.emaMin ?? null, brokemin: e.brokeMin ?? null, brokeafterema: e.brokeAfterEma ? 1 : 0,
         held: e.held ? 1 : 0, up: e.up, dn: e.dn, c60: e.c60,
-        stop: e.stop ?? null, stopdepth: e.stopDepth ?? null, falling: e.falling ? 1 : 0,
+        stop: e.stop ?? null, stopdepth: e.stopDepth ?? null, falling: e.falling ? 1 : 0, lvtouches: e.lvTouches ?? null,
       }), 'seviye kaydı');
     },
     /** Düşüş olayı (src/eventLog.js finish() çıktısı) */
@@ -224,7 +224,7 @@ function rowToTouch(r) {
     id: r.id, symbol: r.symbol, t: r.t, name: r.name, kind: r.kind, value: r.value, hits: r.hits, rsiOk: Boolean(r.rsiok), card: Boolean(r.card),
     emaGap: r.emagap, pb: r.pb, pbMin: r.pbmin, emaMin: r.emamin, brokeMin: r.brokemin, brokeAfterEma: Boolean(r.brokeafterema),
     held: Boolean(r.held), up: r.up, dn: r.dn, c60: r.c60,
-    stop: r.stop ?? null, stopDepth: r.stopdepth ?? null, falling: Boolean(r.falling),
+    stop: r.stop ?? null, stopDepth: r.stopdepth ?? null, falling: Boolean(r.falling), lvTouches: r.lvtouches ?? null,
   };
 }
 

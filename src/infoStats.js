@@ -16,7 +16,7 @@ function compact(c) {
     symbol: c.symbol, t: c.t, time: fmtDate(c.t), seq: c.seq, grade: c.grade ?? sn.grade ?? null, price: c.price, silent: c.silent, inSeries: Boolean(c.inSeries),
     news: c.news, tags: c.tags,
     rsi: Object.fromEntries(RSI_TFS.map(tf => [tf, +sn.rsi[tf].v.toFixed(2)])), hits: sn.hits,
-    level: sn.level ? { name: sn.level.name, value: sn.level.value, dist: +sn.level.dist.toFixed(3), zone: sn.level.zone } : null,
+    level: sn.level ? { name: sn.level.name, value: sn.level.value, dist: +sn.level.dist.toFixed(3), zone: sn.level.zone, touches: sn.level.touches ?? null } : null,
     burst: c.trig.burst ? { grade: c.trig.burst.grade ?? null, dir: c.trig.burst.dir, body: +c.trig.burst.body.toFixed(2), volX: +c.trig.burst.volX.toFixed(1), taker: Math.round(c.trig.burst.taker) } : null,
     trigTFs: c.trig.tfs,
     move: c.trig.move ? { pct: +c.trig.move.pct.toFixed(2), grade: c.trig.move.grade } : null,
@@ -206,14 +206,25 @@ function touchText(rows, { title = '', filter = '', s = {} } = {}) {
 • Çekilme: temastan sonraki tepeden en derin düşüş (medyan) · dibe: kaç dk sonra
 • Nerede durdu: dip 3dk / 5dk / 15dk EMA21 ile kıyaslanır (grafikte görünen, canlı mum dahil). Bir ortalamanın ±%0.5'inde durduysa o ortalama; birini %0.5'ten fazla delip alttakine inmediyse "arası"; 15dk EMA21'i de deldiyse "15dk EMA21 altı"; hiçbirine inmediyse "ortalamaya inmedi"
 • Kırıp üstte kalan: 60. dk kapanışı seviyenin üstünde
-• Seviye: kartlardaki dirençler (MA200/EMA200, 7/30g en yüksek, günlük bölge/trend, 1h/4h tepe, 1 saatlik Fib)
+• Seviye: kartlardaki dirençler (MA200/EMA200, 7/30g en yüksek, günlük/haftalık bölge, trend, 1h/4h tepe, 1 saatlik Fib)
+• Seviye gücü: seviyenin önceki 100 günde (4s mumlar) kaç ayrı kez test edildiği — tepe seviyeye %0.5 yaklaştı ve kapanış üstünde kalmadı
 • Kazanç/kayıp hesabı değildir</blockquote>`;
-  const parts = [head, mainBlock(`🔥 <b>Pompa: RSI ${rsiMin}+ iken</b>`, touchSum(pump)), shortBlock(`💤 <b>RSI şartı yokken</b> (${calm.length} temas)`, touchSum(calm)), levels, how].filter(Boolean);
+  const minT = s.chartMinTouches ?? 4;
+  const strengthBlock = (() => {
+    const known = pump.filter(e => e.lvTouches != null);
+    if (!known.length) return null;
+    const line = (label, a) => { const x = touchSum(a); return x.n ? `${label} · ${x.n} temas\n   🔻 Ret ${pc(x.rej / x.n * 100)} · 📉 ${pc1(x.rejPb)} · 🚀 kırıp kalan ${x.first ? `${x.firstHeld}/${x.first}` : '—'}` : `${label} · —`; };
+    return [`💪 <b>Seviye gücüne göre</b> (pompa)`,
+      line(`▪️ ${minT}+ kez test edilmiş`, known.filter(e => e.lvTouches >= minT)),
+      line(`▪️ 1–${minT - 1} kez`, known.filter(e => e.lvTouches >= 1 && e.lvTouches < minT)),
+      line('▪️ İlk kez', known.filter(e => e.lvTouches === 0))].join('\n');
+  })();
+  const parts = [head, mainBlock(`🔥 <b>Pompa: RSI ${rsiMin}+ iken</b>`, touchSum(pump)), strengthBlock, shortBlock(`💤 <b>RSI şartı yokken</b> (${calm.length} temas)`, touchSum(calm)), levels, how].filter(Boolean);
   let out = parts.join('\n\n');
   while (out.length > 4000 && big.length > 1) {
     big.pop();
     const lv = [`📊 <b>Seviyelere göre (pompa)</b>`, ...big.map(g => levelBlock(shortName(g.name), g.rsi)), `▫️ … diğerleri: /seviye 7 &lt;ad&gt;`].join('\n\n');
-    out = [head, parts[1], parts[2], lv, how].join('\n\n');
+    out = [head, mainBlock(`🔥 <b>Pompa: RSI ${rsiMin}+ iken</b>`, touchSum(pump)), strengthBlock, shortBlock(`💤 <b>RSI şartı yokken</b> (${calm.length} temas)`, touchSum(calm)), lv, how].filter(Boolean).join('\n\n');
   }
   return out.slice(0, 4096);
 }

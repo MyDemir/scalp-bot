@@ -99,8 +99,8 @@ const VW_NAME = { D: 'Günlük VWAP', W: 'Haftalık VWAP', M: 'Aylık VWAP', r90
 /** Tepki aranacak tüm seviyeler [{name, value, kind}] */
 function refLevels(series, s, vw) {
   const out = [];
-  const push = (name, value, kind) => { if (Number.isFinite(value) && value > 0) out.push({ name, value, kind }); };
-  for (const L of levelsOf(series, s)) push(L.name, L.value, L.kind);
+  const push = (name, value, kind, touches = null) => { if (Number.isFinite(value) && value > 0) out.push({ name, value, kind, touches }); };
+  for (const L of levelsOf(series, s)) push(L.name, L.value, L.kind, L.touches ?? null);
   const leg = series._lv?.leg;
   if (leg && leg.up) for (const r of [1.272, 1.618, 2]) push(`Fib ${r}`, leg.lo + r * (leg.hi - leg.lo), 'fibext');
   const h15 = series.col('15m', 'h', false), l15 = series.col('15m', 'l', false);
@@ -127,7 +127,7 @@ function nearest(levels, price, tol = 0.3, near = 0.5) {
   for (const L of levels) {
     const d = (price - L.value) / L.value * 100;
     if (Math.abs(d) <= near) names.push(L.name);
-    if (Math.abs(d) <= tol && (!best || Math.abs(d) < Math.abs(best.dist))) best = { name: L.name, kind: L.kind, value: L.value, dist: num(d, 3) };
+    if (Math.abs(d) <= tol && (!best || Math.abs(d) < Math.abs(best.dist))) best = { name: L.name, kind: L.kind, value: L.value, dist: num(d, 3), touches: L.touches ?? null };
   }
   return { best, near: [...new Set(names)] };
 }

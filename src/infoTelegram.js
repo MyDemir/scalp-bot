@@ -46,7 +46,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
       sum: v => (v.moveAlertPct > 0 ? `1 dk ≥ %${v.moveAlertPct} → RSI kartına eklenir` : 'kapalı') },
     { id: 'snd', title: '🔔 Bildirim', keys: ['cardSound'],
       sum: v => `kart ${v.cardSound ? 'sesli' : 'sessiz'}` },
-    { id: 'cht', title: '🖼 Grafik', keys: ['chart', 'chartTf', 'chartFib', 'chartIchi'],
+    { id: 'cht', title: '🖼 Grafik', keys: ['chart', 'chartTf', 'chartFib', 'chartIchi', 'chartMinTouches'],
       sum: v => (v.chart ? `${v.chartTf}${v.chartIchi ? ' · Ichimoku' : ''}${v.chartFib ? ' · Fibonacci' : ''}` : 'kapalı') },
     { id: 'uni', title: '🌐 İzlenen coinler', keys: ['minVolumeM'],
       sum: v => `24s hacim ≥ ${v.minVolumeM}M $` },

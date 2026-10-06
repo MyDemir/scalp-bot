@@ -144,9 +144,10 @@ function formatCard(card, s, opt = {}) {
 
   const tgt = targetLine(snap, card.price);
   const rd = snap.ride, dc = snap.discovery;
-  if (tgt || rd || dc || snap.fibLeg || snap.level?.also?.length || snap.level?.zoneInfo || snap.level?.trend) D.push('');
+  if (tgt || rd || dc || snap.fibLeg || snap.level) D.push('');
   if (tgt) D.push(`📏 ${tgt}`);
   const lvd = snap.level;
+  if (lvd && lvd.touches != null) D.push(`Direnç testi: ${esc(lvd.name)} ${lvd.touches} kez denendi (4s mumlar, ~100 gün)`);
   if (lvd?.also?.length) D.push(`Direnç çakışması: ${esc(lvd.name)} + ${esc([...new Set(lvd.also)].join(' + '))}`);
   if (lvd?.kind === 'zone' && lvd.zoneInfo) D.push(`Direnç bölgesi${lvd.zoneInfo.weekly ? ' (haftalık)' : ''}: ${px(lvd.zoneInfo.lo)}–${px(lvd.zoneInfo.hi)} · ${lvd.zoneInfo.touches} temas · son temas ${dmy(lvd.zoneInfo.last)}`);
   if (lvd?.kind === 'trend' && lvd.trend) D.push(`Trend çizgisi: ${px(lvd.trend.a.v)} (${dmy(lvd.trend.a.t)}) → ${px(lvd.trend.b.v)} (${dmy(lvd.trend.b.t)}) · bugün ${px(lvd.trend.value)}`);

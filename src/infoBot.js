@@ -188,7 +188,7 @@ function chartOf(sr, s, level, levels, subtitle, candles = null) {
   return chart.renderChart({
     symbol: sr.symbol, candles: cs, tf, level, levels,
     overlays: tf === '5m' && sr ? chart.emaOverlays(sr, cs) : [],
-    ichi: ichiOf(s), showIchi: s.chartIchi, fib: s.chartFib, fibLeg: sr?._lv?.leg ?? null, subtitle,
+    ichi: ichiOf(s), showIchi: s.chartIchi, fib: s.chartFib, fibLeg: sr?._lv?.leg ?? null, subtitle, minTouches: s.chartMinTouches ?? 4,
   });
 }
 

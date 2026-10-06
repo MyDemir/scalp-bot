@@ -8,6 +8,7 @@
  *              geldi (ya da geçti). Aynı seviye için 60 dk içinde ikinci temas yazılmaz.
  *   Seviyeler: kartlardakiyle aynı (levelsOf): MA200/EMA200, 7/30 günlük en yüksek, günlük bölge / trend çizgisi,
  *              1h/4h tepe, Fib 0.236–0.786 (grafikteki 1 saatlik bacak)
+ *   Seviye gücü: seviyenin daha önce kaç kez test edildiği (lvTouches, 4h mumlar ~100 gün — levels.annotateTouches)
  *   Temasta  : 3m/5m/15m RSI → RSI kart şartı sağlanıyor mu (≥ minTFs dilim ≥ rsiMin); ±5 dk içinde kart çıktı mı;
  *              fiyatın 3m EMA21'e uzaklığı
  *   60 dk    : en derin geri çekilme (o ana kadarki en yüksekten, %) ve dibe kaç dk · 3m EMA21'e dönüş ve kaç dk ·
@@ -84,7 +85,7 @@ function createTouchTracker({ window = WINDOW, touchPct = TOUCH_PCT } = {}) {
     const st = e.pb > 0 ? stopOf(e.troughLow, e.mas) : { stop: 'yok', stopDepth: null };
     return {
       stop: st.stop, stopDepth: st.stopDepth, falling: e.pb > 0 && e.pbMin >= window - 5,
-      id: e.id, symbol: e.symbol, t: e.t, name: e.name, kind: e.kind, value: v,
+      id: e.id, symbol: e.symbol, t: e.t, name: e.name, kind: e.kind, value: v, lvTouches: e.lvTouches ?? null,
       hits: e.hits, rsiOk: e.rsiOk, card: nearCard,
       rsi: e.rsi, emaGap: e.emaGap,
       pb: +e.pb.toFixed(3), pbMin: e.pbMin,
@@ -151,7 +152,7 @@ function createTouchTracker({ window = WINDOW, touchPct = TOUCH_PCT } = {}) {
         }
         const hits = RSI_TFS.filter(tf => (rsi[tf] ?? 0) >= s.rsiMin).length;
         const e = {
-          id: `${sym}-${tClose}-${L.name}-${L.value}`, symbol: sym, t: tClose, name: L.name, kind: L.kind, value: L.value,
+          id: `${sym}-${tClose}-${L.name}-${L.value}`, symbol: sym, t: tClose, name: L.name, kind: L.kind, value: L.value, lvTouches: L.touches ?? null,
           rsi, hits, rsiOk: hits >= s.minTFs, emaGap: ema ? +((c - ema) / ema * 100).toFixed(3) : null,
           peak: h, pb: 0, pbMin: 0, hi: h, lo: l, troughLow: null, mas: null,
           emaMin: ema != null && l <= ema ? 0 : null, brokeMin: null, brokeAfterEma: false,

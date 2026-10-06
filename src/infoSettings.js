@@ -15,6 +15,7 @@ const DEFS = [
   { key: 'sepPct2', short: 'EMA %2', label: 'EMA21 ayrışma ≥ %2', type: 'num', min: 0.5, max: 20, step: 0.5 },
   { key: 'sepPct5', short: 'EMA %5', label: 'EMA21 ayrışma ≥ %5', type: 'num', min: 1, max: 30, step: 0.5 },
   { key: 'sepPct10', short: 'EMA %10', label: 'EMA21 ayrışma ≥ %10', type: 'num', min: 2, max: 50, step: 0.5 },
+  { key: 'chartMinTouches', short: 'Grafik temas', label: 'Grafik: direnç için en az … temas (4s mumlar)', type: 'int', min: 1, max: 10, step: 1 },
   { key: 'levelsWeeklyZone', short: 'Haftalık bölge', label: 'Direnç: haftalık bölge', type: 'bool' },
   { key: 'rsiMin', short: 'Kart eşiği', label: 'Kart eşiği RSI (🔴)', type: 'int', min: 50, max: 100, step: 1 },
   { key: 'rsiMin2', short: 'RSI 🔴🔴', label: 'RSI 🔴🔴 işareti', type: 'int', min: 50, max: 100, step: 1 },

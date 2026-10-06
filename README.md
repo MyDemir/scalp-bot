@@ -107,10 +107,15 @@ Kartlar ve ⚡ uyarılar **grafikli** gelir (fotoğraf + açıklama). Varsayıla
   yüksek tepesi ↔ en düşük dibi; dip sonra geldiyse tepe → dip, düşüşte seviyeler dirençtir). TradingView'deki gibi 1 = bacağın başı,
   0 = sonu; tepe ve dip noktaları işaretli. Grafik bacağın başladığı mumdan itibaren çizilir (en fazla 240 mum). Motorun direnç
   listesiyle aynı bacak. 0.618 kalın.
-- **Kenar etiketleri:** görünen aralığın (fiyatın ±%12'si) üstünde kalan en yakın 4 seviye — Fib ve günlük dirençler (MA/EMA200,
-  günlük bölge, trend çizgisi, 7/30 günlük en yüksek) — sağ üstte `↑ 1d MA200 0.0052 (+%35.2)` biçiminde yazılır.
+- **Sağ üst liste — henüz geçilmemiş dirençler:** fiyatın üstündeki en yakın 5 direnç (4h tepe, günlük/haftalık bölge,
+  7/30 günlük en yüksek, MA/EMA200, trend çizgisi; görünen aralıkta olsun olmasın) + görünen aralık dışındaki Fib'ler:
+  `↑ Günlük bölge 0.39294 (+%7.0 · 6 temas)`.
+- **Yalnız güçlü dirençler:** grafikte (çizgi ve liste) yalnızca en az **4 kez test edilmiş** dirençler (`chartMinTouches`,
+  `/ayarlar` → 🖼 Grafik). Temas = kapanmış 4h mumlarda (~100 gün) tepe seviyeye %0.5 yaklaşıp kapanışın üstünde kalmaması;
+  art arda değen mumlar tek temas; MA/EMA200 ve trend çizgisi kendi o anki değeriyle. Kartın direnci her zaman çizilir
+  (`4h tepe 0.37164 · 2 temas`). Detay'da "Direnç testi: … N kez denendi".
 - **Ichimoku bulutu** (KivancOzbilgic parametreleri, varsayılan 10/30/30/60/30; Senkou A ≥ B yeşil, A < B kırmızı)
-- Yakındaki direnç seviyeleri (en yakını turuncu, diğerleri gri), hacim, son fiyat etiketi
+- Yakındaki direnç seviyeleri (kartın direnci turuncu, diğerleri gri — fiyatın altındakilerin yanında temas sayısı), hacim, son fiyat etiketi
 - 5m grafik seçilirse 3m EMA21 (beyaz) ve 5m EMA21 (sarı) çizgileri de çizilir
 
 `/ayarlar` → 🖼 Grafik: **Grafik TF** (5m / 15m / 1h / 4h), Fibonacci, Ichimoku, Grafik (kartlar), Grafik ⚡ (uyarılar).
@@ -160,6 +165,8 @@ aynı (Fib 0.236–0.786, günlük bölge / trend çizgisi, 7/30g en yüksek, MA
   ortalamalarla kıyaslanır — 3dk / 5dk / 15dk EMA21 (grafikte görünen, canlı mum dahil).
   Dip bir ortalamanın ±%0.5'inde durduysa o ortalama (ör. "5dk EMA21"); birini %0.5'ten fazla delip alttakine inmediyse
   "5dk–15dk EMA21 arası"; 15dk EMA21'i de deldiyse "15dk EMA21 altı"; hiçbirine inmediyse "ortalamaya inmedi".
+- **Seviye gücü:** her temasta seviyenin daha önce kaç kez test edildiği (`lvTouches`); `/seviye` raporunda "💪 Seviye gücüne
+  göre" (4+ kez / 1–3 kez / ilk kez: ret %, çekilme, kırıp kalan), `/kacan`'da "Tepki seviyesinin gücü".
 - `/seviye [gün] [ad]` — telefona göre kısa satırlar: 🔥 **Pompa (RSI 85+)**: temas · ret / kırdı (hangisi önce) ·
   ret çekilmesi · dibe kaç dk · 🛑 **ret sonrası nerede durdu** dağılımı · kırıp üstte kalan; 💤 RSI şartı yokken kısa
   özet; 📊 seviyelere göre (pompa, 5+ örnekli seviyeler; azı tek satırda); tanımlar en altta açılır blokta.
@@ -176,7 +183,7 @@ Kart çıksın çıkmasın, **pompa tepesinden gelen her düşüş** kaydedilir 
     Stoch RSI K/D, ATR %, son mumun hacim katı, taker alış %
   - **VWAP:** günlük / haftalık / aylık (UTC gün, Pazartesi, ay başı) % ve σ (±1/2/3σ bantları seviye olarak),
     kayan 90 dk / 24 saat / 7 gün, pompa dibinden sabitlenmiş VWAP
-  - **Tepki seviyesi:** tepenin %0.3 içindeki en yakın seviye (Fib, günlük/haftalık bölge, trend çizgisi, 7/30g en yüksek,
+  - **Tepki seviyesi:** (+ `pkLvTouches`: o seviyenin önceki ~100 günde kaç kez test edildiği) tepenin %0.3 içindeki en yakın seviye (Fib, günlük/haftalık bölge, trend çizgisi, 7/30g en yüksek,
     MA200/EMA200, 1s/4s/15dk tepe, VWAP ve bantları, EMA21 3/5/15dk/1s) + %0.5 içindeki tüm seviyeler
   - Kart şartları (`fails`), kontrol listesi, en yakın direnç, negatif tepe, hacim pencereleri, funding, BTC 1s, pompa büyüklüğü/süresi
 - **Dip:** tepeden sonraki 60 dk'nın en düşüğü — kaç % / kaç dk, %0.3 içindeki en yakın destek (aynı seviye listesi) ve

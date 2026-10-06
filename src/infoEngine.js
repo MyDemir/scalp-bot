@@ -5,7 +5,7 @@
  */
 
 const ta = require('./ta');
-const { calcLevelSet, calcExtraLevels, fibExtensions } = require('./levels');
+const { calcLevelSet, calcExtraLevels, fibExtensions, annotateTouches } = require('./levels');
 
 const RSI_TFS = ['3m', '5m', '15m'];
 const DAY = 86_400_000;
@@ -363,6 +363,9 @@ function levelsOf(series, s = {}) {
     major
   );
   const levels = [...major, ...extra];
+  // Temas sayısı (kapanmış 4h ~100 gün; MA/EMA200 ve trend çizgisi kendi değeriyle) — grafik süzgeci, Detay, istatistik
+  const h4 = series.d['4h'], d1 = series.d['1d'];
+  annotateTouches(levels, { h4: { h: h4.h, c: h4.c }, d1: { t: d1.t, h: d1.h, c: d1.c } });   // series.d = yalnız kapanmış mumlar
   series._lv = { key, levels, leg };
   return levels;
 }
