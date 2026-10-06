@@ -13,6 +13,7 @@ const { formatCard } = require('./infoCard');
 const { compact } = require('./infoStats');
 const { createCardStore } = require('./cardStore');
 const { createTouchTracker } = require('./levelTouch');
+const { createDropLedger } = require('./eventLog');
 const chart = require('./chart');
 const { createSettings } = require('./infoSettings');
 const { installInfoTelegram } = require('./infoTelegram');
@@ -27,6 +28,7 @@ const KEEP_BELOW_RATIO  = 0.8;
 const settings = createSettings();
 const tracker  = eng.createTracker();
 const touches  = createTouchTracker();
+const drops    = createDropLedger(cfg.events);   // düşüş defteri (kartı etkilemez)
 let store = null;
 
 const series  = new Map();
@@ -151,11 +153,17 @@ function processCandle0(sr, c, live) {
   }
   if (card) {
     touches.noteCard(sr.symbol, card.t);
+    drops.noteCard(sr.symbol, card.t, card.grade);
     const sym = sr.symbol;
     const prev = chains.get(sym) || Promise.resolve();
     const next = prev.then(() => emitCard(card)).catch(err => console.error(`[KART] ${sym} gönderilemedi:`, err?.message || err));
     chains.set(sym, next);
     next.then(() => { if (chains.get(sym) === next) chains.delete(sym); });
+  }
+  try {
+    for (const e of drops.observe(sr, settings.get(), ctx)) store?.addEvent(e);
+  } catch (err) {
+    console.error(`[DÜŞÜŞ] ${sr.symbol}:`, err?.message || err);
   }
 }
 const chains = new Map();
@@ -345,6 +353,7 @@ function heartbeat() {
   stats.cards = 0;
   store?.sweep();
   touches.sweep();
+  drops.sweep();
   lastDiag = { ...diag, to: Date.now() };
   const dTxt = diagText(diag), stale = staleList();
   diag = newDiag();
@@ -353,7 +362,7 @@ function heartbeat() {
     ` | son ${mins}dk: ${closes} 1m kapanış, ${ws?.skipped ?? 0} ara güncelleme atlandı, ${cards} kart` +
     ` | coin: ${readyCount()}/${series.size} hazır${busy.size ? `, ${busy.size} yükleniyor` : ''}${stale.length ? `, ${stale.length} GERİDE` : ''}` +
     ` | ${dTxt}` +
-    ` | takipte ${store?.openCount() ?? 0} kart, ${touches.openCount()} seviye teması` +
+    ` | takipte ${store?.openCount() ?? 0} kart, ${touches.openCount()} seviye teması, ${drops.openCount()} düşüş` +
     ` | telegram: ${tg.sent} gönderildi, ${tg.queued} kuyrukta${tg.failed ? `, ${tg.failed} BAŞARISIZ` : ''}` +
     ` | bellek: ${mem} MB`,
   );
@@ -417,4 +426,4 @@ async function main() {
   console.log('\n✅ Bilgi botu çalışıyor.\n');
 }
 
-module.exports = { main, _internal: { series, settings, tracker, touches, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, statusText, stats, busy, pending, details, getStore: () => store } };
+module.exports = { main, _internal: { series, settings, tracker, touches, drops, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, statusText, stats, busy, pending, details, getStore: () => store } };

@@ -8,6 +8,9 @@ const { formatCard, summaryText, esc, px, pct, dayTime } = require('./infoCard')
 const { evaluate, circles } = require('./infoEngine');
 const { classTable, median, touchText } = require('./infoStats');
 const { rowToStat } = require('./cardStore');
+const { dropText } = require('./eventLog');
+const { buildExports } = require('./exportData');
+const cfgAll = require('./config');
 
 const HOUR = 3_600_000;
 
@@ -186,6 +189,8 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
 /gecmis ETH [adet] — coinin son kartları ve sonrasında fiyat
 /istatistik [gün] — kart sınıfları ve sonrasında fiyat (varsayılan 7 gün)
 /seviye [gün] [ad] — dirence alttan temastan sonraki 60 dk: geri çekilme, 3dk EMA21'e dönüş, kırılım (ör. <code>/seviye 7 fib</code>)
+/kacan [gün] — düşüş defteri: pompa tepesinden düşüşler, kartlı/kartsız, kartsızlarda eksik şart
+/disaaktar [gün] — (yönetici) istatistik verisi CSV olarak özelden: düşüşler, kartlar, temaslar
 /konu [ad] — konulu grupta yönlendirme (konunun içinde yaz: /konu kart · /konu sistem · /konu kart3 · /konu backtest)
 /durum — bot durumu
 /benkimim — Telegram kullanıcı ID'n
@@ -312,6 +317,30 @@ ${mv.join('\n')}` : ''}`.slice(0, 4000);
       return touchText(rows, { title: `son ${days} gün · ${rows.length} temas`, filter: parts.join(' '), s: settings.get() });
     },
 
+    kacan: (args) => {
+      if (!store || !store.enabled() || !store.eventsSince) return 'Kart geçmişi kapalı (veritabanı açılamadı).';
+      const days = Math.max(1, Math.min(60, Number(String(args).trim()) || 7));
+      const rows = store.eventsSince(Date.now() - days * 86_400_000);
+      return dropText(rows, { title: `son ${days} gün · ${rows.length} düşüş`, s: settings.get(), E: { ...require('./eventLog').DEFAULTS, ...(cfgAll.events || {}) } });
+    },
+
+    disaaktar: adminOnly(async (args, msg) => {
+      if (!store || !store.enabled()) return 'Kart geçmişi kapalı (veritabanı açılamadı).';
+      const days = Math.max(1, Math.min(90, Number(String(args).trim()) || 30));
+      const uid = msg.from?.id;
+      const files = buildExports(store, days);
+      let sent = 0;
+      for (const f of files) {
+        const ok = await telegram.sendDocumentPrivate(uid, f.name, Buffer.from(f.csv, 'utf8'), `${f.name} · son ${days} gün · ${f.n} satır`);
+        if (!ok) {
+          const bot = telegram.getBotUsername?.();
+          return `❌ Özelden gönderemedim. Önce bota özelden bir kez /start yaz${bot ? `: https://t.me/${bot}` : ''} — sonra tekrar /disaaktar.`;
+        }
+        sent++;
+      }
+      return `📤 ${sent} dosya özelden gönderildi (son ${days} gün): ${files.map(f => `${f.name} ${f.n}`).join(' · ')}`;
+    }),
+
     konu: async (args, msg) => {
       const [a0, a1] = args.split(/\s+/).filter(Boolean).map(x => x.toLowerCase());
       const list = () => {
@@ -349,6 +378,8 @@ ${mv.join('\n')}` : ''}`.slice(0, 4000);
     ['gecmis', 'Coinin son kartları ve sonrasında fiyat · örn. /gecmis ETH'],
     ['istatistik', 'Kart sınıfları ve kart sonrası fiyat · örn. /istatistik 7'],
     ['seviye', 'Seviye tepkisi: temastan sonra çekilme / EMA21 / kırılım · örn. /seviye 7 fib'],
+    ['kacan', 'Düşüş defteri: pompa tepesinden düşüşler, kartlı / kartsız · örn. /kacan 7'],
+    ['disaaktar', '(yönetici) İstatistik verisi CSV olarak özelden · örn. /disaaktar 30'],
     ['takip', 'Takip listesi / ekle-çıkar (kartları hep sesli) · örn. /takip ETH'],
     ['sustur', 'Coini sustur (varsayılan 60 dk) · örn. /sustur ETH 30'],
     ['ac', 'Susturmayı aç · örn. /ac ETH'],

@@ -59,13 +59,15 @@ async function api(method, body, timeoutMs = 15_000) {
 }
 
 /** Dosyalı istek (sendPhoto) — Node'un yerleşik FormData/Blob'u ile, harici kütüphane yok */
-async function apiMultipart(method, fields, photo, timeoutMs = 30_000) {
+async function apiMultipart(method, fields, photo, timeoutMs = 30_000, file = null) {
   const fd = new FormData();
   for (const [k, v] of Object.entries(fields)) {
     if (v == null) continue;
     fd.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
   }
-  fd.append('photo', new Blob([photo], { type: 'image/png' }), 'grafik.png');
+  // file: { field, name, type } — varsayılan grafik PNG'si
+  const f = file || { field: 'photo', name: 'grafik.png', type: 'image/png' };
+  fd.append(f.field, new Blob([photo], { type: f.type }), f.name);
   let res;
   try {
     res = await fetch(`${API_BASE}/bot${TOKEN}/${method}`, { method: 'POST', body: fd, signal: AbortSignal.timeout(timeoutMs) });
@@ -353,6 +355,20 @@ async function sendPrivate(userId, text) {
   }
 }
 
+/**
+ * Kullanıcıya özelden dosya (ör. CSV dışa aktarma). Bot API sınırı 50 MB.
+ * @returns {Promise<boolean>} kullanıcı botu başlatmamışsa (403) false
+ */
+async function sendDocumentPrivate(userId, name, buf, caption = null, type = 'text/csv') {
+  try {
+    await apiMultipart('sendDocument', { chat_id: userId, caption, parse_mode: 'HTML' }, buf, 120_000, { field: 'document', name, type });
+    return true;
+  } catch (err) {
+    if (err.code !== 403 && err.code !== 400) console.warn(`[TELEGRAM] dosya gönderilemedi (${err.code}: ${err.message})`);
+    return false;
+  }
+}
+
 // Özel sohbette yalnızca "/start <parametre>" kabul edilir (📋 Detay bağlantısı) — işleyiciyi bilgi botu verir
 let privateStartHandler = null;
 function onPrivateStart(fn) { privateStartHandler = fn; }
@@ -459,6 +475,6 @@ function stop() {
 
 module.exports = {
   start, stop, sendText, sendCard, flush, takeStats, queueLength, esc,
-  sendPrivate, onPrivateStart, isMember, getBotUsername: () => botUsername, setCommands, publishCommands, onCallback, isAdmin, editMessage,
+  sendPrivate, sendDocumentPrivate, onPrivateStart, isMember, getBotUsername: () => botUsername, setCommands, publishCommands, onCallback, isAdmin, editMessage,
   _internal: { handleUpdate, get commands() { return commands; }, queue },
 };

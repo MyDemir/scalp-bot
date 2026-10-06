@@ -22,6 +22,7 @@
  *   --telegram → bitince özet + seviye tepkisi tablosu + 2 örnek kart gruba gönderilir
  *   Seviye tepkisi (src/levelTouch.js, canlıdaki /seviye ile aynı ölçü) her backtest'te hesaplanır ve yazdırılır.
  *   --seviye-filtre fib → tabloda yalnız adında "fib" geçen seviyeler
+ *   Düşüş defteri (src/eventLog.js, canlıdaki /kacan ile aynı) her backtest'te hesaplanır; JSON'da `drops` (tüm göstergelerle)
  *
  * Çıktı: backtest-results/info-<zaman>.json + konsol özeti
  */
@@ -38,6 +39,7 @@ const { formatCard, toPlain, esc } = require('./infoCard');
 const { createSettings } = require('./infoSettings');
 const { withRetry } = require('./binanceClient');
 const { createTouchTracker } = require('./levelTouch');
+const { createDropLedger, dropText, DEFAULTS: DROP_DEFAULTS } = require('./eventLog');
 
 const DAY = 86_400_000;
 const KANIT = { rsiMin: 70, resetRsi: 60 };   // --kanit
@@ -100,6 +102,8 @@ async function runSymbol(symbol, { start, end, s, btcClose, keepCards }) {
   const tracker = eng.createTracker();
   const touchTr = createTouchTracker();
   const touches = [];
+  const dropTr = createDropLedger(cfg.events);
+  const drops = [];
   const ctx = {
     btc1h: t => {
       const a = btcClose.get(t - MIN), b = btcClose.get(t - 61 * MIN);
@@ -124,13 +128,14 @@ async function runSymbol(symbol, { start, end, s, btcClose, keepCards }) {
     const closed = sr.apply1m(m1[i]);
     if (sr.ready()) touches.push(...touchTr.observe(sr, closed, s));
     const card = eng.step(sr, closed, s, tracker, ctx);
+    if (card) { touchTr.noteCard(symbol, card.t); dropTr.noteCard(symbol, card.t, card.grade); }
+    if (sr.ready()) drops.push(...dropTr.observe(sr, s, ctx));
     if (!card) continue;
-    touchTr.noteCard(symbol, card.t);
     card.fwd = forward(m1, i, card.price);
     if (keepCards) card.text = formatCard(card, s).text;
     cards.push(card);
   }
-  return { symbol, cards, moves, touches, minutes: m1.length - first, gaps };
+  return { symbol, cards, moves, touches, drops, minutes: m1.length - first, gaps };
 }
 
 // ── Rapor ──────────────────────────────────────────────────────────────────
@@ -262,7 +267,7 @@ async function main() {
   const btcClose = new Map(btc1m.map(c => [c.t, c.c]));
 
   const ORNEK = Number(a.ornek ?? 0);
-  const all = [], perSym = [], allMoves = [], allTouches = [];
+  const all = [], perSym = [], allMoves = [], allTouches = [], allDrops = [];
   const t0 = Date.now();
   for (const [i, sym] of symbols.entries()) {
     const eta = i ? Math.round((Date.now() - t0) / i * (symbols.length - i) / 60000) : null;
@@ -272,8 +277,9 @@ async function main() {
       all.push(...cards);
       allMoves.push(...(r.moves || []));
       allTouches.push(...(r.touches || []));
+      allDrops.push(...(r.drops || []));
       perSym.push({ symbol: sym, n: cards.length, series: cards.filter(c => c.seq === 1).length, moves: (r.moves || []).length, minutes: r.minutes, gaps: r.gaps });
-      console.log(`[${i + 1}/${symbols.length}] ${sym}: ${cards.length} kart (${cards.filter(c => c.seq === 1).length} seri)${s.moveAlertPct > 0 ? ` · ${(r.moves || []).length} hareket ≥%${s.moveAlertPct}` : ''}${r.touches ? ` · ${r.touches.length} seviye teması` : ''}${r.note ? ` — ${r.note}` : ''}${eta != null ? ` · kalan ~${eta} dk` : ''}`);
+      console.log(`[${i + 1}/${symbols.length}] ${sym}: ${cards.length} kart (${cards.filter(c => c.seq === 1).length} seri)${s.moveAlertPct > 0 ? ` · ${(r.moves || []).length} hareket ≥%${s.moveAlertPct}` : ''}${r.touches ? ` · ${r.touches.length} seviye teması` : ''}${r.drops ? ` · ${r.drops.length} düşüş` : ''}${r.note ? ` — ${r.note}` : ''}${eta != null ? ` · kalan ~${eta} dk` : ''}`);
     } catch (err) {
       perSym.push({ symbol: sym, n: 0, error: String(err?.message || err) });
       console.error(`[${i + 1}/${symbols.length}] ${sym}: HATA — ${err?.message || err}`);
@@ -285,6 +291,8 @@ async function main() {
   if (s.moveAlertPct > 0) printMoves(p, allMoves, s);
   const touchMsg = touchText(allTouches, { title: `${DAYS} gün · ${symbols.length} coin · ${allTouches.length} temas (backtest)`, filter: typeof a['seviye-filtre'] === 'string' ? a['seviye-filtre'] : '', s });
   console.log('\n' + toPlain(touchMsg));
+  const dropMsg = dropText(allDrops, { title: `${DAYS} gün · ${symbols.length} coin · ${allDrops.length} düşüş (backtest)`, s, E: { ...DROP_DEFAULTS, ...(cfg.events || {}) } });
+  console.log('\n' + toPlain(dropMsg));
 
   if (ORNEK > 0) {
     console.log(`\n── Örnek kartlar (son ${ORNEK}) ──`);
@@ -294,8 +302,12 @@ async function main() {
   const OUT = path.join(__dirname, '..', 'backtest-results');
   fs.mkdirSync(OUT, { recursive: true });
   const file = path.join(OUT, `info-${new Date().toISOString().replace(/[:T.]/g, '-').slice(0, 19)}.json`);
-  fs.writeFileSync(file, JSON.stringify({ params: { ...p, settings: s }, classes: classTable(all), load: load(all), perSymbol: perSym, cards: all.map(({ text, ...c }) => c), moves: allMoves, touches: allTouches }, null, 1));
+  fs.writeFileSync(file, JSON.stringify({ params: { ...p, settings: s }, classes: classTable(all), load: load(all), perSymbol: perSym, cards: all.map(({ text, ...c }) => c), moves: allMoves, touches: allTouches, drops: allDrops }, null, 1));
   console.log(`\n📁 Ayrıntılı sonuç: ${file}`);
+  { const { toCsv, flatDrop, dropCols } = require('./eventLog');
+    const csvFile = file.replace(/info-([^/]+)\.json$/, 'dususler-$1.csv');
+    fs.writeFileSync(csvFile, toCsv(allDrops.map(r => flatDrop(r)), dropCols()));
+    console.log(`📁 Düşüş defteri (CSV, ${allDrops.length} satır): ${csvFile}`); }
 
   if (a.telegram) {
     const telegram = require('./telegram');       // komut dinleme başlatılmaz → canlı botla çakışmaz
@@ -303,6 +315,7 @@ async function main() {
     const thread = live.topic('backtest');
     telegram.sendText(telegramSummary(p, all, perSym, s, allMoves), null, thread);
     telegram.sendText(touchMsg, null, thread);
+    telegram.sendText(dropMsg, null, thread);
     for (const c of all.filter(x => x.burst).slice(-1).concat(all.filter(x => !x.burst).slice(-1))) {
       const kb = [[
         { text: '📈 TradingView', url: `https://www.tradingview.com/chart/?symbol=BINANCE:${encodeURIComponent(c.symbol)}.P` },

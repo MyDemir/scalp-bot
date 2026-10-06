@@ -165,7 +165,32 @@ aynı (Fib 0.236–0.786, günlük bölge / trend çizgisi, 7/30g en yüksek, MA
   özet; 📊 seviyelere göre (pompa, 5+ örnekli seviyeler; azı tek satırda); tanımlar en altta açılır blokta.
   Ör. `/seviye 7 fib`, `/seviye 14 bölge`. Kazanç/kayıp değildir. Backtest aynı tabloyu geçmiş veriden hemen verir (aşağıda).
 
-### Konulu (forum) gruba bağlama
+### Düşüş defteri (/kacan) ve veri dışa aktarma (/disaaktar)
+Kart çıksın çıkmasın, **pompa tepesinden gelen her düşüş** kaydedilir — "o an her şey nasıldı, hangi şartımız yoktu?"
+- **Tepe:** 1 dk mumun tepesi son 60 dk'nın en yükseği ve son 4 saatin dibinden ≥ %3 yukarıda. O dakikada tüm göstergelerin
+  fotoğrafı alınır (daha yüksek tepe gelirse yenilenir).
+- **Düşüş:** tepeden sonraki 15 dk içinde fiyat tepenin %1.5 altına iner → olay. Coin başına 60 dk'da bir.
+- **Kartlı / kartsız:** o coinde tepeden 15 dk önce ile düşüşten 5 dk sonrası arasında kart çıktı mı.
+- **Fotoğraf (50 sütun):** RSI 3/5/15dk/1s/4s, RSI şartı ve dilim sayısı, kart şartları (`fails`: rsi / seviye …),
+  kontrol listesi puanı ve tutan maddeler, en yakın direnç (ad/tür/uzaklık/Dirençte), 3/5/15dk EMA21 uzaklığı (%), 5dk ATR %,
+  3dk EMA21 takibi, negatif tepe 1m/3m, MACD 3/5/15dk (kesişim / zayıf / güçlü), Stoch RSI, VWAP σ ve %, hacim katı ve alış %
+  (15dk/1s/4s/24s), hacimli mum alış/satış (1 saat), funding, BTC 1s, son 15 dk değişim, 4s gizli PU, günlük golden cross,
+  pompa büyüklüğü ve süresi.
+- **Sonrası:** tepeye göre 5 / 15 / 60 / 240 dk en düşük / en yüksek / kapanış (%).
+- Kartı ve tetik kurallarını etkilemez. `/data/cards.db` → `events` tablosu, 60 gün. Eşikler `src/config.js` → `events`.
+
+`/kacan [gün]` — kartlı/kartsız sayısı, kartsızlarda eksik şart dağılımı ("RSI 85+ yok %62 · direnç yok %20 · şart vardı,
+kart çıkmadı %18"), kartsızların tepe RSI'ı, kartlı/kartsız karşılaştırma (RSI, EMA21 uzaklığı, VWAP σ, pompa, hacim, MACD,
+negatif tepe, Dirençte), tepeden sonraki düşüş. Tanımlar açılır blokta.
+
+`/disaaktar [gün]` (yönetici) — 3 CSV dosyası **özelden** gelir (önce bota özelden bir kez /start yaz):
+`dususler.csv` (düşüş defteri, tüm göstergeler), `kartlar.csv` (kartlar + kart anı göstergeleri + 15/60/240 dk sonrası),
+`temaslar.csv` (seviye tepkisi). UTF-8, virgülle ayrılmış, ondalık nokta → Google Sheets / Excel / Python (pandas).
+Komut satırından: `fly ssh console` → `cd /app && node src/exportData.js --days 30` → dosyalar `/data/export/`'a yazılır,
+bilgisayara: `fly ssh sftp get /data/export/dususler.csv`. Backtest de aynı defteri hesaplar
+(`backtest-results/dususler-*.csv`, gruba rapor).
+
+
 Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı konularına** gönderilebilir.
 1. Grup ayarları → **Konular**'ı aç (grup süpergrup olmalı; ID çoğunlukla değişmez). Yeni bir grup kullanacaksan
    botu ekle, gruba bir komut yaz ve `fly logs`'ta `Tanımsız sohbetten mesaj yok sayıldı: … ID -100…` satırındaki
@@ -184,6 +209,8 @@ Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı kon
 | `/sustur ETH [dk]` · `/ac ETH` · `/sessiz` | yönetici / herkes | susturma |
 | `/takip [ETH]` | liste herkes, ekle-çıkar yönetici | takipteki coinlerin kartları her zaman sesli |
 | `/gecmis ETH [adet]` · `/istatistik [gün]` | herkes | kart geçmişi ve sınıf istatistiği |
+| `/kacan [gün]` | herkes | düşüş defteri: pompa tepesinden düşüşler, kartlı/kartsız, kartsızlarda eksik şart |
+| `/disaaktar [gün]` | yönetici | istatistik verisi CSV olarak özelden (düşüşler, kartlar, temaslar) |
 | `/seviye [gün] [ad]` | herkes | seviye tepkisi: temastan sonra çekilme / 3dk EMA21'e dönüş / kırılım (ör. `/seviye 7 fib`) |
 | `/konu [ad]` · `/konu sil ad` | liste herkes, bağlama yönetici | konulu grupta yönlendirme |
 | `/durum` · `/benkimim` · `/yardim` | herkes | `/durum`: izlenen/hazır coin, **geride kalan coinler** (son 3 dk'da 1m mumu gelmeyen), son 5 dk'da işlenen mum sayısı, **gecikme** (mum kapanışı → bot işledi; ort / en fazla) ve işlem yükü. Gecikme 20 sn'yi aşarsa ya da geride coin varsa `fly logs`'ta `[UYARI]` |
@@ -232,6 +259,8 @@ src/
 ├── infoSettings.js   # Ayarlar (varsayılan config.info, değişiklikler /data/info-settings.json)
 ├── infoStats.js      # Kart sınıfları + "sonrası" medyanları (backtest ve /istatistik ortak)
 ├── cardStore.js      # Kart geçmişi (SQLite /data/cards.db) + 15/60/240 dk takip + seviye tepkisi tablosu
+├── eventLog.js       # Düşüş defteri: pompa tepesi → düşüş, kartlı/kartsız, tüm göstergeler (canlı + backtest ortak)
+├── exportData.js     # CSV dışa aktarma (/disaaktar ve komut satırı)
 ├── levelTouch.js     # Seviye tepkisi: dirence alttan temas → 60 dk çekilme / EMA21 / kırılım (canlı + backtest ortak)
 ├── infoBacktest.js   # Bilgi botu backtest'i
 ├── levels.js         # 4h/1d MA200 · EMA200 · 30 günlük tepe · 7/30g en yüksek · 1h/4h tepe · Fib düzeltme/uzantı

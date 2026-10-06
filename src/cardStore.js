@@ -9,6 +9,7 @@
  *   Yeniden başlatma: yarım kalan takipler "eksik" işaretlenip kapatılır (kopukluk verisi uydurulmaz).
  *   Saklama: 90 gün.
  *   Seviye tepkisi (src/levelTouch.js): dirence alttan temas + sonraki 60 dk özeti, `touches` tablosu, 60 gün.
+ *   Düşüş defteri (src/eventLog.js): pompa tepesinden düşüş (kartlı/kartsız) + tepe anındaki tüm göstergeler, `events`, 60 gün.
  *
  * Hata olursa bot durmaz: yazma hataları loglanır, kart gönderimi etkilenmez.
  */
@@ -20,13 +21,19 @@ const MIN = 60_000;
 const WINDOWS = [15, 60, 240];
 const KEEP_DAYS = 90;
 const TOUCH_KEEP_DAYS = 60;
+const EVENT_KEEP_DAYS = 60;
+const EVENT_WINDOWS = [5, 15, 60, 240];
 
 function defaultFile() {
   const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'signals.db');
   return process.env.CARDS_DB_PATH || path.join(path.dirname(dbPath), 'cards.db');
 }
 
-function createCardStore({ file = defaultFile(), logger = console } = {}) {
+/**
+ * @param {object} o
+ * @param {boolean} [o.recover=true]  açılışta yarım takipleri "eksik" kapat (yalnız bot; dışa aktarma gibi yan araçlar false)
+ */
+function createCardStore({ file = defaultFile(), logger = console, recover = true } = {}) {
   let db = null;
   try {
     const Database = require('better-sqlite3');
@@ -52,12 +59,18 @@ function createCardStore({ file = defaultFile(), logger = console } = {}) {
       );
       CREATE INDEX IF NOT EXISTS touches_t ON touches(t);
     `);
+    db.exec(`CREATE TABLE IF NOT EXISTS events (
+        id TEXT PRIMARY KEY, symbol TEXT NOT NULL, t INTEGER NOT NULL, price REAL, dropt INTEGER, dropmin INTEGER,
+        card INTEGER, cardgrade INTEGER, rsiok INTEGER, hits INTEGER, data TEXT,
+        ${EVENT_WINDOWS.map(w => `low${w} REAL, high${w} REAL, close${w} REAL`).join(', ')}
+      );
+      CREATE INDEX IF NOT EXISTS events_t ON events(t);`);
     // Sonradan eklenen sütunlar (eski veritabanı): dibin indiği ortalama
     const tcols = new Set(db.prepare('PRAGMA table_info(touches)').all().map(c => c.name));
     for (const [c, type] of [['stop', 'TEXT'], ['stopdepth', 'REAL'], ['falling', 'INTEGER']]) {
       if (!tcols.has(c)) db.exec(`ALTER TABLE touches ADD COLUMN ${c} ${type}`);
     }
-    const n = db.prepare('UPDATE cards SET done = 1, partial = 1 WHERE done = 0').run().changes;
+    const n = recover ? db.prepare('UPDATE cards SET done = 1, partial = 1 WHERE done = 0').run().changes : 0;
     if (n) logger.log(`[GEÇMİŞ] Yeniden başlatma: ${n} yarım takip "eksik" olarak kapatıldı`);
   } catch (err) {
     logger.error(`[GEÇMİŞ] ${file} açılamadı (${err.message}) — kart geçmişi KAPALI, bot çalışmaya devam ediyor`);
@@ -74,6 +87,10 @@ function createCardStore({ file = defaultFile(), logger = console } = {}) {
     tIns: db.prepare(`INSERT OR IGNORE INTO touches (id, symbol, t, name, kind, value, hits, rsiok, card, emagap, pb, pbmin, emamin, brokemin, brokeafterema, held, up, dn, c60, stop, stopdepth, falling)
       VALUES (@id, @symbol, @t, @name, @kind, @value, @hits, @rsiok, @card, @emagap, @pb, @pbmin, @emamin, @brokemin, @brokeafterema, @held, @up, @dn, @c60, @stop, @stopdepth, @falling)`),
     tSince: db.prepare('SELECT * FROM touches WHERE t >= ? ORDER BY t'),
+    eIns: db.prepare(`INSERT OR IGNORE INTO events (id, symbol, t, price, dropt, dropmin, card, cardgrade, rsiok, hits, data, ${EVENT_WINDOWS.map(w => `low${w}, high${w}, close${w}`).join(', ')})
+      VALUES (@id, @symbol, @t, @price, @dropt, @dropmin, @card, @cardgrade, @rsiok, @hits, @data, ${EVENT_WINDOWS.map(w => `@low${w}, @high${w}, @close${w}`).join(', ')})`),
+    eSince: db.prepare('SELECT * FROM events WHERE t >= ? ORDER BY t'),
+    ePrune: db.prepare('DELETE FROM events WHERE t < ?'),
     tPrune: db.prepare('DELETE FROM touches WHERE t < ?'),
   };
 
@@ -136,6 +153,7 @@ function createCardStore({ file = defaultFile(), logger = console } = {}) {
       }
       safe(() => st.prune.run(now - KEEP_DAYS * 86_400_000), 'temizlik');
       safe(() => st.tPrune.run(now - TOUCH_KEEP_DAYS * 86_400_000), 'temizlik');
+      safe(() => st.ePrune.run(now - EVENT_KEEP_DAYS * 86_400_000), 'temizlik');
     },
 
     /** Seviye tepkisi olayı (src/levelTouch.js finish() çıktısı) */
@@ -148,6 +166,14 @@ function createCardStore({ file = defaultFile(), logger = console } = {}) {
         stop: e.stop ?? null, stopdepth: e.stopDepth ?? null, falling: e.falling ? 1 : 0,
       }), 'seviye kaydı');
     },
+    /** Düşüş olayı (src/eventLog.js finish() çıktısı) */
+    addEvent(e) {
+      const row = { id: e.id, symbol: e.symbol, t: e.t, price: e.price, dropt: e.dropT, dropmin: e.dropMin, card: e.card ? 1 : 0,
+        cardgrade: e.cardGrade ?? null, rsiok: e.feat?.rsiOk ? 1 : 0, hits: e.feat?.hits ?? null, data: JSON.stringify(e.feat ?? {}) };
+      for (const w of EVENT_WINDOWS) for (const k of ['low', 'high', 'close']) row[`${k}${w}`] = e.out?.[w]?.[k] ?? null;
+      safe(() => st.eIns.run(row), 'düşüş kaydı');
+    },
+    eventsSince: t => (safe(() => st.eSince.all(t), 'sorgu') || []).map(rowToEvent),
     touchesSince: t => (safe(() => st.tSince.all(t), 'sorgu') || []).map(rowToTouch),
 
     recent: (symbol, n = 10) => safe(() => st.recent.all(symbol, n), 'sorgu') || [],
@@ -166,6 +192,15 @@ function rowToStat(r) {
   return { ...d, kind: r.kind, symbol: r.symbol, t: r.t, seq: r.seq, price: r.price, fwd, partial: Boolean(r.partial), done: Boolean(r.done) };
 }
 
+/** events satırı → eventLog olay biçimi */
+function rowToEvent(r) {
+  let feat = {};
+  try { feat = JSON.parse(r.data || '{}'); } catch { feat = {}; }
+  const out = {};
+  for (const w of EVENT_WINDOWS) if (r[`low${w}`] != null) out[w] = { low: r[`low${w}`], high: r[`high${w}`], close: r[`close${w}`] };
+  return { id: r.id, symbol: r.symbol, t: r.t, price: r.price, dropT: r.dropt, dropMin: r.dropmin, card: Boolean(r.card), cardGrade: r.cardgrade, feat, out };
+}
+
 /** touches satırı → levelTouch olay biçimi */
 function rowToTouch(r) {
   return {
@@ -176,4 +211,4 @@ function rowToTouch(r) {
   };
 }
 
-module.exports = { createCardStore, rowToStat, rowToTouch, WINDOWS };
+module.exports = { createCardStore, rowToStat, rowToTouch, rowToEvent, WINDOWS, EVENT_WINDOWS };
