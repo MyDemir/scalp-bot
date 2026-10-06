@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Kart sınıfları ve "kart sonrası fiyat" özetleri[span_9](start_span)[span_9](end_span).
+ * Kart sınıfları ve "kart sonrası fiyat" özetleri.
  */
 
 const { RSI_TFS } = require('./infoEngine');
@@ -92,9 +92,9 @@ function load(cards) {
   return { maxMin, maxHour, over20, peakHour: peakHour ? { at: fmtDate(peakHour[0] * 3_600_000), n: peakHour[1] } : null };
 }
 
-const TOUCH_ORDER = ['Fib 0.236', 'Fib 0.382', 'Fib 0.5', 'Fib 0.618', 'Fib 0.786', 'Günlük bölge', 'Günlük trend çizgisi',
+const TOUCH_ORDER = ['Fib 0.236', 'Fib 0.382', 'Fib 0.5', 'Fib 0.618', 'Fib 0.786', 'Haftalık bölge', 'Günlük bölge', 'Günlük trend çizgisi',
   '30 günlük en yüksek', '7 günlük en yüksek', '30 günlük tepe', '1d MA200', '1d EMA200', '4h MA200', '4h EMA200', '4h tepe', '1h tepe'];
-const SHORT = { 'Günlük bölge': 'G. bölge', 'Günlük trend çizgisi': 'G. trend', '30 günlük en yüksek': '30g yüks.',
+const SHORT = { 'Haftalık bölge': 'H. bölge', 'Günlük bölge': 'G. bölge', 'Günlük trend çizgisi': 'G. trend', '30 günlük en yüksek': '30g yüks.',
   '7 günlük en yüksek': '7g yüks.', '30 günlük tepe': '30g tepe' };
 const shortName = n => SHORT[n] || n.replace(/^Fib 0\./, 'Fib .');
 const MIN_N = 5;
@@ -199,7 +199,7 @@ function touchText(rows, { title = '', filter = '', s = {} } = {}) {
     ...big.map(g => levelBlock(shortName(g.name), g.rsi)),
     ...(small.length ? [`▫️ Az örnek (&lt;${MIN_N}): ${small.map(g => `${shortName(g.name)} (${g.rsi.n})`).join(', ')}`] : []),
   ].join('\n\n') : '';
-  const how = `<blockquote expandable>ℹ️️ <b>Nasıl ölçülür</b>
+  const how = `<blockquote expandable>ℹ️ <b>Nasıl ölçülür</b>
 • Temas: önceki 1 dk kapanışı seviyenin %0.3'ten fazla altında, mumun tepesi seviyeye %0.3 yaklaştı (aynı seviye 60 dk'da bir)
 • Pompa: temas anında 3dk/5dk/15dk RSI(${s.rsiPeriod ?? 14})'ten en az ${minTFs}'si ≥ ${rsiMin}
 • Kırdı: en derin çekilmeden önce 5 dk kapanışı seviyenin %${s.dipAbovePct ?? 0.3} üstünde · Ret: kıramadan geri çekildi

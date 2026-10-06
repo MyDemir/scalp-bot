@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Bilgi botu ayarları[span_11](start_span)[span_11](end_span).
+ * Bilgi botu ayarları.
  */
 
 const fs   = require('fs');

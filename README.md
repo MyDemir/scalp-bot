@@ -22,28 +22,29 @@ Kontrol anı: **3m / 5m / 15m mum kapanışları** + **hacimli her 1m mum kapan�
 | Şart | Varsayılan |
 |---|---|
 | 3m/5m/15m RSI | en az **2/3** dilimde **≥ 85** (kapanmamış dilimde devam eden mumla hesaplanır; RSI periyodu 14) |
-| Seviye (zorunlu) | fiyatın üstünde en fazla **%2.5** uzakta bir seviye: 4h MA200 · 4h EMA200 · 1d MA200 · 1d EMA200 · 30 günlük tepe (son 30 **kapanmış** günün en yüksek 3 tepesinin ortalaması) · **7 / 30 günlük en yüksek** (gerçek tepe) · **1h / 4h tepe** (salınım tepesi: iki yanındaki 3 mumdan yüksek) · **Günlük bölge** (son ~1 yılın günlük tepe/dip noktalarından ≥ 3 temas alan bölge — `zoneTouches`, menüden 2–6; eski destekler dahil; değer = bölgenin alt kenarı) · **Günlük trend çizgisi** (en yüksek günlük tepeden sonraki tepelere log ölçekte çizilen düşen çizgi, bugüne uzatılmış; kapanışlar üstüne çıkınca kırılmış sayılır) · **Fib 0.236 / 0.382 / 0.5 / 0.618 / 0.786** (1 SAATLİK geniş bacak: son ~2 haftanın 1h en yüksek tepesi ↔ en düşük dibi, yön otomatik — kart grafiğindeki Fib ile aynı). Birbirine %0.3'ten yakın seviyeler tek sayılır (çakışma Detay'da yazar). Yakında direnç yoksa bkz. **Fiyat keşfi** |
+| Seviye (zorunlu) | fiyatın üstünde en fazla **%2.5** uzakta bir seviye: 4h MA200 · 4h EMA200 · 1d MA200 · 1d EMA200 · 30 günlük tepe (son 30 **kapanmış** günün en yüksek 3 tepesinin ortalaması) · **7 / 30 günlük en yüksek** (gerçek tepe) · **1h / 4h tepe** (salınım tepesi: iki yanındaki 3 mumdan yüksek) · **Haftalık bölge** (günlük mumlar Binance haftasına — Pazartesi 00:00 UTC — toplanır; haftalık pivot tepe/diplerden %2 içinde ≥ 2 temas; `levelsWeeklyZone`) · **Günlük bölge** (son ~1 yılın günlük tepe/dip noktalarından ≥ 3 temas alan bölge — `zoneTouches`, menüden 2–6; eski destekler dahil; değer = bölgenin alt kenarı) · **Günlük trend çizgisi** (en yüksek günlük tepeden sonraki tepelere log ölçekte çizilen düşen çizgi, bugüne uzatılmış; kapanışlar üstüne çıkınca kırılmış sayılır) · **Fib 0.236 / 0.382 / 0.5 / 0.618 / 0.786** (1 SAATLİK geniş bacak: son ~2 haftanın 1h en yüksek tepesi ↔ en düşük dibi, yön otomatik — kart grafiğindeki Fib ile aynı). Birbirine %0.3'ten yakın seviyeler tek sayılır (çakışma Detay'da yazar). Yakında direnç yoksa bkz. **Fiyat keşfi** |
 | Yeni veri | önceki karttan bu yana: RSI dilim sayısı değişti · bir dilim 95'i geçti · hacimli mum · seviye/bölge değişti (⭐ Dirençte'ye girdi, seviye kırıldı) · MACD ya da Stoch RSI kesişimi · 1m/3m negatif tepe arttı. **Yeni veri yoksa kart gitmez.** |
 
-**Kurulum kontrol listesi ve derece** (kartta ✅/▫️, başlıkta daireler). 8 madde, yalnızca bilgi (kartı engellemez):
+**Kurulum kontrol listesi ve derece** (Detay'da ✅/▫️, başlıkta daireler). 9 madde, puanla; yalnızca bilgi (kartı engellemez):
 
-1. Günlük direnç yakın (1d MA200 / 1d EMA200 / 30 günlük tepe / 7–30 günlük en yüksek, üstte ≤ %2.5)
-2. Çakışan direnç (başka bir seviye %0.5 içinde — "genelde majör dirençlerle kesişiyor")
-3. 3m ya da 5m RSI 95–98 aralığında (98 üstü "aşırı" diye ayrı yazılır)
-4. 15m RSI ≥ 95
-5. 5m ve 15m birlikte ≥ 95
-6. 1h ve 4h RSI ≥ 80 (şişkin)
-7. 3m ve 5m EMA21'den ayrışmış (≥ 0.5 ATR, son 3 mumda dokunmamış) — değilse "⚠️ RSI 95 üstü ama EMA21'e yakın"
-8. 1m ya da 3m'de ≥ 2 negatif tepe
+1. Günlük / haftalık direnç yakın (1d MA200 / 1d EMA200 / 30 günlük tepe / 7–30 günlük en yüksek / günlük–haftalık bölge, üstte ≤ %2.5) — 1 puan
+2. Çakışan direnç (başka bir seviye %0.5 içinde) — 1 puan
+3. 3m ya da 5m RSI 95–100 (`rsiEntryMax`) — 1 puan
+4. 15m RSI ≥ 95 — 1 puan
+5. 5m ve 15m birlikte ≥ 95 — 1 puan
+6. 1h ve 4h RSI ≥ 80 (şişkin) — 1 puan
+7. EMA21 ayrışma: fiyat 3m ya da 5m EMA21'in **üstünde** %2 / %5 / %10 → 1 / 2 / 3 puan (`sepPct2/5/10`; altındaysa 0) — yoksa "⚠️ RSI 95 üstü ama EMA21 yakın"
+8. 1m ya da 3m'de ≥ 2 negatif tepe — 1 puan
+9. 3m ya da 5m MACD sat (aşağı) kesişimi — 1 puan
 
-Altında 🎯 hedef bölgeleri: 3m EMA21 ve 5m EMA21 (fiyat ve uzaklık). **Derece:** 🔴 skor 0–2 · 🔴🔴 3–5 · 🔴🔴🔴 6–8 (8 madde; `/ayarlar` → Derece).
-🔴🔴🔴 sesli (kart sesi kapalıyken bile). Skor değişince kart gelir ("Kontrol listesi 5/8 → 7/8"). Eşikler `/ayarlar`:
-`strongRsi`, `rsiEntryMax`, `confRsi`, `confluencePct`, `grade2Min`, `grade3Min`.
+Detay'da 🎯 hedef: 3m EMA21 ve 5m EMA21 uzaklığı. **Derece (en fazla 11 puan):** 🔴 0–2 · 🔴🔴 3–4 · 🔴🔴🔴 5–6 · 🔴🔴🔴🔴 7+
+(`grade2Min` / `grade3Min` / `grade4Min`, `/ayarlar` → Derece). 🔴🔴🔴 ve 🔴🔴🔴🔴 sesli (kart sesi kapalıyken bile) ve `/konu kart3`'e gider.
+Eşikler `/ayarlar`: `strongRsi`, `rsiEntryMax`, `confRsi`, `confluencePct`, `sepPct2/5/10`, `grade2Min`, `grade3Min`, `grade4Min`.
 Hacim/⚡ daireleri: 1 temel · 2 hacim ≥ 3× · 3 + yön uyumu ≥ %65; renk yönü gösterir (🟢 alış/yükseliş · 🔴 satış/düşüş · ⚪ nötr).
 
 **Seri içi patlama:** bir coinde kart gittikten sonra seri sürerken (kapanmış 5m RSI 75'in altına inmeden)
-gelen hacimli 1m mum **şart aranmadan** kart olur (`#SERI`, kartta "Seri içi · şart dışı (RSI 1/3)" gibi).
-Böylece tepedeki sert satış mumu RSI'ı 90'ın altına indirse de bildirilir. `/ayarlar` → "Seri patlama" ile kapatılabilir.
+gelen hacimli 1m mum, o an **5m RSI ≥ 85** ise (`seriesMinRsi5m`) şart aranmadan kart olur (`#SERI`). 5m RSI 85'in altına
+inmişse (sert satış mumu RSI'ı düşürdüyse) kart gelmez — sürekli hacim bildirimi olmasın diye. `/ayarlar` → "Seri patlama" ile kapatılabilir.
 
 Seviye kırılırsa (fiyat seviyenin %0.3'ten fazla üstünde) o seviye sayılmaz, bir üstteki aranır.
 Çakışan direnç maddesinde Fib ve 1h tepe sayılmaz (yalnız MA/EMA200, günlük tepeler, 4h tepe).

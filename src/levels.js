@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Direnç seviyeleri[span_13](start_span)[span_13](end_span).
+ * Direnç seviyeleri.
  */
 
 const { emaLast } = require('./ta');
@@ -116,6 +116,28 @@ function dailyTrendline(t, h, c, { lookback = 365, bars = 5 } = {}) {
   return { value, a: { v: A.v, t: t[A.i] }, b: { v: best.p.v, t: t[best.p.i] } };
 }
 
+/**
+ * Haftalık bölgeler: günlük mumlar Binance haftasına (Pazartesi 00:00 UTC) toplanır; haftalık pivot tepe/dipleri
+ * (iki yanında 2 hafta) %2 içinde kümelenir, en az 2 temas alan küme bölge olur. ~400 gün ≈ 57 hafta.
+ * Devam eden hafta pivot olamaz (sağında 2 hafta gerekir). @returns {{lo, hi, touches, last}[]}
+ */
+const WEEK = 7 * 86_400_000, MONDAY0 = 4 * 86_400_000;   // 1970-01-05 Pazartesi
+function toWeekly(d1) {
+  const w = { t: [], h: [], l: [] };
+  for (let i = 0; i < d1.t.length; i++) {
+    const ws = Math.floor((d1.t[i] - MONDAY0) / WEEK) * WEEK + MONDAY0;
+    const n = w.t.length;
+    if (n && w.t[n - 1] === ws) { if (d1.h[i] > w.h[n - 1]) w.h[n - 1] = d1.h[i]; if (d1.l[i] < w.l[n - 1]) w.l[n - 1] = d1.l[i]; }
+    else { w.t.push(ws); w.h.push(d1.h[i]); w.l.push(d1.l[i]); }
+  }
+  return w;
+}
+function weeklyZones(d1, { bars = 2, tol = 0.02, minTouch = 2 } = {}) {
+  const w = toWeekly(d1);
+  if (w.t.length < 12) return [];
+  return dailyZones(w.t, w.h, w.l, { lookback: w.t.length, bars, tol, minTouch });
+}
+
 const FIB_RET = [0.236, 0.382, 0.5, 0.618, 0.786];
 const FIB_EXT = [1.272, 1.618, 2, 2.618];
 
@@ -132,6 +154,10 @@ function calcExtraLevels({ h1, h4, d1 }, o, base = []) {
   if (dh.length >= 7) add('7 günlük en yüksek', Math.max(...dh.slice(-7)), 'high');
   const d1ok = d1 && d1.t && d1.l && d1.c && dh.length >= 30;
 
+  // Haftalık bölgeler önce (daha güçlü): günlük bölge aynı yere düşerse haftalığın "also" notu olur
+  if (o.weeklyZone !== false && d1ok) {
+    for (const z of weeklyZones(d1)) add('Haftalık bölge', z.lo, 'zone', { zoneInfo: { ...z, weekly: true } });
+  }
   const zones = d1ok ? dailyZones(d1.t, dh, d1.l, { minTouch: o.zoneTouches || 3 }) : [];
   for (const z of zones) add('Günlük bölge', z.lo, 'zone', { zoneInfo: z });
   const tl = d1ok ? dailyTrendline(d1.t, dh, d1.c) : null;
@@ -140,13 +166,6 @@ function calcExtraLevels({ h1, h4, d1 }, o, base = []) {
   if (o.swing) {
     for (const p of swingHighs(h4?.h || [], o.bars, 180).reverse()) add('4h tepe', p.value, 'swing');
     for (const p of swingHighs(h1?.h || [], o.bars, 200).reverse()) add('1h tepe', p.value, 'swing');
-  }
-
-  if (o.weeklyZone !== false && d1ok) {
-    const wZones = dailyZones(d1.t, dh, d1.l, { lookback: 365, bars: 5, tol: 0.02, minTouch: o.zoneTouches || 3 });
-    for (const z of wZones.slice(0, 3)) {
-      add('Haftalık bölge', z.lo, 'zone', { zoneInfo: z, weekly: true });
-    }
   }
 
   const leg = h1 && h1.t && h1.h.length >= 30 ? majorLeg(h1.t, h1.h, h1.l, 336) : null;
@@ -163,4 +182,4 @@ function fibExtensions(leg, price, max = 2) {
   return FIB_EXT.map(r => ({ r, value: roundPx(leg.lo + r * R) })).filter(x => x.value > price).slice(0, max);
 }
 
-module.exports = { roundPx, calcMajorResistance, calcLevelSet, impulseLeg, majorLeg, dailyZones, dailyTrendline, swingHighs, calcExtraLevels, fibExtensions, FIB_RET, FIB_EXT };
+module.exports = { toWeekly, weeklyZones, roundPx, calcMajorResistance, calcLevelSet, impulseLeg, majorLeg, dailyZones, dailyTrendline, swingHighs, calcExtraLevels, fibExtensions, FIB_RET, FIB_EXT };

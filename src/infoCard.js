@@ -1,12 +1,12 @@
 'use strict';
 
 /**
- * Bilgi kartı metni (Telegram HTML) + satır içi butonlar[span_6](start_span)[span_6](end_span).
+ * Bilgi kartı metni (Telegram HTML) + satır içi butonlar.
  */
 
 const TZ = process.env.DISPLAY_TZ || 'Europe/Istanbul';
 
-const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace/>/g, '&gt;');
+const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 let hhmmFmt = null;
 function hhmm(t) {
@@ -59,7 +59,7 @@ function rsiLines(sn) {
 }
 
 /**
- * Hedef satırı — snap.sepPct üzerinden[span_7](start_span)[span_7](end_span)
+ * Hedef satırı — snap.sepPct üzerinden
  */
 function targetLine(snap, price) {
   const items = ['3m', '5m'].map(tf => {
@@ -148,7 +148,7 @@ function formatCard(card, s, opt = {}) {
   if (tgt) D.push(`📏 ${tgt}`);
   const lvd = snap.level;
   if (lvd?.also?.length) D.push(`Direnç çakışması: ${esc(lvd.name)} + ${esc([...new Set(lvd.also)].join(' + '))}`);
-  if (lvd?.kind === 'zone' && lvd.zoneInfo) D.push(`Direnç bölgesi: ${px(lvd.zoneInfo.lo)}–${px(lvd.zoneInfo.hi)} · ${lvd.zoneInfo.touches} temas · son temas ${dmy(lvd.zoneInfo.last)}`);
+  if (lvd?.kind === 'zone' && lvd.zoneInfo) D.push(`Direnç bölgesi${lvd.zoneInfo.weekly ? ' (haftalık)' : ''}: ${px(lvd.zoneInfo.lo)}–${px(lvd.zoneInfo.hi)} · ${lvd.zoneInfo.touches} temas · son temas ${dmy(lvd.zoneInfo.last)}`);
   if (lvd?.kind === 'trend' && lvd.trend) D.push(`Trend çizgisi: ${px(lvd.trend.a.v)} (${dmy(lvd.trend.a.t)}) → ${px(lvd.trend.b.v)} (${dmy(lvd.trend.b.t)}) · bugün ${px(lvd.trend.value)}`);
   const lg = snap.fibLeg;
   if (lg) D.push(`Fib (1s): ${lg.up ? `dip ${px(lg.lo)} (${dayTime(lg.loT)}) → tepe ${px(lg.hi)} (${dayTime(lg.hiT)})` : `tepe ${px(lg.hi)} (${dayTime(lg.hiT)}) → dip ${px(lg.lo)} (${dayTime(lg.loT)})`}`);

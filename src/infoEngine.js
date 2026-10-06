@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Bilgi botu motoru — canlı bot ve backtest AYNI fonksiyonları kullanır[span_1](start_span)[span_1](end_span).
+ * Bilgi botu motoru — canlı bot ve backtest AYNI fonksiyonları kullanır.
  */
 
 const ta = require('./ta');
@@ -14,7 +14,7 @@ const MIN = 60_000;
 // ── Hacim patlamaları ──────────────────────────────────────────────────────
 
 /**
- * 1m tamponunun i. mumu patlama mı?[span_2](start_span)[span_2](end_span)
+ * 1m tamponunun i. mumu patlama mı?
  * @param {object} d - Series.d['1m']
  * @param {number} i - Mum indeksi
  * @param {object} s - Ayarlar
@@ -40,7 +40,7 @@ function burstAt(d, i, s) {
 }
 
 /**
- * Son kapanan 1m mum patlama mı?[span_3](start_span)[span_3](end_span)
+ * Son kapanan 1m mum patlama mı?
  * @param {object} series - Series nesnesi
  * @param {object} s - Ayarlar
  */
@@ -110,7 +110,7 @@ function volGrade(move, volX, taker, s) {
 const DAILY_LEVELS = ['1d MA200', '1d EMA200', '30 günlük tepe', '30 günlük en yüksek', '7 günlük en yüksek', 'Günlük bölge'];
 
 /**
- * Kurulum kontrol listesi (9 madde)[span_4](start_span)[span_4](end_span)
+ * Kurulum kontrol listesi (9 madde)
  * @param {object} snap 
  * @param {object} s 
  */
@@ -141,10 +141,8 @@ function checklist(snap, s) {
   const band = ['3m', '5m'].filter(tf => inBand(r[tf].v));
   const over = ['3m', '5m'].filter(tf => r[tf].v > s.rsiEntryMax);
 
-  const sepPct = Math.max(
-    Math.abs(snap.sepPct?.['3m'] ?? 0),
-    Math.abs(snap.sepPct?.['5m'] ?? 0)
-  );
+  // Yalnız EMA21'in ÜSTÜNDEKİ ayrışma puan alır (short kurulumu: fiyat EMA21'den yukarı kopmuş); altındaysa 0
+  const sepPct = Math.max(0, snap.sepPct?.['3m'] ?? 0, snap.sepPct?.['5m'] ?? 0);
   let sepPts = 0;
   let sepTxt = 'yok';
   if (sepPct >= (s.sepPct10 ?? 10)) { sepPts = 3; sepTxt = `≥%${s.sepPct10 ?? 10} (${sepPct.toFixed(1)}%)`; }
@@ -639,7 +637,8 @@ function createTracker() {
         discKey: snap.discovery ? lvKey(snap.discovery.broken) : null,
         level: snap.level,
         zone: snap.level ? snap.level.zone : null,
-        macdKeys: {'3m': snap.macd?.['3m']?.crossKey ?? null,'5m': snap.macd?.['5m']?.crossKey ?? null,'15m': snap.macd?.['15m']?.crossKey ?? null,},
+        // Kesişim yoksa öncekini koru (aynı kesişim tekrar "yeni" yazılmasın)
+        macdKeys: Object.fromEntries(['3m', '5m', '15m'].map(tf => [tf, snap.macd?.[tf]?.crossKey ?? (m.last?.macdKeys?.[tf] ?? null)])),
         stochKey: snap.stoch?.crossKey ?? (m.last?.stochKey ?? null),
         neg: { '1m': snap.neg?.['1m']?.count ?? 0, '3m': snap.neg?.['3m']?.count ?? 0 },
         negKey: { '1m': snap.neg?.['1m']?.key ?? null, '3m': snap.neg?.['3m']?.key ?? null },
@@ -699,7 +698,8 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
     }
   }
 
-  if (!tfs.length && !sfp && !move) return null;
+  // Değerlendirme: 3m/5m/15m kapanışı, hacimli 1m mum, sahte kırılım ya da 1 dk hareket
+  if (!tfs.length && !burst && !sfp && !move) return null;
 
   let snap = evaluate(series, s, ctx);
   if (sfp && !snap.rsiOk) sfp = null;

@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Bilgi botunun Telegram komutları ve buton işleyicileri[span_4](start_span)[span_4](end_span).
+ * Bilgi botunun Telegram komutları ve buton işleyicileri.
  */
 
 const { formatCard, summaryText, esc, px, pct, dayTime } = require('./infoCard');
