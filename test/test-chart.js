@@ -1,0 +1,11 @@
+const { gen, agg, MIN } = require('./gen');
+const { Series, TF_MS } = require(__dirname + '/../src/series');
+const { renderChart, candlesFromSeries } = require(__dirname + '/../src/chart');
+const D = 1440; const m1 = gen({ seed: 3, days: 40, p0: 130, pumps: [{ at: 39 * D + 900, len: 90, rate: 0.0012, vol: 3, dumpLen: 40 }] });
+const cut = m1[0].t + 39 * D * MIN + 1010 * MIN;
+const S = new Series('B2USDT');
+for (const tf of ['5m']) S.seed(tf, agg(m1, TF_MS[tf], cut).map(c => ({ ...c, closed: c.t + TF_MS[tf] <= cut })));
+const t0 = Date.now();
+const png = renderChart({ symbol: 'B2USDT', candles: candlesFromSeries(S), level: { name: '30 günlük tepe', value: 157.7 }, subtitle: 'Kart 3' });
+console.log('ms', Date.now() - t0, 'bytes', png && png.length);
+require('fs').writeFileSync(require('./_tmp') + '/chart.png', png);

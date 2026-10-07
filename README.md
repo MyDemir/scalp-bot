@@ -312,7 +312,18 @@ src/
 ├── streamClient.js   # Combined stream WS (≤800 stream/bağlantı, watchdog, dinamik abonelik)
 ├── telegram.js       # Gönderim kuyruğu (20 msj/dk, 429 tekrar) + komut/buton dinleme
 └── config.js         # Varsayılan parametreler
+test/
+├── run.js            # Tüm testleri sırayla çalıştırır (npm test)
+├── gen.js            # Sentetik mum üreteci
+├── mockinfo.js       # Sahte Binance REST/WS + sahte Telegram sunucusu
+└── test-*.js         # 16 test
 ```
+
+## Testler
+`npm test` — 16 test dosyası (`test/`), ağ gerekmez: Binance REST/WS ve Telegram sahte sunucularla taklit edilir.
+Kart şartları, seviyeler, hacim sayacı, grafik, seviye tepkisi, tepe defteri, haftalık rapor, uçtan uca bot ve backtest denenir.
+Yalnız bazıları: `node test/run.js drops weekly`. Geçici dosyalar ve loglar `test/.tmp/`'ye yazılır (git'e girmez).
+Docker imajına girmez (Dockerfile yalnız `src/`'yi kopyalar).
 
 ## Kurulum (yerel)
 

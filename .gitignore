@@ -8,3 +8,4 @@ logs/
 *.log
 backtest-results/
 data/info-settings.json
+test/.tmp/
