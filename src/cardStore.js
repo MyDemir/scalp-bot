@@ -70,6 +70,8 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
     for (const [c, type] of [['stop', 'TEXT'], ['stopdepth', 'REAL'], ['falling', 'INTEGER'], ['lvtouches', 'INTEGER']]) {
       if (!tcols.has(c)) db.exec(`ALTER TABLE touches ADD COLUMN ${c} ${type}`);
     }
+    const ecols = new Set(db.prepare('PRAGMA table_info(events)').all().map(c => c.name));
+    if (!ecols.has('outcome')) db.exec('ALTER TABLE events ADD COLUMN outcome TEXT');
     const n = recover ? db.prepare('UPDATE cards SET done = 1, partial = 1 WHERE done = 0').run().changes : 0;
     if (n) logger.log(`[GEÇMİŞ] Yeniden başlatma: ${n} yarım takip "eksik" olarak kapatıldı`);
   } catch (err) {
@@ -87,8 +89,8 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
     tIns: db.prepare(`INSERT OR IGNORE INTO touches (id, symbol, t, name, kind, value, hits, rsiok, card, emagap, pb, pbmin, emamin, brokemin, brokeafterema, held, up, dn, c60, stop, stopdepth, falling, lvtouches)
       VALUES (@id, @symbol, @t, @name, @kind, @value, @hits, @rsiok, @card, @emagap, @pb, @pbmin, @emamin, @brokemin, @brokeafterema, @held, @up, @dn, @c60, @stop, @stopdepth, @falling, @lvtouches)`),
     tSince: db.prepare('SELECT * FROM touches WHERE t >= ? ORDER BY t'),
-    eIns: db.prepare(`INSERT OR IGNORE INTO events (id, symbol, t, price, dropt, dropmin, card, cardgrade, rsiok, hits, data, ${EVENT_WINDOWS.map(w => `low${w}, high${w}, close${w}`).join(', ')})
-      VALUES (@id, @symbol, @t, @price, @dropt, @dropmin, @card, @cardgrade, @rsiok, @hits, @data, ${EVENT_WINDOWS.map(w => `@low${w}, @high${w}, @close${w}`).join(', ')})`),
+    eIns: db.prepare(`INSERT OR IGNORE INTO events (id, symbol, t, price, dropt, dropmin, card, cardgrade, rsiok, hits, data, outcome, ${EVENT_WINDOWS.map(w => `low${w}, high${w}, close${w}`).join(', ')})
+      VALUES (@id, @symbol, @t, @price, @dropt, @dropmin, @card, @cardgrade, @rsiok, @hits, @data, @outcome, ${EVENT_WINDOWS.map(w => `@low${w}, @high${w}, @close${w}`).join(', ')})`),
     eSince: db.prepare('SELECT * FROM events WHERE t >= ? ORDER BY t'),
     ePrune: db.prepare('DELETE FROM events WHERE t < ?'),
     tPrune: db.prepare('DELETE FROM touches WHERE t < ?'),
@@ -169,7 +171,7 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
     /** Düşüş olayı (src/eventLog.js finish() çıktısı) */
     addEvent(e) {
       const row = { id: e.id, symbol: e.symbol, t: e.t, price: e.price, dropt: e.dropT, dropmin: e.dropMin, card: e.card ? 1 : 0,
-        cardgrade: e.cardGrade ?? null, rsiok: e.feat?.rsiOk ? 1 : 0, hits: e.feat?.hits ?? null, data: JSON.stringify(e.feat ?? {}) };
+        cardgrade: e.cardGrade ?? null, rsiok: e.feat?.rsiOk ? 1 : 0, hits: e.feat?.hits ?? null, data: JSON.stringify(e.feat ?? {}), outcome: e.outcome ?? 'düştü' };
       for (const w of EVENT_WINDOWS) for (const k of ['low', 'high', 'close']) row[`${k}${w}`] = e.out?.[w]?.[k] ?? null;
       safe(() => st.eIns.run(row), 'düşüş kaydı');
     },
@@ -215,7 +217,8 @@ function rowToEvent(r) {
   try { feat = JSON.parse(r.data || '{}'); } catch { feat = {}; }
   const out = {};
   for (const w of EVENT_WINDOWS) if (r[`low${w}`] != null) out[w] = { low: r[`low${w}`], high: r[`high${w}`], close: r[`close${w}`] };
-  return { id: r.id, symbol: r.symbol, t: r.t, price: r.price, dropT: r.dropt, dropMin: r.dropmin, card: Boolean(r.card), cardGrade: r.cardgrade, feat, out };
+  const outcome = r.outcome || feat.outcome || 'düştü';             // eski kayıtlar yalnız düşüştü
+  return { id: r.id, symbol: r.symbol, t: r.t, price: r.price, outcome, dropT: r.dropt, dropMin: r.dropmin, card: Boolean(r.card), cardGrade: r.cardgrade, feat: { ...feat, outcome }, out };
 }
 
 /** touches satırı → levelTouch olay biçimi */

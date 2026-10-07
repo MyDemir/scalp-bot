@@ -68,7 +68,7 @@ Hızlı okunsun diye kısa ve her şey açıkta (açılır kutu yok):
 ```
 🔴🔴 #CVXUSDT — RSI                 ← daire sayısı = derece (kontrol skoru), rengi = son 15 dk yön (🟢 yükseliş · 🔴 düşüş)
 🔔: RSI 85+ · Kart 3 · ⭐ Dirençte   ← neden geldi (sahte kırılımda "⚠️ Sahte kırılım", seri içinde "Seri sürüyor (şart dışı)")
-⚠️ Sahte kırılım: … / 🚀 Fiyat keşfi: … / 🟢🟢 Hacimli yükselen mum …   ← yalnız özel olay varsa (en fazla 2 satır)
+⚠️ Sahte kırılım: … / 🚀 Fiyat keşfi: …   ← yalnız özel olay varsa (en fazla 2 satır)
 RSI 3dk: 86.1
 RSI 5dk: 88.4
 RSI 15dk: 85.2
@@ -77,6 +77,8 @@ RSI 4s: 67.9
 
 Direnç: 4h MA200 2.3664 (%0.36 kala)
 Fiyat: 2.358
+Funding: −%0.0050 · 40dk sonra       ← funding oranı ve sonraki ödemeye kalan süre
+🟢🟢 Hacimli yükselen mum: +%1.6 · hacim 3.9 kat · alış %61   ← yalnız varsa (⚡ 1 dk hareket satırı da burada)
 ⏱: 29.09 09:35
 ```
 1 dk ≥ %2 hareket ayrı kart değildir: RSI şartı sağlanan coinde RSI kartına `⚡…` satırı olarak girer (bkz. aşağıda).
@@ -90,7 +92,7 @@ başlatmamış kullanıcıda buton botla özel sohbeti açar (bir kez **Başlat*
   `Bugün 1 dk ≥ %2: ▲ 5 · ▼ 3 · fark +2`; kartı 1 dk hareket doğurduysa onun ayrıntısı
 - 🎯 **Kontrol x/8** — sağlanan maddeler değerleriyle, eksikler tek satırda, varsa ⚠️ uyarı
 - 📏 **Hedef** (3dk/5dk EMA21) · 3dk EMA21 durumu (izliyor / koptu / serbest) · fiyat keşfinde kırılan seviye, sonraki direnç, Fib uzantı
-- 🧭 **Diğer** — funding, açık pozisyon (1 saat), BTC (1 saat) · MACD 5dk, Stoch RSI, VWAP · üstteki dirençler
+- 🧭 **Diğer** — açık pozisyon (1 saat), BTC (1 saat) · MACD 5dk, Stoch RSI, VWAP · üstteki dirençler
 Ayrıntılar bellekte tutulur (son 3000 kart); bot yeniden başlayınca eski kartların Detay'ı "artık yok" der.
 
 - **EMA21** 3m/5m: fiyata uzaklığı (%) ve ATR cinsinden ayrışma (geri çekilme hedefleri)
@@ -125,7 +127,7 @@ Evren dışı pariteler için grafik verisi o an REST'ten çekilir. Açıklama 1
 ### ⚡ 1 dakikalık hareket (RSI kartının içinde)
 Ayrı hareket kartı **yok**. Yalnızca **izlenen** coinlerde (24s hacim ≥ 3M $) 1m kapanış, bir önceki 1m kapanışa göre
 **≥ %2** değişirse:
-- **RSI şartı sağlanıyorsa** RSI kartı gelir; 🔔 satırının altında `⚡🟢🟢🟢 1 dk +%3.29 · hacim 34.0 kat · alış %70`
+- **RSI şartı sağlanıyorsa** RSI kartı gelir; kartın altında (⏱ satırının üstünde) `⚡🟢🟢🟢 1 dk +%3.29 · hacim 34.0 kat · alış %70`
   (daire sayısı = hacim derecesi, rengi = yön). Aynı mum hacimli mum da sayılıyorsa yalnız ⚡ satırı yazılır. `#HAREKET`
 - **RSI şartı yoksa** kart gelmez; hareket yalnızca günlük sayaca yazılır.
 - **📋 Detay**'da: hareketin ayrıntısı (eski → yeni fiyat, hacim katı, alış/satış) ve
@@ -172,13 +174,17 @@ aynı (Fib 0.236–0.786, günlük bölge / trend çizgisi, 7/30g en yüksek, MA
   özet; 📊 seviyelere göre (pompa, 5+ örnekli seviyeler; azı tek satırda); tanımlar en altta açılır blokta.
   Ör. `/seviye 7 fib`, `/seviye 14 bölge`. Kazanç/kayıp değildir. Backtest aynı tabloyu geçmiş veriden hemen verir (aşağıda).
 
-### Düşüş defteri (/kacan) ve veri dışa aktarma (/disaaktar)
-Kart çıksın çıkmasın, **pompa tepesinden gelen her düşüş** kaydedilir — "o an her şey nasıldı, hangi şartımız yoktu?"
-- **Tepe:** 1 dk mumun tepesi son 60 dk'nın en yükseği ve son 4 saatin dibinden ≥ %3 yukarıda. O dakikada tüm göstergelerin
-  fotoğrafı alınır (daha yüksek tepe gelirse yenilenir).
-- **Düşüş:** tepeden sonraki 15 dk içinde fiyat tepenin %1.5 altına iner → olay. Coin başına 60 dk'da bir.
+### Tepe defteri (/kacan, /teyit) ve veri dışa aktarma (/disaaktar)
+Kart çıksın çıkmasın, **pompadaki her tepe adayı** kaydedilir — "o an her şey nasıldı, sonra düştü mü?" Amaç: short teyidi
+için hangi durumların düşüşe eşlik ettiğini veriden bulmak.
+- **Tepe adayı:** 1 dk mumun tepesi son 60 dk'nın en yükseği ve son 4 saatin dibinden ≥ %3 yukarıda. O dakikada tüm
+  göstergelerin fotoğrafı alınır.
+- **Sonuç (15 dk içinde, hangisi önce):** **düştü** (tepenin %1.5 altı) · **devam** (daha yüksek tepe → o mum yeni aday) ·
+  **yatay** (ikisi de değil). Düştü ve yatay hep kaydedilir; devam en fazla 5 dk'da bir (`sampleGapMin`) — pompa boyunca örnek.
+- Ek sonuç alanları: `upBeforeDrop` (düşmeden önce tepenin ne kadar üstüne çıktı), `t1/t2/t3` (−%1 / −%2 / −%3'e kaç dk),
+  **5dk teyit mumu** (tepeden sonraki ilk tam 5dk mum: kırmızı mı, yutan ayı mı, önceki dibi kırdı mı, sonraki 60 dk dibi).
 - **Kartlı / kartsız:** o coinde tepeden 15 dk önce ile düşüşten 5 dk sonrası arasında kart çıktı mı.
-- **Tepe fotoğrafı (~130 sütun):**
+- **Tepe fotoğrafı (214 sütun):**
   - **1m / 3m / 5m / 15m / 1h / 4h** her biri için: RSI, EMA21'e uzaklık %, MACD (kesişim / zayıf / güçlü) ve histogram,
     Stoch RSI K/D, ATR %, son mumun hacim katı, taker alış %
   - **VWAP:** günlük / haftalık / aylık (UTC gün, Pazartesi, ay başı) % ve σ (±1/2/3σ bantları seviye olarak),
@@ -186,22 +192,39 @@ Kart çıksın çıkmasın, **pompa tepesinden gelen her düşüş** kaydedilir 
   - **Tepki seviyesi:** (+ `pkLvTouches`: o seviyenin önceki ~100 günde kaç kez test edildiği) tepenin %0.3 içindeki en yakın seviye (Fib, günlük/haftalık bölge, trend çizgisi, 7/30g en yüksek,
     MA200/EMA200, 1s/4s/15dk tepe, VWAP ve bantları, EMA21 3/5/15dk/1s) + %0.5 içindeki tüm seviyeler
   - Kart şartları (`fails`), kontrol listesi, en yakın direnç, negatif tepe, hacim pencereleri, funding, BTC 1s, pompa büyüklüğü/süresi
+  - **CVD / alış:** 15 ve 60 dk net taker alış ($), fiyat yükselirken CVD düşüyor mu (`cvdDiv`), alış payı değişimi
+  - **Mum yapısı:** 1m/5m/15m üst fitil, kapanış konumu (CLV), gövde; art arda yeşil mum sayısı
+  - **Hacim / hız:** 15 dk hacim eğilimi, tepe mumunun hacim katı, 5m/15m/1h negatif tepe, son 15 dk hızı / önceki 15 dk, ivme, pompa ATR cinsinden
+  - **Bollinger** %B ve genişlik (5m / 15m / 1h)
+  - **Piyasa:** coinlerin yüzde kaçında 15m RSI ≥ 80, kaç coin pompada, BTC 5/15 dk ve 15m RSI
+  - **Zaman:** TSİ saat, haftanın günü, seans (Asya/Avrupa/ABD/Gece), funding'e kalan dk
+  - **Coin / trend:** listelenme yaşı, ATH'ye uzaklık, 30 gün dibinden yükseliş, günlük değişim ve gün içi konum,
+    1h/4h trend ve EMA200, Ichimoku bulutuna göre konum
+  - **Coin geçmişi (24 saat):** aday sayısı, düşüş sayısı, kart sayısı, son sonuç, son düşüşten beri dk
+  - **Binance ek verisi** (tepe anına hizalı): açık pozisyon 15/60 dk değişim ve $ · en büyük trader'lar long/short (hesap ve
+    pozisyon) · tüm hesaplar long/short · taker alış/satış oranı · **emir defteri** (tepe anında, %1/%2 içi alış payı) ·
+    **spot** prim ve spot hacim payı · **baz** (mark − endeks) · **likidasyon** (15/60 dk short/long $, tüm piyasa akışından).
+    REST kuyruğu doluysa atlanır (kartlar öncelikli); kartı etkilemez.
 - **Dip:** tepeden sonraki 60 dk'nın en düşüğü — kaç % / kaç dk, %0.3 içindeki en yakın destek (aynı seviye listesi) ve
   3/5/15dk EMA21 merdiveninde nereye indiği; 55. dk'dan sonraysa "hâlâ düşüyor".
 - **Sonrası:** tepeye göre 5 / 15 / 60 / 240 dk en düşük / en yüksek / kapanış (%).
-- Kartı ve tetik kurallarını etkilemez. `/data/cards.db` → `events` tablosu, 60 gün. Eşikler `src/config.js` → `events`.
+- Kartı ve tetik kurallarını etkilemez. `/data/cards.db` → `events` tablosu (haftalık raporla temizlenir). Eşikler `src/config.js` → `events`.
 
-`/kacan [gün]` — kartlı/kartsız sayısı, kartsızlarda eksik şart dağılımı ("RSI 85+ yok %62 · direnç yok %20 · şart vardı,
-kart çıkmadı %18"), kartsızların tepe RSI'ı, kartlı/kartsız karşılaştırma (RSI, EMA21 uzaklığı, VWAP σ, pompa, hacim, MACD,
-negatif tepe, Dirençte), tepeden sonraki düşüş. Tanımlar açılır blokta.
+`/kacan [gün]` — yalnız **düştü** sonuçlu adaylar: kartlı/kartsız sayısı, kartsızlarda eksik şart dağılımı ("RSI 85+ yok %62 ·
+direnç yok %20 · şart vardı, kart çıkmadı %18"), kartsızların tepe RSI'ı, kartlı/kartsız karşılaştırma, tepeden sonraki düşüş.
+Başlıkta tüm adayların dağılımı (düştü / devam / yatay). Tanımlar açılır blokta.
+
+`/teyit [gün]` — **tüm** adaylar üzerinde ~38 koşul (üst fitil, CVD ayrışması, Bollinger dışı, açık pozisyon artışı, short
+likidasyonu, funding, spot prim, piyasa geneli …): o koşul **varken / yokken** adayların yüzde kaçı düştü, farka göre sıralı
+(📈 varken daha sık düşüyor · 📉 varken daha az — devam riski) + 5dk teyit mumu oranları. Her koşul en az 5 örnekle;
+ilk günlerde az örnek olur, backtest hemen geçmiş veriden verir.
 
 `/disaaktar [gün]` (yönetici) — 3 CSV dosyası **özelden** gelir (önce bota özelden bir kez /start yaz):
-`dususler.csv` (düşüş defteri, tüm göstergeler), `kartlar.csv` (kartlar + kart anı göstergeleri + 15/60/240 dk sonrası),
+`tepeler.csv` (tüm tepe adayları + `outcome`, tüm göstergeler), `kartlar.csv` (kartlar + kart anı göstergeleri + 15/60/240 dk sonrası),
 `temaslar.csv` (seviye tepkisi). UTF-8, virgülle ayrılmış, ondalık nokta → Google Sheets / Excel / Python (pandas).
 Komut satırından: `fly ssh console` → `cd /app && node src/exportData.js --days 30` → dosyalar `/data/export/`'a yazılır,
-bilgisayara: `fly ssh sftp get /data/export/dususler.csv`. Backtest de aynı defteri hesaplar
-(`backtest-results/dususler-*.csv`, gruba rapor).
-
+bilgisayara: `fly ssh sftp get /data/export/tepeler.csv`. Backtest de aynı defteri hesaplar
+(`backtest-results/tepeler-*.csv`, gruba rapor + teyit tablosu).
 
 Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı konularına** gönderilebilir.
 1. Grup ayarları → **Konular**'ı aç (grup süpergrup olmalı; ID çoğunlukla değişmez). Yeni bir grup kullanacaksan
@@ -221,8 +244,9 @@ Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı kon
 | `/sustur ETH [dk]` · `/ac ETH` · `/sessiz` | yönetici / herkes | susturma |
 | `/takip [ETH]` | liste herkes, ekle-çıkar yönetici | takipteki coinlerin kartları her zaman sesli |
 | `/gecmis ETH [adet]` · `/istatistik [gün]` | herkes | kart geçmişi ve sınıf istatistiği |
-| `/kacan [gün]` | herkes | düşüş defteri: pompa tepesinden düşüşler, kartlı/kartsız, kartsızlarda eksik şart |
-| `/disaaktar [gün]` | yönetici | istatistik verisi CSV olarak özelden (düşüşler, kartlar, temaslar) |
+| `/kacan [gün]` | herkes | tepe defteri: pompa tepesinden düşüşler, kartlı/kartsız, kartsızlarda eksik şart |
+| `/teyit [gün]` | herkes | short teyidi: hangi koşul varken tepe adayları daha sık düştü (varken / yokken) |
+| `/disaaktar [gün]` | yönetici | istatistik verisi CSV olarak özelden (tepeler, kartlar, temaslar) |
 | `/haftalik` | yönetici | haftalık dosyanın ön izlemesi özelden (silmez); asıl dosya Pazartesi 03:01'de gruba gider |
 | `/seviye [gün] [ad]` | herkes | seviye tepkisi: temastan sonra çekilme / 3dk EMA21'e dönüş / kırılım (ör. `/seviye 7 fib`) |
 | `/konu [ad]` · `/konu sil ad` | liste herkes, bağlama yönetici | konulu grupta yönlendirme |
@@ -272,7 +296,9 @@ src/
 ├── infoSettings.js   # Ayarlar (varsayılan config.info, değişiklikler /data/info-settings.json)
 ├── infoStats.js      # Kart sınıfları + "sonrası" medyanları (backtest ve /istatistik ortak)
 ├── cardStore.js      # Kart geçmişi (SQLite /data/cards.db) + 15/60/240 dk takip + seviye tepkisi tablosu
-├── eventLog.js       # Düşüş defteri: pompa tepesi → düşüş, kartlı/kartsız, tüm göstergeler (canlı + backtest ortak)
+├── eventLog.js       # Tepe defteri: pompa tepe adayı → düştü/devam/yatay, kartlı/kartsız, /kacan, /teyit (canlı + backtest ortak)
+├── peakFeatures.js   # Tepe adayı ek özellikleri: CVD, mum yapısı, Bollinger, hız, piyasa, zaman, coin geçmişi
+├── marketData.js     # Binance ek verisi: açık pozisyon, long/short, emir defteri, spot, baz, likidasyon akışı
 ├── exportData.js     # CSV dışa aktarma (/disaaktar ve komut satırı)
 ├── marketSnap.js     # 1m–4h göstergeleri, VWAP seti, tepki/destek seviyesi eşleştirme (istatistik kaydı)
 ├── weeklyReport.js   # Haftalık MD + CSV (Pazartesi 03:01 TSİ) → gruba, sonra veritabanından silme

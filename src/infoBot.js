@@ -14,6 +14,8 @@ const { compact } = require('./infoStats');
 const { createCardStore } = require('./cardStore');
 const { createTouchTracker } = require('./levelTouch');
 const { createDropLedger, DEFAULTS: DROP_DEFAULTS } = require('./eventLog');
+const { createEnricher, createLiqStream } = require('./marketData');
+const ta = require('./ta');
 const { createWeeklyJob } = require('./weeklyReport');
 const path = require('path');
 const chart = require('./chart');
@@ -30,7 +32,10 @@ const KEEP_BELOW_RATIO  = 0.8;
 const settings = createSettings();
 const tracker  = eng.createTracker();
 const touches  = createTouchTracker();
-const drops    = createDropLedger(cfg.events);   // düşüş defteri (kartı etkilemez)
+// Tepe defteri (kartı etkilemez) — canlıda Binance ek verisi (OI, long/short, emir defteri, spot) ve likidasyon akışı
+const enricher = createEnricher({ client: binance });
+const liqStream = createLiqStream();
+const drops    = createDropLedger({ ...cfg.events, enrich: (sym, o) => enricher.enrich(sym, o), orderBook: sym => enricher.orderBook(sym) });
 let store = null;
 let weekly = null;            // haftalık rapor işi (main'de kurulur)
 
@@ -75,8 +80,32 @@ function btc1h() {
   return n > 60 ? (c[n - 1] / c[n - 61] - 1) * 100 : null;
 }
 
+// Piyasa geneli (dakikada bir hesaplanır): 15m RSI ≥ 80 coin %, 60 dk'da ≥ %3 yükselen coin sayısı, BTC 5/15 dk ve 15m RSI
+let marketCache = { t: 0, v: null };
+function marketState(t) {
+  const minute = Math.floor((t || Date.now()) / 60_000);
+  if (marketCache.t === minute) return marketCache.v;
+  let n = 0, hot = 0, pumping = 0;
+  for (const sr of series.values()) {
+    if (!sr.ready()) continue;
+    n++;
+    const r = ta.rsiLast(sr.col('15m', 'c', true), 14);
+    if (r >= 80) hot++;
+    const c = sr.d['1m'].c, k = c.length;
+    if (k > 60 && c[k - 61] > 0 && c[k - 1] / c[k - 61] - 1 >= 0.03) pumping++;
+  }
+  const b = series.get('BTCUSDT'), bc = b ? b.d['1m'].c : [], bn = bc.length;
+  const chg = m => (bn > m && bc[bn - 1 - m] > 0 ? +((bc[bn - 1] / bc[bn - 1 - m] - 1) * 100).toFixed(2) : null);
+  const v = { breadth80: n ? +(hot / n * 100).toFixed(1) : null, pumping, btc5: chg(5), btc15: chg(15),
+    btcRsi15: b ? +(ta.rsiLast(b.col('15m', 'c', true), 14) ?? 0).toFixed(1) : null };
+  marketCache = { t: minute, v };
+  return v;
+}
+
 const ctx = {
   funding: sym => premium.get(sym) || null,
+  market: marketState,
+  liq: (sym, t, q15) => liqStream.liq(sym, t, q15),
   btc1h,
   isMuted: sym => settings.isMuted(sym),
   isFollowed: sym => settings.isFollowed(sym),
@@ -365,7 +394,7 @@ function heartbeat() {
     ` | son ${mins}dk: ${closes} 1m kapanış, ${ws?.skipped ?? 0} ara güncelleme atlandı, ${cards} kart` +
     ` | coin: ${readyCount()}/${series.size} hazır${busy.size ? `, ${busy.size} yükleniyor` : ''}${stale.length ? `, ${stale.length} GERİDE` : ''}` +
     ` | ${dTxt}` +
-    ` | takipte ${store?.openCount() ?? 0} kart, ${touches.openCount()} seviye teması, ${drops.openCount()} düşüş` +
+    ` | takipte ${store?.openCount() ?? 0} kart, ${touches.openCount()} seviye teması, ${drops.openCount()} tepe adayı · ek veri ${enricher.stats.ok} (atlanan ${enricher.stats.skipped}) · likidasyon mesajı ${liqStream.stats().messages}` +
     ` | telegram: ${tg.sent} gönderildi, ${tg.queued} kuyrukta${tg.failed ? `, ${tg.failed} BAŞARISIZ` : ''}` +
     ` | bellek: ${mem} MB`,
   );
@@ -406,6 +435,7 @@ async function main() {
   const wsList = wsSymbols();
   console.log(`WebSocket: ${wsList.length} parite (izlenen)`);
   binance.startWebSocket(wsList, ['1m'], onKline, { onGap: backfillGap, options: { ...cfg.ws, finalOnly: true } });
+  if (process.env.LIQ_STREAM !== '0') liqStream.start();                // tüm piyasa likidasyon akışı (istatistik)
 
   await pollPremium();
   setInterval(pollPremium, PREMIUM_EVERY_MS);
@@ -445,4 +475,4 @@ async function main() {
   console.log('\n✅ Bilgi botu çalışıyor.\n');
 }
 
-module.exports = { main, _internal: { series, settings, tracker, touches, drops, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, statusText, stats, busy, pending, details, getStore: () => store, getWeekly: () => weekly } };
+module.exports = { main, _internal: { series, settings, tracker, touches, drops, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, statusText, stats, busy, pending, details, getStore: () => store, getWeekly: () => weekly } };

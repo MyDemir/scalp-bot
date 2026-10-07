@@ -2,7 +2,7 @@
 
 /**
  * İstatistik verisini CSV olarak dışa aktarma — kendi analizin için (Excel / Google Sheets / Python).
- *   dususler.csv : düşüş defteri (src/eventLog.js) — her satır bir pompa tepesi → düşüş; kartlı/kartsız,
+ *   tepeler.csv  : tepe defteri (src/eventLog.js) — her satır bir pompa tepe adayı (outcome: düştü / devam / yatay); kartlı/kartsız,
  *                  tepe anındaki tüm göstergeler (RSI 3/5/15dk/1s/4s, EMA21 uzaklıkları, MACD, Stoch, VWAP σ,
  *                  hacim katları, alış %, seviye, kontrol listesi, eksik şartlar …) + 5/15/60/240 dk sonrası
  *   kartlar.csv  : gönderilen kartlar + kart anındaki göstergeler + 15/60/240 dk sonrası
@@ -11,7 +11,7 @@
  *
  * Telegram: /disaaktar [gün] (yönetici) → dosyalar özelden gelir.
  * Komut satırı (Fly makinesinde):  node src/exportData.js --days 30 --out /data/export
- *   bilgisayara almak:  fly ssh sftp get /data/export/dususler.csv
+ *   bilgisayara almak:  fly ssh sftp get /data/export/tepeler.csv
  */
 
 const { rowToStat } = require('./cardStore');
@@ -36,7 +36,7 @@ function buildExports(store, days = 30, now = Date.now()) {
   const since = now - days * 86_400_000;
   const out = [];
   const ev = store.eventsSince ? store.eventsSince(since) : [];
-  out.push({ name: 'dususler.csv', n: ev.length, csv: toCsv(ev.map(r => flatDrop(r)), dropCols()) });
+  out.push({ name: 'tepeler.csv', n: ev.length, csv: toCsv(ev.map(r => flatDrop(r)), dropCols()) });
   const cards = store.since(since).map(rowToStat).filter(r => r.kind === 'card').map(r => {
     const { bursts, text, kind, partial, done, ...rest } = r;
     return flatten({ ...rest, time: new Date(r.t).toISOString(), partial: partial ? 1 : 0 });

@@ -4,7 +4,7 @@
  * Haftalık istatistik dosyası — her Pazartesi 03:01 (TSİ) gruba gönderilir, sonra veritabanından silinir.
  *
  *   Dosyalar : haftalik-<yıl>-H<hafta>.md  — okunur özet + olay listesi (kartlar, düşüşler, seviye temasları)
- *              dususler-….csv · kartlar-….csv · temaslar-….csv — tüm sayılar (Sheets / Excel / Python)
+ *              tepeler-….csv (tüm tepe adayları) · kartlar-….csv · temaslar-….csv — tüm sayılar (Sheets / Excel / Python)
  *   Kapsam   : rapor anından 5 saat öncesine kadarki TÜM kayıtlar (kartın 240 dk takibi ve düşüşün 240 dk sonrası
  *              dolmuş olsun diye; son 5 saat bir sonraki haftaya kalır). Önceki raporda gönderilemeyenler de girer.
  *   Silme    : dosyaların HEPSİ gruba gittikten sonra kapsamdaki kartlar, temaslar ve düşüşler silinir (VACUUM ile
@@ -17,7 +17,7 @@
 const fs = require('fs');
 const path = require('path');
 const { rowToStat } = require('./cardStore');
-const { toCsv, flatDrop, dropCols, dropText } = require('./eventLog');
+const { toCsv, flatDrop, dropCols, dropText, teyitText } = require('./eventLog');
 const { touchText } = require('./infoStats');
 const { flatten } = require('./exportData');
 
@@ -90,15 +90,16 @@ function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = now - L
   const label = weekLabel(cutoff);
   const cards = store.since(0).filter(r => r.t < cutoff).map(rowToStat).filter(r => r.kind === 'card');
   const touches = (store.touchesSince ? store.touchesSince(0) : []).filter(r => r.t < cutoff);
-  const drops = (store.eventsSince ? store.eventsSince(0) : []).filter(r => r.t < cutoff);
-  const all = [...cards, ...touches, ...drops].map(r => r.t);
+  const peaks = (store.eventsSince ? store.eventsSince(0) : []).filter(r => r.t < cutoff);   // tüm tepe adayları
+  const drops = peaks.filter(r => (r.outcome || 'düştü') === 'düştü');
+  const all = [...cards, ...touches, ...peaks].map(r => r.t);
   const from = all.length ? Math.min(...all) : cutoff;
-  const counts = { cards: cards.length, touches: touches.length, drops: drops.length };
+  const counts = { cards: cards.length, touches: touches.length, drops: drops.length, peaks: peaks.length };
   const grade = g => cards.filter(c => c.grade === g).length;
   const md = [
     `# Haftalık istatistik — ${label}`,
     '',
-    `Kapsam: ${fmt(from)} → ${fmt(cutoff)} (TSİ) · ${counts.cards} kart · ${counts.drops} düşüş · ${counts.touches} seviye teması`,
+    `Kapsam: ${fmt(from)} → ${fmt(cutoff)} (TSİ) · ${counts.cards} kart · ${counts.peaks} tepe adayı (${counts.drops} düştü) · ${counts.touches} seviye teması`,
     '',
     'Bu dosya botun kaydettiği olayların dökümüdür; kazanç/kayıp hesabı yoktur, "eşlik eden durum"dur. Sayısal analiz için aynı mesajdaki CSV dosyalarını kullan.',
     '',
@@ -107,7 +108,12 @@ function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = now - L
     '',
     '## Düşüş defteri (özet)',
     '```',
-    plain(dropText(drops, { title: `${counts.drops} düşüş`, s, E })),
+    plain(dropText(peaks, { title: `${counts.drops} düşüş`, s, E })),
+    '```',
+    '',
+    '## Teyit adayları (tüm tepe adayları: düştü / devam / yatay)',
+    '```',
+    plain(teyitText(peaks, { title: `${counts.peaks} tepe adayı`, E })),
     '```',
     '',
     '## Seviye tepkisi (özet)',
@@ -124,7 +130,11 @@ function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = now - L
     ...cards.map(cardLine),
     '',
     '## Sütunlar (CSV)',
-    '- dususler.csv: rsi_<tf> · ema21_<tf> (EMA21\'e uzaklık %) · macd_<tf> (down/up/zayıf/güçlü) · hist_<tf> (% fiyat) · stk_/std_<tf> (Stoch RSI) · atr_<tf> (%) · volx_<tf> (son mum hacmi / önceki 20 ortalama) · buy_<tf> (taker alış %) — tf: 1m 3m 5m 15m 1h 4h',
+    '- tepeler.csv: her satır bir pompa tepe adayı; outcome = düştü / devam / yatay (CSV\'de süzerek düşüşleri ayır)',
+    '- Ek: cvd*, wick_/clv_/body_<tf> (mum yapısı), greens_*, volTrend15, volPeakX, neg5/neg15/neg1h, bbB_/bbW_<tf> (Bollinger), spd15/accel/pumpAtr (hız), breadth80/pumping/btc5/btc15/btcRsi15 (piyasa), hourTR/dow/session/minToFunding (zaman), ageDays/athDist/fromLow30, dayChg/dayPos, trend_/ema200_<1h|4h>, ichiPos/ichiDist, samples24h/drops24h/cards24h/lastOutcome/minsSinceDrop (coin geçmişi)',
+    '- Binance: basisPct (mark−endeks), liqShort*/liqLong* (likidasyon USDT, liqShortPct15 = 15 dk hacmine oran), oiChg15/oiChg60/oiUsd (açık pozisyon), lsTopAcc/lsTopPos/lsGlobal/takerLS (long/short), obBid1/obBid2 (emir defteri alış payı), spotPrem/spotShare60 (spot)',
+    '- Sonuç: outcome, upBeforeDrop (düşmeden önce en fazla yükseliş %), t1/t2/t3 (−%1/−%2/−%3\'e dk), c5Red/c5Engulf/c5BelowPrev/c5ClosePct/c5Next60Low (ilk tam 5dk teyit mumu)',
+    '- rsi_<tf> · ema21_<tf> (EMA21\'e uzaklık %) · macd_<tf> (down/up/zayıf/güçlü) · hist_<tf> (% fiyat) · stk_/std_<tf> (Stoch RSI) · atr_<tf> (%) · volx_<tf> (son mum hacmi / önceki 20 ortalama) · buy_<tf> (taker alış %) — tf: 1m 3m 5m 15m 1h 4h',
     '- VWAP: vwD/vwW/vwM_pct ve _sig (günlük/haftalık/aylık; % ve σ), vw90_pct/_sig (kayan 90 dk), vw24h_pct, vw7d_pct, avwLow_pct (pompa dibinden sabitlenmiş)',
     '- Tepe: pkLv / pkLvKind / pkLvDist / pkLvTouches (tepki seviyesi ve önceki ~100 günde kaç kez test edildiği), pkNear (%0.5 içindeki tüm seviyeler) · Dip: trPct, trMin, trLv, trLvDist, trLvTouches, trNear, trEma (3/5/15dk EMA21 merdiveni), trFalling',
     '- temaslar.csv: lvTouches = seviyenin önceki ~100 günde (4s mumlar) kaç ayrı kez test edildiği · kartlar.csv: level_touches',
@@ -137,7 +147,7 @@ function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = now - L
   const colsOf = rows => { const set = new Set(); for (const r of rows) for (const k of Object.keys(r)) set.add(k); return [...set]; };
   const files = [
     { name: `haftalik-${label}.md`, buf: Buffer.from(md, 'utf8'), type: 'text/markdown' },
-    { name: `dususler-${label}.csv`, buf: Buffer.from(toCsv(drops.map(r => flatDrop(r)), dropCols()), 'utf8'), type: 'text/csv' },
+    { name: `tepeler-${label}.csv`, buf: Buffer.from(toCsv(peaks.map(r => flatDrop(r)), dropCols()), 'utf8'), type: 'text/csv' },
     { name: `kartlar-${label}.csv`, buf: Buffer.from(toCsv(cardRows, colsOf(cardRows)), 'utf8'), type: 'text/csv' },
     { name: `temaslar-${label}.csv`, buf: Buffer.from(toCsv(touchRows, colsOf(touchRows)), 'utf8'), type: 'text/csv' },
   ];

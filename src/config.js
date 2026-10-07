@@ -81,7 +81,7 @@ module.exports = {
     localHighMin:   60,    // tepe = son 60 dk'nın en yükseği
     peakWindowMin:  15,    // düşüş tepeden sonra en geç bu kadar dk içinde
     dropPct:        1.5,   // tepeden en az bu kadar % düşüş
-    cooldownMin:    60,    // coin başına bu kadar dk'da bir olay
+    sampleGapMin:   5,     // "devam" eden adaylar (pompa sürerken) en fazla bu kadar dk'da bir kaydedilir; düştü/yatay hep
     cardBeforeMin:  15,    // "kartlı": tepeden 15 dk önce …
     cardAfterMin:   5,     // … ile düşüşten 5 dk sonrası arasında kart
     windows:        [5, 15, 60, 240],   // sonrası pencereleri (dk) — cards.db sütunları bunlara göre, DEĞİŞTİRME

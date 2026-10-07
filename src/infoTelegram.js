@@ -8,7 +8,7 @@ const { formatCard, summaryText, esc, px, pct, dayTime } = require('./infoCard')
 const { evaluate, circles } = require('./infoEngine');
 const { classTable, median, touchText } = require('./infoStats');
 const { rowToStat } = require('./cardStore');
-const { dropText } = require('./eventLog');
+const { dropText, teyitText } = require('./eventLog');
 const { buildExports } = require('./exportData');
 const { buildWeekly } = require('./weeklyReport');
 const cfgAll = require('./config');
@@ -192,6 +192,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
 /istatistik [gün] — kart sınıfları ve sonrasında fiyat (varsayılan 7 gün)
 /seviye [gün] [ad] — dirence alttan temastan sonraki 60 dk: geri çekilme, 3dk EMA21'e dönüş, kırılım (ör. <code>/seviye 7 fib</code>)
 /kacan [gün] — düşüş defteri: pompa tepesinden düşüşler, kartlı/kartsız, kartsızlarda eksik şart
+/teyit [gün] — teyit adayları: her pompa tepe adayında hangi durum varken daha sık düştü (varken / yokken düşüş oranı)
 /disaaktar [gün] — (yönetici) istatistik verisi CSV olarak özelden: düşüşler, kartlar, temaslar
 /haftalik — (yönetici) haftalık dosyanın ön izlemesi özelden (silmez). Asıl dosya her Pazartesi 03:01'de gruba gider ve veritabanı temizlenir
 /konu [ad] — konulu grupta yönlendirme (konunun içinde yaz: /konu kart · /konu sistem · /konu kart3 · /konu backtest · /konu rapor)
@@ -324,7 +325,14 @@ ${mv.join('\n')}` : ''}`.slice(0, 4000);
       if (!store || !store.enabled() || !store.eventsSince) return 'Kart geçmişi kapalı (veritabanı açılamadı).';
       const days = Math.max(1, Math.min(60, Number(String(args).trim()) || 7));
       const rows = store.eventsSince(Date.now() - days * 86_400_000);
-      return dropText(rows, { title: `son ${days} gün · ${rows.length} düşüş`, s: settings.get(), E: { ...require('./eventLog').DEFAULTS, ...(cfgAll.events || {}) } });
+      return dropText(rows, { title: `son ${days} gün · ${rows.filter(r => r.outcome === 'düştü').length} düşüş`, s: settings.get(), E: { ...require('./eventLog').DEFAULTS, ...(cfgAll.events || {}) } });
+    },
+
+    teyit: (args) => {
+      if (!store || !store.enabled() || !store.eventsSince) return 'Kart geçmişi kapalı (veritabanı açılamadı).';
+      const days = Math.max(1, Math.min(60, Number(String(args).trim()) || 7));
+      const rows = store.eventsSince(Date.now() - days * 86_400_000);
+      return teyitText(rows, { title: `son ${days} gün · ${rows.length} tepe adayı`, E: { ...require('./eventLog').DEFAULTS, ...(cfgAll.events || {}) } });
     },
 
     disaaktar: adminOnly(async (args, msg) => {
@@ -392,6 +400,7 @@ ${mv.join('\n')}` : ''}`.slice(0, 4000);
     ['istatistik', 'Kart sınıfları ve kart sonrası fiyat · örn. /istatistik 7'],
     ['seviye', 'Seviye tepkisi: temastan sonra çekilme / EMA21 / kırılım · örn. /seviye 7 fib'],
     ['kacan', 'Düşüş defteri: pompa tepesinden düşüşler, kartlı / kartsız · örn. /kacan 7'],
+    ['teyit', 'Teyit adayları: hangi durum varken tepeden daha sık düştü · örn. /teyit 7'],
     ['disaaktar', '(yönetici) İstatistik verisi CSV olarak özelden · örn. /disaaktar 30'],
     ['haftalik', '(yönetici) Haftalık dosyanın ön izlemesi özelden (silmez)'],
     ['takip', 'Takip listesi / ekle-çıkar (kartları hep sesli) · örn. /takip ETH'],

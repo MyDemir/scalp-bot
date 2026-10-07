@@ -101,12 +101,17 @@ function formatCard(card, s, opt = {}) {
       : snap.rsiOk ? `RSI ${s.rsiMin}+`
         : card.inSeries ? 'Seri sürüyor (şart dışı)' : `RSI ${s.rsiMin}+`;
   L.push(`🔔: ${[why, card.seq === '–' ? null : `Kart ${card.seq}`, dip ? '⭐ Dirençte' : null].filter(Boolean).join(' · ')}`);
-  const special = card.news.filter(n => /^(⚡|⚠️ Sahte kırılım|🚀 Fiyat keşfi|🟢|🔴|⚪)/.test(n));
+  // Üstte (🔔 altında) yalnız sahte kırılım / fiyat keşfi; hacimli mum ve ⚡ 1 dk hareket kartın altında (saatten önce)
+  const special = card.news.filter(n => /^(⚠️ Sahte kırılım|🚀 Fiyat keşfi)/.test(n));
   for (const n of special.slice(0, 2)) L.push(esc(n.replace(/^⚠️ Sahte kırılım(?: \(fitil\))?: /, '')));
+  const volLines = card.news.filter(n => /^(⚡|🟢|🔴|⚪)/.test(n)).slice(0, 2);
   L.push(...rsiLines(snap));
   L.push('');
   L.push(levelLine({ level: shownLv, discovery: snap.discovery }, s));
   L.push(`Fiyat: ${px(card.price)}`);
+  const fd = snap.funding;
+  if (fd && Number.isFinite(fd.rate)) L.push(`Funding: ${ps(fd.rate * 100, 4)}${fd.next ? ` · ${dur(fd.next - (opt.now ?? card.t))} sonra` : ''}`);
+  for (const n of volLines) L.push(esc(n));
   L.push(`⏱: ${dayTime(card.t)}`);
 
   const D = [`📋 <b>#${esc(sym)} — ${card.seq === '–' ? 'Anlık durum' : `Kart ${card.seq}`}</b> · ${dayTime(card.t)}`];
@@ -164,7 +169,7 @@ function formatCard(card, s, opt = {}) {
   }
 
   const f = snap.funding, oi = card.oi && Number.isFinite(card.oi.changePct) ? card.oi.changePct : null;
-  const line1 = [f ? `Funding ${ps(f.rate * 100, 3)}${f.next ? ` (${dur(f.next - now)} sonra)` : ''}` : null,
+  const line1 = [   // funding kartın kendisinde (Fiyat satırının altında)
     oi != null ? `Açık pozisyon 1s ${ps(oi, 2)}` : null, Number.isFinite(snap.btc1h) ? `BTC 1s ${ps(snap.btc1h, 2)}` : null].filter(Boolean);
 
   const m3 = snap.macd?.['3m'], m5 = snap.macd?.['5m'], m15 = snap.macd?.['15m'];

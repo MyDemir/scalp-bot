@@ -68,6 +68,8 @@ async function withRetry(fn, label, maxRetries = 3) {
 }
 
 const call = (weight, label, fn) => withRetry(() => limited(weight, fn), label);
+/** REST kuyruğunda bekleyen süre (ms) — istatistik zenginleştirmesi kuyruk doluysa atlanır */
+const restBacklogMs = () => Math.max(0, nextSlotAt - Date.now());
 
 // Binance futures klines weight: limit <100 → 1, <500 → 2, ≤1000 → 5, >1000 → 10
 function klineWeight(limit) {
@@ -99,7 +101,8 @@ async function fetchPremium() {
   const out = new Map();
   for (const r of Array.isArray(rows) ? rows : [rows]) {
     const fr = parseFloat(r.lastFundingRate);
-    if (r.symbol && Number.isFinite(fr)) out.set(r.symbol, { rate: fr, next: Number(r.nextFundingTime) || null });
+    const mark = parseFloat(r.markPrice), index = parseFloat(r.indexPrice);
+    if (r.symbol && Number.isFinite(fr)) out.set(r.symbol, { rate: fr, next: Number(r.nextFundingTime) || null, mark: Number.isFinite(mark) ? mark : null, index: Number.isFinite(index) ? index : null });
   }
   return out;
 }
@@ -190,6 +193,8 @@ function takeWsStats() {
 
 module.exports = {
   restClient,
+  call,
+  restBacklogMs,
   withRetry,
   fetchKlines,
   fetchExchangeInfo,

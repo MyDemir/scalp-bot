@@ -39,7 +39,7 @@ const { formatCard, toPlain, esc } = require('./infoCard');
 const { createSettings } = require('./infoSettings');
 const { withRetry } = require('./binanceClient');
 const { createTouchTracker } = require('./levelTouch');
-const { createDropLedger, dropText, DEFAULTS: DROP_DEFAULTS } = require('./eventLog');
+const { createDropLedger, dropText, teyitText, DEFAULTS: DROP_DEFAULTS } = require('./eventLog');
 
 const DAY = 86_400_000;
 const KANIT = { rsiMin: 70, resetRsi: 60 };   // --kanit
@@ -279,7 +279,7 @@ async function main() {
       allTouches.push(...(r.touches || []));
       allDrops.push(...(r.drops || []));
       perSym.push({ symbol: sym, n: cards.length, series: cards.filter(c => c.seq === 1).length, moves: (r.moves || []).length, minutes: r.minutes, gaps: r.gaps });
-      console.log(`[${i + 1}/${symbols.length}] ${sym}: ${cards.length} kart (${cards.filter(c => c.seq === 1).length} seri)${s.moveAlertPct > 0 ? ` · ${(r.moves || []).length} hareket ≥%${s.moveAlertPct}` : ''}${r.touches ? ` · ${r.touches.length} seviye teması` : ''}${r.drops ? ` · ${r.drops.length} düşüş` : ''}${r.note ? ` — ${r.note}` : ''}${eta != null ? ` · kalan ~${eta} dk` : ''}`);
+      console.log(`[${i + 1}/${symbols.length}] ${sym}: ${cards.length} kart (${cards.filter(c => c.seq === 1).length} seri)${s.moveAlertPct > 0 ? ` · ${(r.moves || []).length} hareket ≥%${s.moveAlertPct}` : ''}${r.touches ? ` · ${r.touches.length} seviye teması` : ''}${r.drops ? ` · ${r.drops.length} tepe adayı (${r.drops.filter(x => x.outcome === 'düştü').length} düştü)` : ''}${r.note ? ` — ${r.note}` : ''}${eta != null ? ` · kalan ~${eta} dk` : ''}`);
     } catch (err) {
       perSym.push({ symbol: sym, n: 0, error: String(err?.message || err) });
       console.error(`[${i + 1}/${symbols.length}] ${sym}: HATA — ${err?.message || err}`);
@@ -291,8 +291,11 @@ async function main() {
   if (s.moveAlertPct > 0) printMoves(p, allMoves, s);
   const touchMsg = touchText(allTouches, { title: `${DAYS} gün · ${symbols.length} coin · ${allTouches.length} temas (backtest)`, filter: typeof a['seviye-filtre'] === 'string' ? a['seviye-filtre'] : '', s });
   console.log('\n' + toPlain(touchMsg));
-  const dropMsg = dropText(allDrops, { title: `${DAYS} gün · ${symbols.length} coin · ${allDrops.length} düşüş (backtest)`, s, E: { ...DROP_DEFAULTS, ...(cfg.events || {}) } });
+  const nDrop = allDrops.filter(r => r.outcome === 'düştü').length;
+  const dropMsg = dropText(allDrops, { title: `${DAYS} gün · ${symbols.length} coin · ${nDrop} düşüş (backtest)`, s, E: { ...DROP_DEFAULTS, ...(cfg.events || {}) } });
   console.log('\n' + toPlain(dropMsg));
+  const teyitMsg = teyitText(allDrops, { title: `${DAYS} gün · ${symbols.length} coin · ${allDrops.length} tepe adayı (backtest)`, E: { ...DROP_DEFAULTS, ...(cfg.events || {}) } });
+  console.log('\n' + toPlain(teyitMsg));
 
   if (ORNEK > 0) {
     console.log(`\n── Örnek kartlar (son ${ORNEK}) ──`);
@@ -305,9 +308,9 @@ async function main() {
   fs.writeFileSync(file, JSON.stringify({ params: { ...p, settings: s }, classes: classTable(all), load: load(all), perSymbol: perSym, cards: all.map(({ text, ...c }) => c), moves: allMoves, touches: allTouches, drops: allDrops }, null, 1));
   console.log(`\n📁 Ayrıntılı sonuç: ${file}`);
   { const { toCsv, flatDrop, dropCols } = require('./eventLog');
-    const csvFile = file.replace(/info-([^/]+)\.json$/, 'dususler-$1.csv');
+    const csvFile = file.replace(/info-([^/]+)\.json$/, 'tepeler-$1.csv');
     fs.writeFileSync(csvFile, toCsv(allDrops.map(r => flatDrop(r)), dropCols()));
-    console.log(`📁 Düşüş defteri (CSV, ${allDrops.length} satır): ${csvFile}`); }
+    console.log(`📁 Tepe defteri (CSV, ${allDrops.length} tepe adayı, ${nDrop} düştü): ${csvFile}`); }
 
   if (a.telegram) {
     const telegram = require('./telegram');       // komut dinleme başlatılmaz → canlı botla çakışmaz
@@ -316,6 +319,7 @@ async function main() {
     telegram.sendText(telegramSummary(p, all, perSym, s, allMoves), null, thread);
     telegram.sendText(touchMsg, null, thread);
     telegram.sendText(dropMsg, null, thread);
+    telegram.sendText(teyitMsg, null, thread);
     for (const c of all.filter(x => x.burst).slice(-1).concat(all.filter(x => !x.burst).slice(-1))) {
       const kb = [[
         { text: '📈 TradingView', url: `https://www.tradingview.com/chart/?symbol=BINANCE:${encodeURIComponent(c.symbol)}.P` },
