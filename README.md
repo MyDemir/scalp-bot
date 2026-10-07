@@ -109,10 +109,10 @@ Kartlar ve ⚡ uyarılar **grafikli** gelir (fotoğraf + açıklama). Varsayıla
   yüksek tepesi ↔ en düşük dibi; dip sonra geldiyse tepe → dip, düşüşte seviyeler dirençtir). TradingView'deki gibi 1 = bacağın başı,
   0 = sonu; tepe ve dip noktaları işaretli. Grafik bacağın başladığı mumdan itibaren çizilir (en fazla 240 mum). Motorun direnç
   listesiyle aynı bacak. 0.618 kalın.
-- **Sağ üst liste — henüz geçilmemiş dirençler:** fiyatın üstündeki en yakın 5 direnç (4h tepe, günlük/haftalık bölge,
-  7/30 günlük en yüksek, MA/EMA200, trend çizgisi; görünen aralıkta olsun olmasın) + görünen aralık dışındaki Fib'ler:
-  `↑ Günlük bölge 0.39294 (+%7.0 · 6 temas)`.
-- **Yalnız güçlü dirençler:** grafikte (çizgi ve liste) yalnızca en az **4 kez test edilmiş** dirençler (`chartMinTouches`,
+- **Sağ üst liste — henüz geçilmemiş dirençler:** fiyatın üstündeki en yakın 5 direnç, **temas sayısından bağımsız hepsi**
+  (4h tepe, günlük/haftalık bölge, 7/30 günlük en yüksek, MA/EMA200, trend çizgisi; görünen aralıkta olsun olmasın) +
+  görünen aralık dışındaki Fib'ler: `↑ ★ Günlük bölge 0.39294 (+%7.0 · 6 temas)` — ★ ve açık renk = en az 4 temas.
+- **Grafik içi çizgiler yalnız güçlü dirençler:** kesikli çizgiler yalnızca en az **4 kez test edilmiş** dirençler (`chartMinTouches`,
   `/ayarlar` → 🖼 Grafik). Temas = kapanmış 4h mumlarda (~100 gün) tepe seviyeye %0.5 yaklaşıp kapanışın üstünde kalmaması;
   art arda değen mumlar tek temas; MA/EMA200 ve trend çizgisi kendi o anki değeriyle. Kartın direnci her zaman çizilir
   (`4h tepe 0.37164 · 2 temas`). Detay'da "Direnç testi: … N kez denendi".

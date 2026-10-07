@@ -42,7 +42,7 @@ const C = {
   up: '#26a69a', down: '#ef5350',
   tenkan: '#ff4d4d', kijun: '#3d8bff', chikou: '#dda0dd', spanA: '#2ecc71', spanB: '#a855f7',
   cloudUp: 'rgba(46,204,113,0.20)', cloudDn: 'rgba(239,83,80,0.18)',
-  level: '#f5a623', levelOther: '#7d8796',
+  level: '#f5a623', levelOther: '#7d8796', levelStrong: '#d9e1ea',
   ema3: '#f2f4f7', ema5: '#ffd166',
 };
 
@@ -240,10 +240,12 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
         if (lI != null && lI >= start) { g.beginPath(); g.arc(xs(lI - start), ys(Lw), 3.5, 0, 7); g.fill(); }
       }
     }
-    // Henüz geçilmemiş (fiyatın üstündeki) güçlü dirençler — görünen aralıkta olsun olmasın sağ üst listeye (en yakın 5)
+    // Henüz geçilmemiş (fiyatın üstündeki) TÜM dirençler — temas sayısından bağımsız, görünen aralıkta olsun olmasın
+    // sağ üst listeye (en yakın 5). ≥ minTouches temaslılar ★ ve açık renkle; süzgeç yalnız grafik içi çizgiler için.
     for (const L0 of levels) {
-      if (!strong(L0) || L0.value <= last) continue;
-      edge.push({ label: L0.name, value: L0.value, color: isMain(L0) ? C.level : C.levelOther, touches: L0.touches });
+      if (!L0 || !Number.isFinite(L0.value) || L0.kind === 'fib' || L0.value <= last) continue;
+      const st = L0.touches != null && L0.touches >= minTouches;
+      edge.push({ label: L0.name, value: L0.value, color: isMain(L0) ? C.level : st ? C.levelStrong : C.levelOther, touches: L0.touches, star: st });
     }
 
     // Mumlar
@@ -266,7 +268,7 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
       }
     }
 
-    // Sağ üst liste: fiyatın üstündeki en yakın 5 direnç (≥ minTouches temas) + görünen aralık dışındaki Fib'ler
+    // Sağ üst liste: fiyatın üstündeki en yakın 5 direnç (hepsi; ★ = ≥ minTouches temas) + görünen aralık dışındaki Fib'ler
     const ups = edge.filter(e => e.value > last).sort((a, b) => a.value - b.value)
       .filter((e, i, a) => !a.slice(0, i).some(p => p.label === e.label && Math.abs(p.value - e.value) / e.value < 0.003)).slice(0, 5);
     const reservedBottom = ups.length ? top + 16 + (ups.length - 1) * 17 + 4 : top - 20;
@@ -320,7 +322,7 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
     {
       g.font = '13px ChartSans'; g.textAlign = 'right';
       ups.forEach((e, i) => {
-        const txt = `↑ ${e.label} ${fmtPx(e.value)} (+%${((e.value - last) / last * 100).toFixed(1)}${e.touches != null ? ` · ${e.touches} temas` : ''})`;
+        const txt = `↑ ${e.star ? '★ ' : ''}${e.label} ${fmtPx(e.value)} (+%${((e.value - last) / last * 100).toFixed(1)}${e.touches != null ? ` · ${e.touches} temas` : ''})`;
         const y = top + 16 + i * 17, tw = g.measureText(txt).width;
         g.fillStyle = 'rgba(15,20,27,0.85)'; g.fillRect(padL + plotW - tw - 10, y - 13, tw + 8, 16);
         g.fillStyle = e.color; g.fillText(txt, padL + plotW - 6, y);

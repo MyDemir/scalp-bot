@@ -66,7 +66,7 @@ module.exports = {
     chartTf:       '1h',
     chartFib:      true,
     chartIchi:     true,
-    chartMinTouches: 4,      // grafikte yalnız en az bu kadar test edilmiş dirençler (4h mumlar ~100 gün); kartın direnci hep görünür
+    chartMinTouches: 4,      // grafik içi çizgiler yalnız en az bu kadar test edilmiş dirençler (4h mumlar ~100 gün); sağ üst liste hepsi (★ = güçlü); kartın direnci hep görünür
     ichiTenkan:    10,
     ichiKijun:     30,
     ichiChikou:    30,
