@@ -17,6 +17,7 @@ primary_region = "fra"
 
 [env]
   NODE_ENV = "production"
+  NODE_OPTIONS = "--max-old-space-size=450"
 
 # Kalıcı disk — SQLite veritabanı burada yaşıyor.
 # Bu olmadan her deploy/restart'ta sinyal geçmişi silinir.
