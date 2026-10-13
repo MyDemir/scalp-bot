@@ -68,6 +68,7 @@ const DEFS = [
   { key: 'peakAlert', short: 'Tepe reddi', label: '🔻 Tepe reddi bildirimi (ayrı mesaj)', type: 'bool' },
   { key: 'peakAlertMin', short: 'Tepe skoru', label: 'Tepe reddi: en az skor (mum reddi · kırmızı · hacim · seans; 4 = yalnız 03–15 TSİ)', type: 'int', min: 2, max: 4, step: 1 },
   { key: 'peakAlertPumpPct', short: 'Tepe pompa %', label: 'Tepe reddi: pompa en az % (4s dipten)', type: 'num', min: 3, max: 30, step: 1 },
+  { key: 'peakAlertRsiOnly', short: 'Tepe: RSI şartı', label: 'Tepe reddi: yalnız RSI kart şartı sağlanan coinlerde', type: 'bool' },
   { key: 'peakAlertGapMin', short: 'Tepe aralık dk', label: 'Tepe reddi: coin başına en fazla … dk\'da bir', type: 'int', min: 5, max: 240, step: 5 },
   { key: 'minVolumeM', short: 'Hacim M$', label: 'Evren: 24s hacim ≥ (milyon $)', type: 'num', min: 0, max: 500, step: 1 },
 ];

@@ -46,7 +46,7 @@ function formatPeakAlert({ sym, e, sc, level = null, followed = false, id }) {
   const L = [
     `🔻 <b>#${esc(sym)} — Tepe reddi ${sc.score}/4</b>`,
     `${mark(sc.R)} Mum reddi · ${mark(sc.K)} Kırmızı mum · ${mark(sc.V)} Hacim${Number.isFinite(f.volx_3m) ? ` ${f.volx_3m.toFixed(1)} kat` : ''} · ${mark(sc.SE)} Seans${sess}`,
-    `Pompa: +${pa(f.pumpPct)} (4s dipten${Number.isFinite(f.pumpMin) ? ` · ${Math.round(f.pumpMin)} dk` : ''})`,
+    `Pompa: +${pa(f.pumpPct)} (4s dipten${Number.isFinite(f.pumpMin) ? ` · ${Math.round(f.pumpMin)} dk` : ''})${f.rsiOk ? ' · RSI şartı ✅' : ''}`,
     `Tepe: ${px(e.price)} · Fiyat: ${px(close)}`,
     ...(emas.length ? [`EMA21 ${emas.join(' · ')}`] : []),
     `⏱: ${dayTime(e.t)}`,

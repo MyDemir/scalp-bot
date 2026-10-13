@@ -64,6 +64,7 @@ module.exports = {
     peakAlertMin:     4,     // skor (mum reddi · kırmızı · hacim · Asya/Avrupa seansı) en az; 4 → yalnız 03–15 TSİ
     peakAlertPumpPct: 5,     // pompa (4 saatlik dipten) en az %
     peakAlertGapMin:  30,    // coin başına en fazla … dk'da bir
+    peakAlertRsiOnly: false, // true: yalnız RSI kart şartı (rsiMin, minTFs) o an sağlanan coinlerde
 
     minVolumeM:    3,
     moveAlertPct:  2,

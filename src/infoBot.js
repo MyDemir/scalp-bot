@@ -161,6 +161,7 @@ function onPeakCandidate(sr, e) {
   const sym = sr.symbol;
   const sc = peakScore(e.feat);
   if (sc.score < (s.peakAlertMin ?? 4) || !(e.feat.pumpPct >= (s.peakAlertPumpPct ?? 5))) return;
+  if (s.peakAlertRsiOnly && !e.feat.rsiOk) return;          // yalnız RSI kart şartı (rsiMin, minTFs) sağlanan coinler
   if (settings.isMuted(sym)) return;
   const last = peakLast.get(sym);
   if (last != null && e.t - last < (s.peakAlertGapMin ?? 30) * MIN) return;

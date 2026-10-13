@@ -171,7 +171,7 @@ EMA21 3dk 1.03448 (−%1.5) · 5dk 1.0224 (−%2.7) · 15dk 1.00286 (−%4.7)
 ```
 📋 Detay: mum ölçüleri (fitil %, kapanış konumu, gövde, hacim, alış), RSI, VWAP σ, ATR, tepki seviyesi, direnç, açıklama. `#TEPERED`
 `/ayarlar` → 🔻 Tepe reddi: aç/kapa (`peakAlert`), en az skor (`peakAlertMin`, varsayılan **4** → yalnız 03–15 TSİ; 3 = her saat),
-pompa en az % (`peakAlertPumpPct`, varsayılan 5), coin başına aralık (`peakAlertGapMin`, varsayılan 30 dk). Varsayılanlarla
+pompa en az % (`peakAlertPumpPct`, varsayılan 5), **yalnız RSI kart şartı sağlanan coinlerde** (`peakAlertRsiOnly`, varsayılan kapalı — açıkken o an RSI şartı (`rsiMin`, `minTFs`) sağlanmayan tepeler atlanır; H42'de skor ≥ 3 + RSI şartlı adaylar %41 gerçek tepe ama sayıca çok az), coin başına aralık (`peakAlertGapMin`, varsayılan 30 dk). Mesajda RSI şartı sağlanıyorsa `RSI şartı ✅` yazar. Varsayılanlarla
 H42'de günde ~60 bildirim olurdu (skor ≥ 3, pompa ≥ %3 ile ~600). Susturulan coinlere gitmez. Kayıt: `cards` tablosu, `kind = tepe`
 (15/60/240 dk sonrası takip edilir; `/gecmis`'te görünür). Bilgi amaçlıdır, al/sat sinyali değildir.
 
