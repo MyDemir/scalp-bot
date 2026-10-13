@@ -11,6 +11,8 @@
  *   Seviye gücü: seviyenin daha önce kaç kez test edildiği (lvTouches, 4h mumlar ~100 gün — levels.annotateTouches)
  *   Temasta  : 3m/5m/15m RSI → RSI kart şartı sağlanıyor mu (≥ minTFs dilim ≥ rsiMin); ±5 dk içinde kart çıktı mı;
  *              fiyatın 3m EMA21'e uzaklığı
+ *   Kısa pencereler: 5 / 15 / 30 dk anındaki en derin çekilme (pbN), seviyeye göre en düşük (dnN) ve kapanış (cN) —
+ *              istatistik yalnız 60 dk'ya göre değerlendirilmesin diye; kırılım dakikası (brokeMin) ile "N dk içinde kırdı mı" da bulunur
  *   60 dk    : en derin geri çekilme (o ana kadarki en yüksekten, %) ve dibe kaç dk · 3m EMA21'e dönüş ve kaç dk ·
  *              kırılım (5m kapanış seviyenin %dipAbovePct üstünde) ve kaç dk · EMA21'e döndükten SONRA kırılım ·
  *              60. dk kapanışı seviyenin üstünde mi · seviyeye göre en yüksek / en düşük / kapanış (%)
@@ -28,6 +30,7 @@ const MIN = 60_000;
 const TOUCH_PCT = 0.3;     // seviyeye bu kadar yakın tepe = temas
 const WINDOW = 60;         // izleme süresi (dk)
 const CARD_NEAR = 5;       // temasın ±5 dk içinde kart → "kart çıktı"
+const SNAPS = [5, 15, 30]; // kısa pencereler (dk)
 
 // Hareketli ortalama merdiveni (dip bunlarla kıyaslanır)
 const LADDER = [['3dk EMA21', '3m', 'ema', 21], ['5dk EMA21', '5m', 'ema', 21], ['15dk EMA21', '15m', 'ema', 21]];
@@ -92,6 +95,7 @@ function createTouchTracker({ window = WINDOW, touchPct = TOUCH_PCT } = {}) {
       emaMin: e.emaMin, brokeMin: e.brokeMin, brokeAfterEma: e.brokeAfterEma,
       held: c > v,
       up: +((e.hi - v) / v * 100).toFixed(3), dn: +((e.lo - v) / v * 100).toFixed(3), c60: +((c - v) / v * 100).toFixed(3),
+      ...Object.fromEntries(SNAPS.flatMap(w => ['pb', 'dn', 'c'].map(k => [`${k}${w}`, e.snap?.[w]?.[k] ?? null]))),
     };
   }
 
@@ -127,6 +131,11 @@ function createTouchTracker({ window = WINDOW, touchPct = TOUCH_PCT } = {}) {
           if (e.brokeMin == null && c5 != null && c5 > e.value * (1 + up)) {
             e.brokeMin = m;
             e.brokeAfterEma = e.emaMin != null;
+          }
+          for (const w of SNAPS) {
+            if (m >= w && !(e.snap && e.snap[w])) {
+              (e.snap || (e.snap = {}))[w] = { pb: +e.pb.toFixed(3), dn: +((e.lo - e.value) / e.value * 100).toFixed(3), c: +((c - e.value) / e.value * 100).toFixed(3) };
+            }
           }
           if (m >= window) { done.push(finish(e, c)); arr.splice(k, 1); openN--; }
         }
@@ -189,4 +198,4 @@ function createTouchTracker({ window = WINDOW, touchPct = TOUCH_PCT } = {}) {
   };
 }
 
-module.exports = { createTouchTracker, maLadder, stopOf, LADDER, TOUCH_PCT, WINDOW };
+module.exports = { createTouchTracker, maLadder, stopOf, LADDER, TOUCH_PCT, WINDOW, SNAPS };

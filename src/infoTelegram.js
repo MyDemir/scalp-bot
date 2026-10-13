@@ -291,13 +291,15 @@ Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesin
       const rows = store.recent(sym, n).map(rowToStat);
       if (!rows.length) return `${esc(sym)} için kayıtlı kart yok.`;
       const lines = rows.map(r => {
-        const w = r.fwd[60] ? `60dk: ${pct(r.fwd[60].low, 1)} / ${pct(r.fwd[60].high, 1)} · sonra ${pct(r.fwd[60].close, 1)}` : r.partial ? '60dk: eksik (yeniden başlatma)' : '60dk: bekleniyor';
+        const dips = [5, 15, 30, 60].filter(x => r.fwd[x]).map(x => `${x}dk ${pct(r.fwd[x].low, 1)}`);
+        const w = r.fwd[60] ? `dip ${dips.join(' · ')} · 60dk tepe ${pct(r.fwd[60].high, 1)} · sonra ${pct(r.fwd[60].close, 1)}`
+          : dips.length ? `dip ${dips.join(' · ')} · 60dk bekleniyor` : r.partial ? '60dk: eksik (yeniden başlatma)' : 'bekleniyor';
         if (r.kind === 'tepe') return `${dayTime(r.t)} 🔻 Tepe reddi ${r.score ?? r.seq ?? '—'}/4 → ${w}`;
         if (r.kind === 'move') return `${dayTime(r.t)} ⚡${circles(r.grade || 1, r.movePct > 0 ? 'green' : 'red')} ${pct(r.movePct)} → ${w}`;
         const cls = [`RSI ${r.hits}/3`, r.level?.zone === 'dip' ? 'dirençte' : r.level ? 'yaklaşıyor' : null, r.burst ? `${r.burst.dir === 'sell' ? '▼' : r.burst.dir === 'buy' ? '▲' : '◆'}patlama` : null, r.inSeries ? 'seri içi' : null].filter(Boolean).join(' · ');
         return `${dayTime(r.t)} ${r.grade != null ? circles(r.grade) + ' ' : ''}#${r.seq} ${cls} → ${w}`;
       });
-      return `🗂 <b>${esc(sym)}</b> — son ${rows.length} kayıt (fiyat değişimi karttaki fiyata göre: en düşük / en yüksek · 60 dk sonra)\n${lines.join('\n')}`;
+      return `🗂 <b>${esc(sym)}</b> — son ${rows.length} kayıt (karttaki fiyata göre: 5/15/30/60 dk içindeki en düşük · 60 dk en yüksek · 60. dk)\n${lines.join('\n')}`;
     },
 
     istatistik: (args) => {
@@ -307,14 +309,14 @@ Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesin
       const cards = rows.filter(r => r.kind === 'card'), moves = rows.filter(r => r.kind === 'move');
       if (!rows.length) return `Son ${days} günde kayıt yok.`;
       const cls = classTable(cards).filter(r => r.n > 0).map(r =>
-        `${esc(r.name.trim())}: <b>${r.n}</b> · 60dk en düşük ${pct(r.low60)} · en yüksek ${pct(r.high60)} · sonra ${pct(r.close60)}`);
+        `${esc(r.name.trim())}: <b>${r.n}</b> · dip 5/15/30/60 ${[r.low5, r.low15, r.low30, r.low60].map(v => pct(v, 1)).join(' / ')} · tepe60 ${pct(r.high60, 1)} · son60 ${pct(r.close60, 1)}`);
       const mv = [['▲ yükseliş', moves.filter(m => m.movePct > 0)], ['▼ düşüş', moves.filter(m => m.movePct < 0)]].map(([k, a]) => {
         const f = a.filter(m => m.fwd[60]);
         return `${k}: <b>${a.length}</b> · 60dk sonra medyan ${pct(median(f.map(m => m.fwd[60].close)))} (en düşük ${pct(median(f.map(m => m.fwd[60].low)))} / en yüksek ${pct(median(f.map(m => m.fwd[60].high)))})`;
       });
       const pending = cards.filter(c => !c.fwd[60]).length;
       return `📊 <b>Son ${days} gün</b> · ${cards.length} kart
-<i>Karttan sonraki 60 dk'da fiyat, kart anındaki fiyata göre (medyan). Kazanç/kayıp değildir.${pending ? ` 60 dk'sı dolmamış ${pending} kart hariç.` : ''}</i>
+<i>Karttan sonra fiyat, kart anındaki fiyata göre (medyan): dip = 5 / 15 / 30 / 60 dk içindeki en düşük, tepe60 = 60 dk en yüksek, son60 = 60. dk. 5 ve 30 dk yeni kayıtlarda. Kazanç/kayıp değildir.${pending ? ` 60 dk'sı dolmamış ${pending} kart hariç.` : ''}</i>
 
 <b>Kart sınıfları</b>
 ${cls.join('\n') || '—'}${moves.length ? `

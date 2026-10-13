@@ -23,6 +23,7 @@ const KEEP_DAYS = 90;
 const TOUCH_KEEP_DAYS = 60;
 const EVENT_KEEP_DAYS = 60;
 const EVENT_WINDOWS = [5, 15, 30, 60, 240];    // tepe adayı sonrası (dk)
+const TOUCH_SNAPS = [5, 15, 30];               // seviye teması kısa pencereleri (60 dk ayrıca)
 
 function defaultFile() {
   const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'signals.db');
@@ -65,7 +66,8 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
       CREATE INDEX IF NOT EXISTS events_t ON events(t);`);
     // Sonradan eklenen sütunlar (eski veritabanı): dibin indiği ortalama
     const tcols = new Set(db.prepare('PRAGMA table_info(touches)').all().map(c => c.name));
-    for (const [c, type] of [['stop', 'TEXT'], ['stopdepth', 'REAL'], ['falling', 'INTEGER'], ['lvtouches', 'INTEGER']]) {
+    for (const [c, type] of [['stop', 'TEXT'], ['stopdepth', 'REAL'], ['falling', 'INTEGER'], ['lvtouches', 'INTEGER'],
+      ...TOUCH_SNAPS.flatMap(w => [[`pb${w}`, 'REAL'], [`dn${w}`, 'REAL'], [`c${w}`, 'REAL']])]) {
       if (!tcols.has(c)) db.exec(`ALTER TABLE touches ADD COLUMN ${c} ${type}`);
     }
     const ecols = new Set(db.prepare('PRAGMA table_info(events)').all().map(c => c.name));
@@ -89,8 +91,8 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
     recent: db.prepare('SELECT * FROM cards WHERE symbol = ? ORDER BY t DESC LIMIT ?'),
     since: db.prepare('SELECT * FROM cards WHERE t >= ? ORDER BY t'),
     prune: db.prepare('DELETE FROM cards WHERE t < ?'),
-    tIns: db.prepare(`INSERT OR IGNORE INTO touches (id, symbol, t, name, kind, value, hits, rsiok, card, emagap, pb, pbmin, emamin, brokemin, brokeafterema, held, up, dn, c60, stop, stopdepth, falling, lvtouches)
-      VALUES (@id, @symbol, @t, @name, @kind, @value, @hits, @rsiok, @card, @emagap, @pb, @pbmin, @emamin, @brokemin, @brokeafterema, @held, @up, @dn, @c60, @stop, @stopdepth, @falling, @lvtouches)`),
+    tIns: db.prepare(`INSERT OR IGNORE INTO touches (id, symbol, t, name, kind, value, hits, rsiok, card, emagap, pb, pbmin, emamin, brokemin, brokeafterema, held, up, dn, c60, stop, stopdepth, falling, lvtouches${TOUCH_SNAPS.map(w => `, pb${w}, dn${w}, c${w}`).join('')})
+      VALUES (@id, @symbol, @t, @name, @kind, @value, @hits, @rsiok, @card, @emagap, @pb, @pbmin, @emamin, @brokemin, @brokeafterema, @held, @up, @dn, @c60, @stop, @stopdepth, @falling, @lvtouches${TOUCH_SNAPS.map(w => `, @pb${w}, @dn${w}, @c${w}`).join('')})`),
     tSince: db.prepare('SELECT * FROM touches WHERE t >= ? ORDER BY t'),
     eIns: db.prepare(`INSERT OR IGNORE INTO events (id, symbol, t, price, dropt, dropmin, card, cardgrade, rsiok, hits, data, outcome, ${EVENT_WINDOWS.map(w => `low${w}, high${w}, close${w}`).join(', ')})
       VALUES (@id, @symbol, @t, @price, @dropt, @dropmin, @card, @cardgrade, @rsiok, @hits, @data, @outcome, ${EVENT_WINDOWS.map(w => `@low${w}, @high${w}, @close${w}`).join(', ')})`),
@@ -169,6 +171,7 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
         pb: e.pb, pbmin: e.pbMin, emamin: e.emaMin ?? null, brokemin: e.brokeMin ?? null, brokeafterema: e.brokeAfterEma ? 1 : 0,
         held: e.held ? 1 : 0, up: e.up, dn: e.dn, c60: e.c60,
         stop: e.stop ?? null, stopdepth: e.stopDepth ?? null, falling: e.falling ? 1 : 0, lvtouches: e.lvTouches ?? null,
+        ...Object.fromEntries(TOUCH_SNAPS.flatMap(w => ['pb', 'dn', 'c'].map(k => [`${k}${w}`, e[`${k}${w}`] ?? null]))),
       }), 'seviye kaydı');
     },
     /** Düşüş olayı (src/eventLog.js finish() çıktısı) */
@@ -257,7 +260,8 @@ function rowToTouch(r) {
     emaGap: r.emagap, pb: r.pb, pbMin: r.pbmin, emaMin: r.emamin, brokeMin: r.brokemin, brokeAfterEma: Boolean(r.brokeafterema),
     held: Boolean(r.held), up: r.up, dn: r.dn, c60: r.c60,
     stop: r.stop ?? null, stopDepth: r.stopdepth ?? null, falling: Boolean(r.falling), lvTouches: r.lvtouches ?? null,
+    ...Object.fromEntries(TOUCH_SNAPS.flatMap(w => ['pb', 'dn', 'c'].map(k => [`${k}${w}`, r[`${k}${w}`] ?? null]))),
   };
 }
 
-module.exports = { createCardStore, rowToStat, rowToTouch, rowToEvent, WINDOWS, EVENT_WINDOWS };
+module.exports = { createCardStore, rowToStat, rowToTouch, rowToEvent, WINDOWS, EVENT_WINDOWS, TOUCH_SNAPS };

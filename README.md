@@ -180,7 +180,7 @@ Her kart ve ⚡ uyarı `/data/cards.db`'ye (SQLite) yazılır; sonrasında fiyat
 (en düşük / en yüksek / kapanış değişimi, kart anındaki fiyata göre — kazanç/kayıp değil). 90 gün saklanır.
 Yeniden başlatmada yarım kalan takipler "eksik" işaretlenir.
 - `/gecmis ETH [adet]` — coinin son kartları + sonrasında fiyat
-- `/istatistik [gün]` — kart sınıfları (RSI 2/3–3/3, Dirençte, hacim, seri içi, negatif tepe …) ve ⚡ uyarılar için
+- `/istatistik [gün]` — kart sınıfları (dip 5/15/30/60 dk · 60 dk tepe · 60. dk) (RSI 2/3–3/3, Dirençte, hacim, seri içi, negatif tepe …) ve ⚡ uyarılar için
   "sonraki 60 dk" medyanları — backtest'teki tablonun canlı hali
 
 ### Seviye tepkisi (/seviye)
@@ -189,6 +189,8 @@ mumun tepesi %0.3 yakınında ya da üstünde) sonraki **60 dk** kaydedilir — 
 aynı (Fib 0.236–0.786, günlük bölge / trend çizgisi, 7/30g en yüksek, MA200/EMA200, 1h/4h tepe). Aynı seviye için
 60 dk içinde ikinci temas yazılmaz. Kartı etkilemez; `/data/cards.db` → `touches` tablosu, 60 gün saklanır.
 - Temasta: 3m/5m/15m RSI (RSI kart şartı sağlanıyor mu), ±5 dk içinde kart çıktı mı, fiyatın 3dk EMA21'e uzaklığı
+- **Kısa pencereler:** 5 / 15 / 30 dk anındaki en derin çekilme, seviyeye göre en düşük ve kapanış da kaydedilir (`pb5/dn5/c5` …);
+  `/seviye` raporunda "⏱ 5 / 15 / 30 / 60 dk: kırılmadı % · çekilme %" satırları.
 - 60 dk'da: **çekilme** (o ana kadarki en yüksekten en derin geri çekilme, %) · **EMA21'e dönüş** (1m mum 3dk EMA21'e
   indi mi, kaç dk sonra) · **kırdı** (5dk kapanış seviyenin %`dipAbovePct` üstünde; EMA21'e döndükten sonra mı) ·
   **üstte kaldı** (60. dk kapanışı seviyenin üstünde)

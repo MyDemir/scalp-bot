@@ -272,7 +272,7 @@ const results = []; const ok = s => results.push('✅ ' + s);
   tg.command(CHAT, USER, '/istatistik 1');
   await waitFor(() => tg.sent.length >= b3 + 2, 3000, 'geçmiş komutları');
   const gm = tg.sent.find(m => m.text.includes('🗂')), im = tg.sent.find(m => m.text.includes('📊 <b>Son 1 gün'));
-  assert(gm && /#\d+ RSI [23]\/3/.test(gm.text) && /60dk: [−+]/.test(gm.text));
+  assert(gm && /#\d+ RSI [23]\/3/.test(gm.text) && /dip (5|15|30|60)dk [−+]/.test(gm.text));
   assert(im && im.text.includes('Kart sınıfları') && !im.text.includes('hareket uyarı'));
   ok(`Kart geçmişi — ${rows.length} kayıt cards.db'de (${cards.length} kart; ayrı hareket kaydı yok), 15/60 dk sonrası dolduruldu; /gecmis ve /istatistik yanıt verdi`);
   console._log('\n' + gm.text.replace(/<[^>]+>/g, '').split('\n').slice(0, 3).join('\n'));

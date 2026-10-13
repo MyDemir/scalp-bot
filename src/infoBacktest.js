@@ -82,7 +82,7 @@ async function fetchBefore(symbol, tf, start, n) {
 
 function forward(m1, i, price) {
   const r = {};
-  for (const w of [15, 60]) {
+  for (const w of [5, 15, 30, 60]) {
     let lo = Infinity, hi = -Infinity, last = null;
     for (let j = i + 1; j <= i + w && j < m1.length; j++) { if (m1[j].l < lo) lo = m1[j].l; if (m1[j].h > hi) hi = m1[j].h; last = m1[j].c; }
     if (last == null) { r[w] = null; continue; }

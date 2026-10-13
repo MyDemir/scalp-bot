@@ -74,6 +74,8 @@ function classTable(cards) {
       name, n: sub.length,
       low60: median(ok.map(c => c.fwd[60].low)), high60: median(ok.map(c => c.fwd[60].high)), close60: median(ok.map(c => c.fwd[60].close)),
       low15: median(sub.filter(c => c.fwd?.[15]).map(c => c.fwd[15].low)),
+      low5: median(sub.filter(c => c.fwd?.[5]).map(c => c.fwd[5].low)),
+      low30: median(sub.filter(c => c.fwd?.[30]).map(c => c.fwd[30].low)),
     });
   }
   return rows;
@@ -98,6 +100,12 @@ const SHORT = { 'Haftalık bölge': 'H. bölge', 'Günlük bölge': 'G. bölge',
   '7 günlük en yüksek': '7g yüks.', '30 günlük tepe': '30g tepe' };
 const shortName = n => SHORT[n] || n.replace(/^Fib 0\./, 'Fib .');
 const MIN_N = 5;
+const TOUCH_WINS = [5, 15, 30, 60];
+const winLines = (x, prefix = '') => [
+  `${prefix}⏱ <b>5 / 15 / 30 / 60 dk</b>`,
+  `${prefix}🔻 Kırılmadı: ${TOUCH_WINS.map(w => pc(x.win[w].ret)).join(' / ')}`,
+  `${prefix}📉 Çekilme: ${TOUCH_WINS.map(w => pc1(x.win[w].pb)).join(' / ')}`,
+];
 
 function touchSum(a) {
   const sep = a.filter(e => e.emaMin !== 0);
@@ -121,6 +129,11 @@ function touchSum(a) {
     stopN: withStop.length,
     stops: [...stops.entries()].sort((x, y) => (x[0] === 'yok') - (y[0] === 'yok') || y[1] - x[1]),
     falling: rej.filter(e => e.falling).length,
+    // Kısa pencereler: N dk içinde kırılmadı (oran) ve N. dk'ya kadarki en derin çekilme (medyan)
+    win: Object.fromEntries(TOUCH_WINS.map(w => {
+      const pbs = a.map(e => (w === 60 ? e.pb : e[`pb${w}`])).filter(v => v != null);
+      return [w, { ret: a.length ? a.filter(e => !(e.brokeMin != null && e.brokeMin <= w)).length / a.length * 100 : null, pb: pbs.length ? median(pbs) : null }];
+    })),
   };
 }
 
@@ -154,6 +167,8 @@ function mainBlock(title, x) {
     `🚀 Kırdı: ${ofN(x.first, x.n)}`,
     ...(x.rej ? [`📉 Ret çekilmesi: ${pc1(x.rejPb)}`, `⏱ Dibe: ${Math.round(x.rejMin)} dk (medyan)`] : []),
     '',
+    ...winLines(x),
+    '',
     '🛑 <b>Ret sonrası nerede durdu</b>',
     ...stopLines(x),
   ];
@@ -169,6 +184,7 @@ function shortBlock(title, x) {
   return [
     title,
     `🔻 Ret ${pc(x.rej / x.n * 100)} · 📉 ${pc1(x.rejPb)}`,
+    `🔻 Kırılmadı 15/30/60: ${[15, 30, 60].map(w => pc(x.win[w].ret)).join('/')}`,
     ...(top.length ? top : ['🛑 —']),
     `🚀 Kırıp üstte kalan: ${x.first ? pc(x.firstHeld / x.first * 100) : '—'}`,
   ].join('\n');
@@ -188,7 +204,7 @@ function touchText(rows, { title = '', filter = '', s = {} } = {}) {
   const f = filter.trim().toLocaleLowerCase('tr');
   const sel = f ? rows.filter(e => e.name.toLocaleLowerCase('tr').includes(f)) : rows;
   const head = `📐 <b>Seviye tepkisi</b>${f ? ` · “${filter.trim()}”` : ''}${title ? `\n🗓 ${title}` : ''}
-<i>Dirence alttan temas → sonraki 60 dk</i>`;
+<i>Dirence alttan temas → 5/15/30/60 dk</i>`;
   if (!sel.length) return `${head}\n\nKayıt yok.`;
   const rsiMin = s.rsiMin ?? 85, minTFs = s.minTFs ?? 2;
   const pump = sel.filter(e => e.rsiOk), calm = sel.filter(e => !e.rsiOk);
@@ -206,6 +222,7 @@ function touchText(rows, { title = '', filter = '', s = {} } = {}) {
 • Çekilme: temastan sonraki tepeden en derin düşüş (medyan) · dibe: kaç dk sonra
 • Nerede durdu: dip 3dk / 5dk / 15dk EMA21 ile kıyaslanır (grafikte görünen, canlı mum dahil). Bir ortalamanın ±%0.5'inde durduysa o ortalama; birini %0.5'ten fazla delip alttakine inmediyse "arası"; 15dk EMA21'i de deldiyse "15dk EMA21 altı"; hiçbirine inmediyse "ortalamaya inmedi"
 • Kırıp üstte kalan: 60. dk kapanışı seviyenin üstünde
+• 5 / 15 / 30 / 60 dk: o süre içinde kırılmayanların oranı ve o ana kadarki en derin çekilme (medyan; 5/15/30 dk yeni kayıtlarda)
 • Seviye: kartlardaki dirençler (MA200/EMA200, 7/30g en yüksek, günlük/haftalık bölge, trend, 1h/4h tepe, 1 saatlik Fib)
 • Seviye gücü: seviyenin önceki 100 günde (4s mumlar) kaç ayrı kez test edildiği — tepe seviyeye %0.5 yaklaştı ve kapanış üstünde kalmadı
 • Kazanç/kayıp hesabı değildir</blockquote>`;

@@ -377,7 +377,7 @@ function dropText(allRows, { title = '', s = {}, E = DEFAULTS, counts = null } =
       `Gün ${sgm(md(rows, 'vwD_sig'))} · Hafta ${sgm(md(rows, 'vwW_sig'))} · Ay ${sgm(md(rows, 'vwM_sig'))}`,
       `90dk ${sgm(md(rows, 'vw90_sig'))} · pompa dibi VWAP ${pS(md(rows, 'avwLow_pct'))}`].join('\n'),
     ['📉 <b>Tepeden sonra</b> (medyan)',
-      ...E.windows.filter(w => w >= 15).map(w => cmp(`${w >= 60 ? `${w / 60} s` : `${w} dk`} en düşük`, a => pS(median(a.map(r => r.out?.[w]?.low))))),
+      ...E.windows.map(w => cmp(`${w >= 60 ? `${w / 60} s` : `${w} dk`} en düşük`, a => pS(median(a.map(r => r.out?.[w]?.low))))),
       cmp('60 dk kapanış', a => pS(median(a.map(r => r.out?.[60]?.close)))),
       cmp('Düşüşe kadar', a => { const v = median(a.map(r => r.dropMin)); return v == null ? '—' : `${Math.round(v)} dk`; }),
       cmp('Düşmeden önce en fazla', a => pS(median(a.map(r => r.feat?.upBeforeDrop)), 2)),

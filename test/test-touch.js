@@ -54,6 +54,7 @@ assert(e.pbMin >= 14 && e.pbMin <= 16, 'dibe ~15 dk: ' + e.pbMin);
 assert(e.emaMin != null && e.emaMin > 0 && e.emaMin <= 15, "3m EMA21'e dönüş geri çekilmede: " + e.emaMin);
 assert(e.brokeMin != null && e.brokeMin > e.emaMin && e.brokeAfterEma, 'kırılım EMA21 dönüşünden sonra: ' + e.brokeMin);
 assert(e.held && e.c60 > 0.3 && e.up > 1 && e.dn < -2, 'üstte kaldı');
+assert([5, 15, 30].every(w => Number.isFinite(e[`pb${w}`]) && Number.isFinite(e[`dn${w}`]) && Number.isFinite(e[`c${w}`])) && e.pb5 <= e.pb15 && e.pb15 <= e.pb30 && e.pb30 <= e.pb + 1e-9, 'kısa pencereler: ' + JSON.stringify({ pb5: e.pb5, pb15: e.pb15, pb30: e.pb30, pb: e.pb }));
 assert(LADDER.length === 3 && LADDER.some(([n]) => e.stop.includes(n.split(' ')[0])) && e.stopDepth <= 0.2 && !e.falling, 'dibin indiği ortalama: ' + e.stop + ' ' + e.stopDepth);
 ok(`Temas: Fib 0.786 (100) — çekilme %${e.pb.toFixed(2)} (${e.pbMin} dk, dip ${e.stop}'e indi, %${e.stopDepth}), 3dk EMA21'e ${e.emaMin}. dk, kırılım ${e.brokeMin}. dk (EMA21'den sonra), 60. dk seviyenin %${e.c60.toFixed(2)} üstünde; RSI şartlı, kart eşleşti; 110 değmedi, ikinci geçiş beklemede`);
 
@@ -104,7 +105,7 @@ ok(`Temas: Fib 0.786 (100) — çekilme %${e.pb.toFixed(2)} (${e.pbMin} dk, dip 
   const back = st.touchesSince(Date.now() - 86_400_000);
   assert.strictEqual(back.length, 5);
   const b0 = back.find(x => x.id === e.id);
-  for (const k of ['name', 'rsiOk', 'card', 'pbMin', 'emaMin', 'brokeMin', 'brokeAfterEma', 'held', 'stop', 'stopDepth', 'falling', 'lvTouches']) assert.deepStrictEqual(b0[k], e[k], k);
+  for (const k of ['name', 'rsiOk', 'card', 'pbMin', 'emaMin', 'brokeMin', 'brokeAfterEma', 'held', 'stop', 'stopDepth', 'falling', 'lvTouches', 'pb5', 'pb15', 'dn30', 'c30']) assert.deepStrictEqual(b0[k], e[k], k);
   const g = touchGroups(back);
   assert.deepStrictEqual(g.map(x => x.name), ['Fib 0.786', 'Günlük bölge', '4h tepe'], 'sıra: Fib → bölge → 4h tepe');
   const f = g[0];

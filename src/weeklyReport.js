@@ -74,7 +74,7 @@ function dropLine(r) {
     + ` · tepki: ${pk} · VWAP gün ${sg(f.vwD_sig)} / hafta ${sg(f.vwW_sig)} / 90dk ${pS(f.vw90_pct)}`
     + ` · dip ${pS(f.trPct)} (${n0(f.trMin)} dk) ${tr}${f.trEma && f.trEma !== 'yok' && f.trLv ? ` · EMA21: ${f.trEma}` : ''}`
     + ` · ${r.card ? `kart ✅ (derece ${r.cardGrade ?? '—'})` : `kart ❌${f.fails ? ` eksik: ${f.fails.replace(/\|/g, ', ')}` : ' (şart vardı)'}`}`
-    + ` · 60dk ${pS(r.out?.[60]?.low)} / 240dk ${pS(r.out?.[240]?.low)}`;
+    + ` · en düşük 5/15/30/60dk ${[5, 15, 30, 60].map(w => pS(r.out?.[w]?.low)).join(' / ')} · 240dk ${pS(r.out?.[240]?.low)}`;
 }
 
 function cardLine(r) {
@@ -156,7 +156,7 @@ async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = n
     '```',
     '',
     `## Düşüşler (${counts.drops})`,
-    'Her satır: tepe zamanı · coin · tepe fiyatı · pompa (4 saatlik dipten) · tepe anında RSI 1/3/5/15dk/1s/4s · tepkinin geldiği seviye (tepenin %0.3 içi) · tepede VWAP (σ) · tepeden sonraki 60 dk\'nın dibi ve orada en yakın destek · kart durumu · tepeye göre 60/240 dk en düşük',
+    'Her satır: tepe zamanı · coin · tepe fiyatı · pompa (4 saatlik dipten) · tepe anında RSI 1/3/5/15dk/1s/4s · tepkinin geldiği seviye (tepenin %0.3 içi) · tepede VWAP (σ) · tepeden sonraki 60 dk\'nın dibi ve orada en yakın destek · kart durumu · tepeye göre 5/15/30/60/240 dk en düşük',
     '',
     ...drops.slice(0, MD_DROP_LINES).map(dropLine),
     ...(drops.length > MD_DROP_LINES ? [`- … ve ${drops.length - MD_DROP_LINES} düşüş daha — tamamı tepeler.csv'de (outcome = düştü)`] : []),
