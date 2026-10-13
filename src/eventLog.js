@@ -111,7 +111,8 @@ function troughFeatures(series, s, low, anchorT) {
 }
 
 /**
- * @param {object} opts  DEFAULTS + { enrich(sym, {t, price, futQ60}) → Promise<obj|null>, orderBook(sym) → Promise<obj|null> }
+ * @param {object} opts  DEFAULTS + { enrich(sym, {t, price, futQ60}) → Promise<obj|null>, orderBook(sym) → Promise<obj|null>,
+ *                       onCandidate(series, aday) — yeni tepe adayı oluşunca (🔻 tepe reddi bildirimi) }
  */
 function createDropLedger(opts = {}) {
   const E = { ...DEFAULTS, ...opts };
@@ -263,6 +264,7 @@ function createDropLedger(opts = {}) {
       const pump = (c.h / lo4h - 1) * 100;
       if (!(pump >= E.pumpPct)) return done;
       x.cand = newSample(series, s, ctx, x, c, tc, pump, loT);
+      if (E.onCandidate) { try { E.onCandidate(series, x.cand); } catch { /* bildirim hatası defteri bozmasın */ } }
       return done;
     },
 

@@ -109,10 +109,12 @@ Kartlar ve ⚡ uyarılar **grafikli** gelir (fotoğraf + açıklama). Varsayıla
   yüksek tepesi ↔ en düşük dibi; dip sonra geldiyse tepe → dip, düşüşte seviyeler dirençtir). TradingView'deki gibi 1 = bacağın başı,
   0 = sonu; tepe ve dip noktaları işaretli. Grafik bacağın başladığı mumdan itibaren çizilir (en fazla 240 mum). Motorun direnç
   listesiyle aynı bacak. 0.618 kalın.
-- **Sağ üst liste — henüz geçilmemiş dirençler:** fiyatın üstündeki en yakın 5 direnç, **temas sayısından bağımsız hepsi**
-  (4h tepe, günlük/haftalık bölge, 7/30 günlük en yüksek, MA/EMA200, trend çizgisi; görünen aralıkta olsun olmasın) +
-  görünen aralık dışındaki Fib'ler: `↑ ★ Günlük bölge 0.39294 (+%7.0 · 6 temas)` — ★ ve açık renk = en az 4 temas.
-- **Grafik içi çizgiler yalnız güçlü dirençler:** kesikli çizgiler yalnızca en az **4 kez test edilmiş** dirençler (`chartMinTouches`,
+- **Sağ üst liste — yalnız önemli, henüz geçilmemiş dirençler (en fazla 5):** her türden **yalnız en yakını** (4 günlük bölge
+  değil, fiyatın önce test edeceği 1 tane). Önem sırası H42 temas verisinden (60 dk'da kırılmama oranı, oynaklığa göre):
+  MA/EMA200 (%66–67) → günlük/haftalık bölge, 4h tepe → 1h tepe, trend çizgisi, Fib → 7/30 günlük en yüksek, 30 günlük
+  tepe (%48–58, sık kırılır). Kartın direnci her zaman listede. Liste fiyata göre sıralı:
+  `↑ ★ Günlük bölge 0.39294 (+%7.0 · 6 temas)` — ★ ve açık renk = en az 4 temas.
+- **Grafik içi çizgiler yalnız güçlü dirençler:** kesikli çizgiler her türden fiyatın üstünde ve altında yalnız en yakını, en az **4 kez test edilmiş** dirençler (`chartMinTouches`,
   `/ayarlar` → 🖼 Grafik). Temas = kapanmış 4h mumlarda (~100 gün) tepe seviyeye %0.5 yaklaşıp kapanışın üstünde kalmaması;
   art arda değen mumlar tek temas; MA/EMA200 ve trend çizgisi kendi o anki değeriyle. Kartın direnci her zaman çizilir
   (`4h tepe 0.37164 · 2 temas`). Detay'da "Direnç testi: … N kez denendi".
@@ -145,6 +147,33 @@ Detay'da direnç ayrıntısı: günlük bölgenin aralığı ve temas sayısı, 
 
 **3dk EMA21 durumu** (yalnız 📋 Detay'da): *izliyor (trend)* — son 10 mumun ≥ 6'sında fiyat EMA21'e değdi;
 *koptu* — önceki 10 mumun ≥ 6'sında değmişken son 3 mumda değmedi ve fiyat ≥ 1.5 ATR yukarıda; aksi *serbest*.
+
+### 🔻 Tepe reddi (ayrı bildirim)
+Kart biçimine dokunmaz; şart oluşunca gruba **ayrı kısa mesaj + grafik** gider (`/konu tepe`, boşsa kart konusu).
+Tepe defterinin her yeni adayında (1dk mum son 60 dk'nın en yükseği, 4 saatlik dipten ≥ %3) tepe mumu puanlanır:
+
+| Koşul (1 puan) | Tanım |
+|---|---|
+| Mum reddi | 5dk mumda üst fitil ≥ %35 **ya da** 1dk mum alt yarısında kapandı |
+| Kırmızı mum | tepe 1dk mumu açılışının altında kapandı |
+| Hacim | 3dk mum hacmi önceki 20 mumun ≥ 2 katı |
+| Seans | Asya (03–09 TSİ) ya da Avrupa (10–15 TSİ) |
+
+H42 verisi (22.572 aday): skor 0 → %7 · 2 → %21 · 3 → %32 · 4 → %39 "gerçek tepe" (60 dk tepe aşılmadı + kapanıştan ≥ 2×ATR(5dk)
+düşüş); tüm adaylarda %16. RSI, VWAP σ, açık pozisyon, long/short, funding ve 5dk teyit mumu tutarlı katkı yapmadı.
+```
+🔻 #XUSDT — Tepe reddi 4/4
+✅ Mum reddi · ✅ Kırmızı mum · ✅ Hacim 2.5 kat · ✅ Seans (Avrupa)
+Pompa: +%6.2 (4s dipten · 48 dk)
+Tepe: 1.06 · Fiyat: 1.05
+EMA21 3dk 1.03448 (−%1.5) · 5dk 1.0224 (−%2.7) · 15dk 1.00286 (−%4.7)
+⏱: 13.10 12:32
+```
+📋 Detay: mum ölçüleri (fitil %, kapanış konumu, gövde, hacim, alış), RSI, VWAP σ, ATR, tepki seviyesi, direnç, açıklama. `#TEPERED`
+`/ayarlar` → 🔻 Tepe reddi: aç/kapa (`peakAlert`), en az skor (`peakAlertMin`, varsayılan **4** → yalnız 03–15 TSİ; 3 = her saat),
+pompa en az % (`peakAlertPumpPct`, varsayılan 5), coin başına aralık (`peakAlertGapMin`, varsayılan 30 dk). Varsayılanlarla
+H42'de günde ~60 bildirim olurdu (skor ≥ 3, pompa ≥ %3 ile ~600). Susturulan coinlere gitmez. Kayıt: `cards` tablosu, `kind = tepe`
+(15/60/240 dk sonrası takip edilir; `/gecmis`'te görünür). Bilgi amaçlıdır, al/sat sinyali değildir.
 
 ### Kart geçmişi
 Her kart ve ⚡ uyarı `/data/cards.db`'ye (SQLite) yazılır; sonrasında fiyat 15 / 60 / 240 dk izlenir
@@ -236,7 +265,7 @@ Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı kon
    botu ekle, gruba bir komut yaz ve `fly logs`'ta `Tanımsız sohbetten mesaj yok sayıldı: … ID -100…` satırındaki
    ID'yi `fly secrets set TELEGRAM_CHAT_ID=-100…` ile tanımla.
 2. İstediğin konunun **içinde** (yönetici olarak) yaz: `/konu kart` · `/konu sistem` ·
-   `/konu kart3` (🔴🔴🔴'ler ayrı konuya) · `/konu backtest` · `/konu rapor` (haftalık dosyalar). Bağlantı `/data`'da saklanır.
+   `/konu kart3` (🔴🔴🔴'ler ayrı konuya) · `/konu backtest` · `/konu rapor` (haftalık dosyalar) · `/konu tepe` (🔻 tepe reddi). Bağlantı `/data`'da saklanır.
 3. `/konu` listeyi gösterir, `/konu sil kart` kaldırır. Bağlanmamış tür genel akışa gider; konu silinirse mesajlar
    kaybolmaz, genel akışa düşer. Komut yanıtları, komutun yazıldığı konuya gelir.
 
@@ -301,6 +330,7 @@ src/
 ├── infoSettings.js   # Ayarlar (varsayılan config.info, değişiklikler /data/info-settings.json)
 ├── infoStats.js      # Kart sınıfları + "sonrası" medyanları (backtest ve /istatistik ortak)
 ├── cardStore.js      # Kart geçmişi (SQLite /data/cards.db) + 15/60/240 dk takip + seviye tepkisi tablosu
+├── peakAlert.js      # 🔻 Tepe reddi: skor (mum reddi · kırmızı · hacim · seans) + ayrı bildirim metni
 ├── eventLog.js       # Tepe defteri: pompa tepe adayı → düştü/devam/yatay, kartlı/kartsız, /kacan, /teyit (canlı + backtest ortak)
 ├── peakFeatures.js   # Tepe adayı ek özellikleri: CVD, mum yapısı, Bollinger, hız, piyasa, zaman, coin geçmişi
 ├── marketData.js     # Binance ek verisi: açık pozisyon, long/short, emir defteri, spot, baz, likidasyon akışı
@@ -322,11 +352,11 @@ test/
 ├── run.js            # Tüm testleri sırayla çalıştırır (npm test)
 ├── gen.js            # Sentetik mum üreteci
 ├── mockinfo.js       # Sahte Binance REST/WS + sahte Telegram sunucusu
-└── test-*.js         # 16 test
+└── test-*.js         # 17 test
 ```
 
 ## Testler
-`npm test` — 16 test dosyası (`test/`), ağ gerekmez: Binance REST/WS ve Telegram sahte sunucularla taklit edilir.
+`npm test` — 17 test dosyası (`test/`), ağ gerekmez: Binance REST/WS ve Telegram sahte sunucularla taklit edilir.
 Kart şartları, seviyeler, hacim sayacı, grafik, seviye tepkisi, tepe defteri, haftalık rapor, uçtan uca bot ve backtest denenir.
 Yalnız bazıları: `node test/run.js drops weekly`. Geçici dosyalar ve loglar `test/.tmp/`'ye yazılır (git'e girmez).
 Docker imajına girmez (Dockerfile yalnız `src/`'yi kopyalar).

@@ -116,6 +116,19 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   ok(`Ek veri: baz %${x.feat.basisPct}, piyasa (15m RSI≥80 %${x.feat.breadth80}, ${x.feat.pumping} pompa), short likidasyon %${x.feat.liqShortPct15}; açık pozisyon / long-short / spot ${enrichCalls.length} kayıtlı adaya tepe anına hizalı; emir defteri ${obCalls.length} kez`);
 }
 
+// ── 4c) Yeni tepe adayı kancası (🔻 tepe reddi bildirimi) ──
+{
+  const seen = [];
+  const r = run(path1, { overrides: ov, opts: { onCandidate: (sr, e) => seen.push({ sym: sr.symbol, t: e.t, f: e.feat }) } });
+  assert(seen.length >= r.ev.length && seen.every(x => x.sym === 'DROPUSDT' && Number.isFinite(x.f.wick_5m) && Number.isFinite(x.f.volx_3m) && typeof x.f.session === 'string'), 'aday kancası: ' + seen.length);
+  const { peakScore } = require(`${REPO}/src/peakAlert`);
+  const sc = seen.map(x => peakScore(x.f).score);
+  assert(sc.every(v => v >= 0 && v <= 4));
+  const r2 = run(path1, { overrides: ov, opts: { onCandidate: () => { throw new Error('x'); } } });
+  assert.strictEqual(drops(r2.ev).length, 1, 'kanca hatası defteri bozmaz');
+  ok(`Aday kancası: ${seen.length} yeni tepe adayında çağrıldı (skorlar ${[...new Set(sc)].sort().join('/')}), hatası defteri bozmuyor`);
+}
+
 // ── 5) Kayıt + rapor + CSV ──
 {
   ev = drops(run(path1, { overrides: ov }).ev);

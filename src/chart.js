@@ -149,7 +149,18 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
     // Grafikte yalnız en az minTouches kez test edilmiş dirençler (Fib ayrı çizilir); kartın direnci her zaman gösterilir
     const strong = L0 => L0 && Number.isFinite(L0.value) && L0.kind !== 'fib' && (L0.touches == null || L0.touches >= minTouches);
     const isMain = L0 => level && L0.name === level.name && L0.value === level.value;
-    const otherLevels = levels.filter(L0 => near(L0) && strong(L0) && !isMain(L0))
+    // Aynı türden birden fazla seviye (ör. 4 günlük bölge) kalabalık yapmasın: her türden fiyatın üstünde ve altında
+    // yalnız EN YAKIN olanı (önemli olan, fiyatın önce test edeceği seviye)
+    const nearestPerName = arr => {
+      const best = new Map();
+      for (const L0 of arr) {
+        const k = `${L0.name}|${L0.value > last ? 'u' : 'd'}`, b = best.get(k);
+        if (!b || Math.abs(L0.value - last) < Math.abs(b.value - last)) best.set(k, L0);
+      }
+      return [...best.values()];
+    };
+    // (kartın direnci de havuza girer: o türün en yakını kartın direnciyse aynı türden ikinci çizgi çizilmez)
+    const otherLevels = nearestPerName(levels.filter(L0 => near(L0) && (strong(L0) || isMain(L0)))).filter(L0 => !isMain(L0))
       .sort((a, b) => Math.abs(a.value - last) - Math.abs(b.value - last)).slice(0, 8);
     for (const L0 of otherLevels) vals.push(L0.value);
     let lo = Math.min(...vals), hi = Math.max(...vals);
@@ -245,7 +256,7 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
     for (const L0 of levels) {
       if (!L0 || !Number.isFinite(L0.value) || L0.kind === 'fib' || L0.value <= last) continue;
       const st = L0.touches != null && L0.touches >= minTouches;
-      edge.push({ label: L0.name, value: L0.value, color: isMain(L0) ? C.level : st ? C.levelStrong : C.levelOther, touches: L0.touches, star: st });
+      edge.push({ label: L0.name, value: L0.value, color: isMain(L0) ? C.level : st ? C.levelStrong : C.levelOther, touches: L0.touches, star: st, main: isMain(L0) });
     }
 
     // Mumlar
@@ -268,9 +279,18 @@ function renderChart({ symbol, candles, level = null, levels = [], overlays = []
       }
     }
 
-    // Sağ üst liste: fiyatın üstündeki en yakın 5 direnç (hepsi; ★ = ≥ minTouches temas) + görünen aralık dışındaki Fib'ler
-    const ups = edge.filter(e => e.value > last).sort((a, b) => a.value - b.value)
-      .filter((e, i, a) => !a.slice(0, i).some(p => p.label === e.label && Math.abs(p.value - e.value) / e.value < 0.003)).slice(0, 5);
+    // Sağ üst liste — yalnız ÖNEMLİ geçilmemiş dirençler (en fazla 5):
+    //   • her türden yalnız en yakını (4 günlük bölge değil, fiyatın önce test edeceği 1 tane)
+    //   • önem sırası H42 temas verisinden (60 dk'da kırılmama oranı, oynaklığa göre): MA/EMA200 (%66–67) →
+    //     günlük/haftalık bölge, 4h tepe (%61–64) → 1h tepe, trend çizgisi, Fib (%62–65) → 7/30 günlük en yüksek,
+    //     30 günlük tepe (%48–58, sık kırılır); aynı önemde yakın olan önce. Kartın direnci her zaman listede.
+    //   • liste fiyata göre aşağıdan yukarı yazılır
+    const rankOf = e => (e.main ? -1 : /MA200|EMA200/.test(e.label) ? 0 : /bölge|4h tepe/.test(e.label) ? 1
+      : /günlük en yüksek|günlük tepe/.test(e.label) ? 3 : 2);
+    const seenLabel = new Set();
+    const firstOfLabel = edge.filter(e => e.value > last).sort((a, b) => a.value - b.value)
+      .filter(e => { if (e.main) { seenLabel.add(e.label); return true; } if (seenLabel.has(e.label)) return false; seenLabel.add(e.label); return true; });
+    const ups = firstOfLabel.sort((a, b) => rankOf(a) - rankOf(b) || a.value - b.value).slice(0, 5).sort((a, b) => a.value - b.value);
     const reservedBottom = ups.length ? top + 16 + (ups.length - 1) * 17 + 4 : top - 20;
     // Diğer seviyeler (gri, ince) — etiket sağda; yakın seviyelerin etiketleri üst üste binmesin diye kaydırılır
     // (çizgi gerçek yerinde kalır, yalnız yazı kayar)

@@ -21,6 +21,7 @@ const TOPICS = {
   sistem:   'bot mesajları ("hazır" vb.)',
   backtest: 'backtest raporları (--telegram)',
   rapor:    'haftalık istatistik dosyaları (Pazartesi 03:01; boşsa "sistem" konusuna)',
+  tepe:     '🔻 tepe reddi bildirimleri (boşsa "kart" konusuna)',
 };
 
 function normSym(x) {
@@ -44,6 +45,8 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
       sum: v => `gövde ≥ %${v.burstPct1} · hacim ≥ ${v.volMult}×` },
     { id: 'mov', title: '⚡ Hareket', keys: ['moveAlertPct'],
       sum: v => (v.moveAlertPct > 0 ? `1 dk ≥ %${v.moveAlertPct} → RSI kartına eklenir` : 'kapalı') },
+    { id: 'pk', title: '🔻 Tepe reddi', keys: ['peakAlert', 'peakAlertMin', 'peakAlertPumpPct', 'peakAlertGapMin'],
+      sum: v => (v.peakAlert ? `skor ≥ ${v.peakAlertMin}/4 · pompa ≥ %${v.peakAlertPumpPct} · ${v.peakAlertGapMin} dk'da bir` : 'kapalı') },
     { id: 'snd', title: '🔔 Bildirim', keys: ['cardSound'],
       sum: v => `kart ${v.cardSound ? 'sesli' : 'sessiz'}` },
     { id: 'cht', title: '🖼 Grafik', keys: ['chart', 'chartTf', 'chartFib', 'chartIchi', 'chartMinTouches'],
@@ -289,6 +292,7 @@ Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesin
       if (!rows.length) return `${esc(sym)} için kayıtlı kart yok.`;
       const lines = rows.map(r => {
         const w = r.fwd[60] ? `60dk: ${pct(r.fwd[60].low, 1)} / ${pct(r.fwd[60].high, 1)} · sonra ${pct(r.fwd[60].close, 1)}` : r.partial ? '60dk: eksik (yeniden başlatma)' : '60dk: bekleniyor';
+        if (r.kind === 'tepe') return `${dayTime(r.t)} 🔻 Tepe reddi ${r.score ?? r.seq ?? '—'}/4 → ${w}`;
         if (r.kind === 'move') return `${dayTime(r.t)} ⚡${circles(r.grade || 1, r.movePct > 0 ? 'green' : 'red')} ${pct(r.movePct)} → ${w}`;
         const cls = [`RSI ${r.hits}/3`, r.level?.zone === 'dip' ? 'dirençte' : r.level ? 'yaklaşıyor' : null, r.burst ? `${r.burst.dir === 'sell' ? '▼' : r.burst.dir === 'buy' ? '▲' : '◆'}patlama` : null, r.inSeries ? 'seri içi' : null].filter(Boolean).join(' · ');
         return `${dayTime(r.t)} ${r.grade != null ? circles(r.grade) + ' ' : ''}#${r.seq} ${cls} → ${w}`;

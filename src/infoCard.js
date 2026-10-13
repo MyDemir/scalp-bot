@@ -243,4 +243,4 @@ function toPlain(html) {
     .replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 }
 
-module.exports = { formatCard, summaryText, toPlain, esc, hhmm, dayTime, px, pct, usd };
+module.exports = { formatCard, summaryText, toPlain, esc, hhmm, dayTime, px, pct, usd, cardKeyboard };

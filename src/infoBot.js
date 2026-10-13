@@ -14,6 +14,7 @@ const { compact } = require('./infoStats');
 const { createCardStore } = require('./cardStore');
 const { createTouchTracker } = require('./levelTouch');
 const { createDropLedger, DEFAULTS: DROP_DEFAULTS } = require('./eventLog');
+const { peakScore, formatPeakAlert } = require('./peakAlert');
 const { createEnricher, createLiqStream } = require('./marketData');
 const ta = require('./ta');
 const { createWeeklyJob } = require('./weeklyReport');
@@ -35,7 +36,7 @@ const touches  = createTouchTracker();
 // Tepe defteri (kartı etkilemez) — canlıda Binance ek verisi (OI, long/short, emir defteri, spot) ve likidasyon akışı
 const enricher = createEnricher({ client: binance });
 const liqStream = createLiqStream();
-const drops    = createDropLedger({ ...cfg.events, enrich: (sym, o) => enricher.enrich(sym, o), orderBook: sym => enricher.orderBook(sym) });
+const drops    = createDropLedger({ ...cfg.events, enrich: (sym, o) => enricher.enrich(sym, o), orderBook: sym => enricher.orderBook(sym), onCandidate: (sr, e) => onPeakCandidate(sr, e) });
 let store = null;
 let weekly = null;            // haftalık rapor işi (main'de kurulur)
 
@@ -47,7 +48,7 @@ let premium   = new Map();
 const oiCache = new Map();
 let vols24    = new Map();
 
-const stats = { closes: 0, cards: 0, cardsToday: 0, day: null, seeded: 0, seedErrors: 0, gapFills: 0 };
+const stats = { closes: 0, cards: 0, cardsToday: 0, day: null, seeded: 0, seedErrors: 0, gapFills: 0, peakAlerts: 0 };
 let startedAt = 0;
 let seedingAll = false;
 
@@ -149,6 +150,37 @@ async function emitCard(card) {
   store?.add({ id: card.id, kind: 'card', symbol: card.symbol, t: card.t, seq: card.seq, price: card.price, data: { ...compact(card), bursts: undefined, fwd: undefined } });
   const lv = card.snap.level;
   console.log(`[KART] ${card.symbol} #${card.seq} derece ${card.grade} · RSI ${card.snap.hits}/3 · ${lv ? `${lv.name} ${lv.dist.toFixed(2)}\%${lv.zone}` : 'seviye yok'} · ${card.silent ? 'sessiz' : 'SESLİ'} · ${card.news.join(' | ')}`);
+}
+
+// ── 🔻 Tepe reddi (src/peakAlert.js) ─────────────────────────────────────
+// Tepe defterinin her yeni adayında skor bakılır; kart biçimine dokunmaz, ayrı mesaj gider.
+const peakLast = new Map();          // sym → son bildirim zamanı
+function onPeakCandidate(sr, e) {
+  const s = settings.get();
+  if (!s.peakAlert || !e?.feat) return;
+  const sym = sr.symbol;
+  const sc = peakScore(e.feat);
+  if (sc.score < (s.peakAlertMin ?? 4) || !(e.feat.pumpPct >= (s.peakAlertPumpPct ?? 5))) return;
+  if (settings.isMuted(sym)) return;
+  const last = peakLast.get(sym);
+  if (last != null && e.t - last < (s.peakAlertGapMin ?? 30) * MIN) return;
+  peakLast.set(sym, e.t);
+  if (peakLast.size > 2000) peakLast.delete(peakLast.keys().next().value);
+  stats.peakAlerts++;
+  const id = `${sym}-${e.t}-tepe`;
+  let level = null, levels = [];
+  try { levels = eng.levelsOf(sr, s); level = eng.pickLevel(e.feat.price ?? e.price, levels, s).level; } catch { /* grafik seviyesiz */ }
+  const followed = settings.isFollowed(sym);
+  const { text, keyboard, details: det } = formatPeakAlert({ sym, e, sc, level, followed, id });
+  details.set(id, det);
+  let photo = null;
+  try { if (s.chart) photo = chartOf(sr, s, level, levels, `Tepe reddi ${sc.score}/4`); } catch { /* grafiksiz */ }
+  const thread = settings.topic('tepe') || settings.topic('kart');
+  telegram.sendCard({ text, keyboard, silent: !s.cardSound && !followed, photo, thread });
+  store?.add({ id, kind: 'tepe', symbol: sym, t: e.t, seq: sc.score, price: e.feat.price ?? e.price,
+    data: { score: sc.score, R: sc.R, K: sc.K, V: sc.V, SE: sc.SE, peak: e.price, pumpPct: e.feat.pumpPct, wick_5m: e.feat.wick_5m, clv_1m: e.feat.clv_1m,
+      body_1m: e.feat.body_1m, volx_3m: e.feat.volx_3m, session: e.feat.session, ema21_3m: e.feat.ema21_3m, ema21_5m: e.feat.ema21_5m, ema21_15m: e.feat.ema21_15m } });
+  console.log(`[TEPE] ${sym} skor ${sc.score}/4 · pompa %${e.feat.pumpPct} · tepe ${e.price}`);
 }
 
 // ── Mum işleme ────────────────────────────────────────────────────────────
@@ -381,8 +413,8 @@ function heartbeat() {
   const mins = Math.round(cfg.heartbeatMs / 60000);
   const closes = stats.closes - lastCloses;
   lastCloses = stats.closes;
-  const cards = stats.cards;
-  stats.cards = 0;
+  const cards = stats.cards, peaks = stats.peakAlerts;
+  stats.cards = 0; stats.peakAlerts = 0;
   store?.sweep();
   touches.sweep();
   drops.sweep();
@@ -391,7 +423,7 @@ function heartbeat() {
   diag = newDiag();
   console.log(
     `[HEARTBEAT] WS ${ws?.open ?? 0}/${ws?.connections ?? 0} bağlı (${ws?.streams ?? 0} stream)` +
-    ` | son ${mins}dk: ${closes} 1m kapanış, ${ws?.skipped ?? 0} ara güncelleme atlandı, ${cards} kart` +
+    ` | son ${mins}dk: ${closes} 1m kapanış, ${ws?.skipped ?? 0} ara güncelleme atlandı, ${cards} kart, ${peaks} tepe reddi` +
     ` | coin: ${readyCount()}/${series.size} hazır${busy.size ? `, ${busy.size} yükleniyor` : ''}${stale.length ? `, ${stale.length} GERİDE` : ''}` +
     ` | ${dTxt}` +
     ` | takipte ${store?.openCount() ?? 0} kart, ${touches.openCount()} seviye teması, ${drops.openCount()} tepe adayı · ek veri ${enricher.stats.ok} (atlanan ${enricher.stats.skipped}) · likidasyon mesajı ${liqStream.stats().messages}` +
@@ -475,4 +507,4 @@ async function main() {
   console.log('\n✅ Bilgi botu çalışıyor.\n');
 }
 
-module.exports = { main, _internal: { series, settings, tracker, touches, drops, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, statusText, stats, busy, pending, details, getStore: () => store, getWeekly: () => weekly } };
+module.exports = { main, _internal: { onPeakCandidate, series, settings, tracker, touches, drops, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, statusText, stats, busy, pending, details, getStore: () => store, getWeekly: () => weekly } };
