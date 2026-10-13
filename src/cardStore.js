@@ -193,6 +193,31 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
       return r;
     },
     eventsSince: t => (safe(() => st.eSince.all(t), 'sorgu') || []).map(rowToEvent),
+    /**
+     * Tepe adaylarını PARÇA PARÇA okur (bellek: bir parça) — haftalık rapor, /kacan, /teyit, /disaaktar.
+     * Parçalar arasında olay döngüsüne nefes aldırılır (mum işleme gecikmesin). fn(olay) → (async olabilir)
+     * @param {{since?:number, until?:number, outcome?:string, batch?:number}} o
+     * @returns {Promise<number>} okunan satır
+     */
+    async forEachEvent({ since = 0, until = Number.MAX_SAFE_INTEGER, outcome = null, batch = 100 } = {}, fn) {
+      if (!db) return 0;
+      const q = db.prepare(`SELECT rowid AS _rid, * FROM events WHERE rowid > ? AND t >= ? AND t < ?${outcome ? ' AND outcome = ?' : ''} ORDER BY rowid LIMIT ?`);
+      let last = 0, n = 0;
+      for (;;) {
+        const rows = safe(() => (outcome ? q.all(last, since, until, outcome, batch) : q.all(last, since, until, batch)), 'sorgu') || [];
+        if (!rows.length) break;
+        last = rows[rows.length - 1]._rid;
+        for (const r of rows) { const x = fn(rowToEvent(r)); if (x && typeof x.then === 'function') await x; n++; }
+        if (rows.length < batch) break;
+        await new Promise(res => setImmediate(res));
+      }
+      return n;
+    },
+    /** Sonuca göre aday sayısı { düştü, devam, yatay } */
+    eventCounts({ since = 0, until = Number.MAX_SAFE_INTEGER } = {}) {
+      const rows = safe(() => db.prepare("SELECT COALESCE(outcome, 'düştü') AS o, COUNT(*) AS n FROM events WHERE t >= ? AND t < ? GROUP BY o").all(since, until), 'sorgu') || [];
+      return Object.fromEntries(rows.map(r => [r.o, r.n]));
+    },
     touchesSince: t => (safe(() => st.tSince.all(t), 'sorgu') || []).map(rowToTouch),
 
     recent: (symbol, n = 10) => safe(() => st.recent.all(symbol, n), 'sorgu') || [],
@@ -218,7 +243,8 @@ function rowToEvent(r) {
   const out = {};
   for (const w of EVENT_WINDOWS) if (r[`low${w}`] != null) out[w] = { low: r[`low${w}`], high: r[`high${w}`], close: r[`close${w}`] };
   const outcome = r.outcome || feat.outcome || 'düştü';             // eski kayıtlar yalnız düşüştü
-  return { id: r.id, symbol: r.symbol, t: r.t, price: r.price, outcome, dropT: r.dropt, dropMin: r.dropmin, card: Boolean(r.card), cardGrade: r.cardgrade, feat: { ...feat, outcome }, out };
+  feat.outcome = outcome;                                           // (kopyalamadan: 214 alanlık nesne)
+  return { id: r.id, symbol: r.symbol, t: r.t, price: r.price, outcome, dropT: r.dropt, dropMin: r.dropmin, card: Boolean(r.card), cardGrade: r.cardgrade, feat, out };
 }
 
 /** touches satırı → levelTouch olay biçimi */

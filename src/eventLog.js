@@ -320,11 +320,13 @@ function failNames(s) {
  * Telegram metni (HTML) — telefona göre kısa satırlar.
  * @param {object[]} rows  finish() çıktıları (DB'den okunan da aynı biçimde)
  */
-function dropText(allRows, { title = '', s = {}, E = DEFAULTS } = {}) {
-  const rows = allRows.filter(r => (r.outcome || r.feat?.outcome || 'düştü') === 'düştü');
-  const oc = k => allRows.filter(r => (r.outcome || r.feat?.outcome || 'düştü') === k).length;
+function dropText(allRows, { title = '', s = {}, E = DEFAULTS, counts = null } = {}) {
+  const rows = allRows.filter(isDrop);
+  // counts: { düştü, devam, yatay } — satırlar yalnız "düştü" olarak okunduysa (büyük veride) toplamlar buradan
+  const oc = k => (counts ? counts[k] || 0 : allRows.filter(r => (r.outcome || r.feat?.outcome || 'düştü') === k).length);
+  const total = counts ? Object.values(counts).reduce((a, b) => a + b, 0) : allRows.length;
   const head = `📉 <b>Düşüş defteri</b>${title ? `\n🗓 ${title}` : ''}
-<i>Pompa tepesi → ${E.peakWindowMin} dk'da ≥ %${E.dropPct} düşüş</i>${allRows.length > rows.length ? `\n🔎 Tepe adayı ${allRows.length}: düştü ${rows.length} · devam ${oc('devam')} · yatay ${oc('yatay')}` : ''}`;
+<i>Pompa tepesi → ${E.peakWindowMin} dk'da ≥ %${E.dropPct} düşüş</i>${total > rows.length ? `\n🔎 Tepe adayı ${total}: düştü ${rows.length} · devam ${oc('devam')} · yatay ${oc('yatay')}` : ''}`;
   if (!rows.length) return `${head}\n\nKayıt yok.`;
   const yes = rows.filter(r => r.card), no = rows.filter(r => !r.card);
   const F = failNames(s);
@@ -435,44 +437,80 @@ const CANDS = [
   ['1s Ichimoku üstünde', 'ichiPos', f => f.ichiPos === 'üst'],
   ['ABD seansı', 'session', f => f.session === 'ABD'],
   ['Funding\'e ≤ 30 dk', 'minToFunding', f => f.minToFunding <= 30],
-  ['Kart çıktı', 'rsiOk', f => f.__card === true],
+  ['Kart çıktı', 'rsiOk', (f, r) => r.card === true],
 ];
-const isDrop = r => (r.outcome || r.feat?.outcome || 'düştü') === 'düştü';
+const outcomeOf = r => r.outcome || r.feat?.outcome || 'düştü';
+const isDrop = r => outcomeOf(r) === 'düştü';
+const C5 = [['red', f => f.c5Red === true], ['engulf', f => f.c5Engulf === true], ['below', f => f.c5BelowPrev === true], ['green', f => f.c5Red === false]];
+
+/**
+ * /teyit sayaçları — satırlar tek tek eklenir, hiçbiri bellekte tutulmaz (haftalarca veri için).
+ * add(olay) · rows(minN) → teyitRows biçimi · n, oc(sonuç), c5(ad) → [adet, düşen]
+ */
+function createTeyitAcc() {
+  const k = CANDS.map(() => [0, 0, 0, 0]);          // varken adet, varken düştü, yokken adet, yokken düştü
+  const oc = {}, c5 = Object.fromEntries(C5.map(([n]) => [n, [0, 0]]));
+  let n = 0, dropPct = DEFAULTS.dropPct;
+  return {
+    setDropPct(v) { dropPct = v; },
+    add(r) {
+      const f = r.feat || {}, d = isDrop(r);
+      n++; oc[outcomeOf(r)] = (oc[outcomeOf(r)] || 0) + 1;
+      for (let i = 0; i < CANDS.length; i++) {
+        const [, field, pred] = CANDS[i];
+        if (f[field] == null) continue;
+        const a = k[i];
+        if (pred(f, r)) { a[0]++; if (d) a[1]++; } else { a[2]++; if (d) a[3]++; }
+      }
+      if (f.c5Next60Low != null) for (const [nm, p] of C5) if (p(f)) { c5[nm][0]++; if (f.c5Next60Low <= -dropPct) c5[nm][1]++; }
+    },
+    get n() { return n; },
+    oc: o => oc[o] || 0,
+    c5: nm => c5[nm],
+    rows(minN = 5) {
+      const out = [];
+      CANDS.forEach(([label], i) => {
+        const [yn, yd, nn, nd] = k[i];
+        if (yn < minN || !nn) return;
+        const a = yd / yn * 100, b = nd / nn * 100;
+        out.push({ label, n: yn, yes: a, no: b, diff: a - b });
+      });
+      return out.sort((x, y) => y.diff - x.diff);
+    },
+  };
+}
 
 /** Her aday için: varken / yokken düşüş oranı ve adet */
 function teyitRows(rows, minN = 5) {
-  const out = [];
-  for (const [label, field, pred] of CANDS) {
-    const av = rows.filter(r => r.feat && r.feat[field] != null);
-    const yes = av.filter(r => pred({ ...r.feat, __card: r.card })), no = av.filter(r => !pred({ ...r.feat, __card: r.card }));
-    if (yes.length < minN || !no.length) continue;
-    const a = yes.filter(isDrop).length / yes.length * 100, b = no.filter(isDrop).length / no.length * 100;
-    out.push({ label, n: yes.length, yes: a, no: b, diff: a - b });
-  }
-  return out.sort((x, y) => y.diff - x.diff);
+  const acc = createTeyitAcc();
+  for (const r of rows) acc.add(r);
+  return acc.rows(minN);
 }
 
+/** @param {object[]|object} rows  olay dizisi ya da createTeyitAcc() (büyük veri) */
 function teyitText(rows, { title = '', E = DEFAULTS, minN = 5 } = {}) {
   const head = `🔬 <b>Teyit adayları</b>${title ? `\n🗓 ${title}` : ''}
 <i>Tepe → ${E.peakWindowMin} dk'da ≥ %${E.dropPct} düştü mü?</i>`;
-  if (!rows.length) return `${head}\n\nKayıt yok.`;
-  const oc = k => rows.filter(r => (r.outcome || r.feat?.outcome || 'düştü') === k).length;
-  const base = oc('düştü') / rows.length * 100;
-  const T = teyitRows(rows, minN);
+  let acc = rows;
+  if (Array.isArray(rows)) { acc = createTeyitAcc(); acc.setDropPct(E.dropPct); for (const r of rows) acc.add(r); }
+  const N = acc.n;
+  if (!N) return `${head}\n\nKayıt yok.`;
+  const base = acc.oc('düştü') / N * 100;
+  const T = acc.rows(minN);
   const line = r => `▫️ ${r.label} — ${pc(r.yes)} / ${pc(r.no)} (${r.n})`;
   const up = T.filter(r => r.diff >= 3), down = T.filter(r => r.diff <= -3).reverse();
-  const c5 = rows.filter(r => r.feat?.c5Next60Low != null);
-  const c5rate = (f) => { const a = c5.filter(f); return a.length ? `${pc(a.filter(r => r.feat.c5Next60Low <= -E.dropPct).length / a.length * 100)} (${a.length})` : '—'; };
+  const c5n = C5.reduce((a, [nm]) => a + acc.c5(nm)[0], 0);
+  const c5rate = nm => { const [a, d] = acc.c5(nm); return a ? `${pc(d / a * 100)} (${a})` : '—'; };
   const parts = [
     head,
-    `🎯 ${rows.length} tepe adayı\n🔴 düştü ${pc(base)} · 🟢 devam ${pc(oc('devam') / rows.length * 100)} · ⚪ yatay ${pc(oc('yatay') / rows.length * 100)}`,
+    `🎯 ${N} tepe adayı\n🔴 düştü ${pc(base)} · 🟢 devam ${pc(acc.oc('devam') / N * 100)} · ⚪ yatay ${pc(acc.oc('yatay') / N * 100)}`,
     up.length ? ['📈 <b>Varken daha sık düşüyor</b>', '<i>düşüş: varken / yokken (adet)</i>', ...up.slice(0, 14).map(line)].join('\n') : '📈 Belirgin fark yok (en az %3 puan)',
     down.length ? ['📉 <b>Varken daha AZ düşüyor</b> (devam riski)', ...down.slice(0, 6).map(line)].join('\n') : null,
-    c5.length ? ['🕯 <b>5dk teyit mumu</b>', `<i>sonraki 60 dk ≥ %${E.dropPct} düşüş oranı</i>`,
-      `▫️ Kırmızı — ${c5rate(r => r.feat.c5Red === true)}`,
-      `▫️ Yutan ayı — ${c5rate(r => r.feat.c5Engulf === true)}`,
-      `▫️ Önceki dibi kırdı — ${c5rate(r => r.feat.c5BelowPrev === true)}`,
-      `▫️ Yeşil — ${c5rate(r => r.feat.c5Red === false)}`].join('\n') : null,
+    c5n ? ['🕯 <b>5dk teyit mumu</b>', `<i>sonraki 60 dk ≥ %${E.dropPct} düşüş oranı</i>`,
+      `▫️ Kırmızı — ${c5rate('red')}`,
+      `▫️ Yutan ayı — ${c5rate('engulf')}`,
+      `▫️ Önceki dibi kırdı — ${c5rate('below')}`,
+      `▫️ Yeşil — ${c5rate('green')}`].join('\n') : null,
     `<blockquote expandable>ℹ️ <b>Nasıl okunur</b>
 • Aday: pompada (4 saatlik dipten ≥ %${E.pumpPct}) 60 dk'nın en yüksek tepesi; fiyat daha yükseğe çıkarsa yeni aday
 • Düştü: ${E.peakWindowMin} dk içinde önce %${E.dropPct} düşüş · devam: önce daha yüksek tepe · yatay: ikisi de değil
@@ -491,6 +529,21 @@ const csvCell = v => {
   const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
+/** Tek CSV satırı (\n ile) — büyük dosyalar satır satır yazılır */
+const csvLine = (r, cols) => cols.map(c => csvCell(r[c])).join(',') + '\n';
+const csvHeader = cols => '\uFEFF' + cols.join(',') + '\n';
+
+/** /kacan ve haftalık MD için gereken alanlar — büyük veride 214 alan yerine yalnız bunlar bellekte tutulur */
+const DROP_REPORT_FIELDS = ['outcome', 'fails', 'hits', 'rsi3', 'rsi5', 'rsi15', 'rsi1h', 'rsi4h', 'sep3', 'sep15', 'vwapSig', 'pumpPct', 'pumpMin',
+  'vol15x', 'macd3', 'macd5', 'neg1', 'neg3', 'lvZone', 'pkLv', 'pkLvDist', 'pkLvTouches', 'trLv', 'trLvTouches', 'trEma', 'trPct', 'trMin',
+  'vwD_sig', 'vwW_sig', 'vwM_sig', 'vw90_sig', 'vw90_pct', 'avwLow_pct', 'upBeforeDrop', 't2',
+  'rsi_1m', 'rsi_3m', 'rsi_5m', 'rsi_15m', 'rsi_1h', 'rsi_4h'];
+function slimDrop(r) {
+  const feat = {};
+  for (const k of DROP_REPORT_FIELDS) if (r.feat?.[k] != null) feat[k] = r.feat[k];
+  return { id: r.id, symbol: r.symbol, t: r.t, price: r.price, outcome: r.outcome, dropMin: r.dropMin, card: r.card, cardGrade: r.cardGrade, out: r.out, feat };
+}
+
 /** @param {object[]} rows  @param {string[]} cols */
 function toCsv(rows, cols) {
   return '﻿' + [cols.join(','), ...rows.map(r => cols.map(c => csvCell(r[c])).join(','))].join('\n') + '\n';
@@ -505,4 +558,4 @@ function flatDrop(r, windows = DEFAULTS.windows) {
 }
 const dropCols = (windows = DEFAULTS.windows) => Object.keys(flatDrop({ out: {}, feat: {} }, windows));
 
-module.exports = { teyitText, teyitRows, CANDS, createDropLedger, createPeakLedger, features, peakFeatures, FEATURE_COLS, TROUGH_COLS, OUTCOME_COLS, DEFAULTS, dropText, toCsv, flatDrop, dropCols };
+module.exports = { teyitText, teyitRows, createTeyitAcc, slimDrop, DROP_REPORT_FIELDS, csvLine, csvHeader, CANDS, createDropLedger, createPeakLedger, features, peakFeatures, FEATURE_COLS, TROUGH_COLS, OUTCOME_COLS, DEFAULTS, dropText, toCsv, flatDrop, dropCols };

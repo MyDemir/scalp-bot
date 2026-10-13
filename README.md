@@ -219,11 +219,16 @@ likidasyonu, funding, spot prim, piyasa geneli …): o koşul **varken / yokken*
 (📈 varken daha sık düşüyor · 📉 varken daha az — devam riski) + 5dk teyit mumu oranları. Her koşul en az 5 örnekle;
 ilk günlerde az örnek olur, backtest hemen geçmiş veriden verir.
 
-`/disaaktar [gün]` (yönetici) — 3 CSV dosyası **özelden** gelir (önce bota özelden bir kez /start yaz):
+`/disaaktar [gün]` (yönetici) — tek **zip** **özelden** gelir (önce bota özelden bir kez /start yaz); içinde 3 CSV:
 `tepeler.csv` (tüm tepe adayları + `outcome`, tüm göstergeler), `kartlar.csv` (kartlar + kart anı göstergeleri + 15/60/240 dk sonrası),
 `temaslar.csv` (seviye tepkisi). UTF-8, virgülle ayrılmış, ondalık nokta → Google Sheets / Excel / Python (pandas).
-Komut satırından: `fly ssh console` → `cd /app && node src/exportData.js --days 30` → dosyalar `/data/export/`'a yazılır,
-bilgisayara: `fly ssh sftp get /data/export/tepeler.csv`. Backtest de aynı defteri hesaplar
+Zip 40 MB'ı aşarsa (Telegram sınırı 50 MB) kalan satırlar `…-2.zip`'e geçer (`tepeler-2.csv`).
+Komut satırından: `fly ssh console` → `cd /app && node src/exportData.js --days 30` → `/data/export/veri.zip`,
+bilgisayara: `fly ssh sftp get /data/export/veri.zip`.
+
+**Bellek:** tepe adayları haftada on binlerce satır (214 sütun) olabilir. `/kacan`, `/teyit`, `/disaaktar`, `/haftalik` ve
+haftalık rapor veritabanını **parça parça** okur (100 satır, araya olay döngüsü molası): CSV satırı doğrudan zip'e sıkıştırılır,
+özetler sayaçlarla hesaplanır, `/kacan` yalnız "düştü"leri rapor alanlarıyla tutar. Bu raporlardan aynı anda yalnız biri çalışır. Backtest de aynı defteri hesaplar
 (`backtest-results/tepeler-*.csv`, gruba rapor + teyit tablosu).
 
 Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı konularına** gönderilebilir.
@@ -247,7 +252,7 @@ Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı kon
 | `/kacan [gün]` | herkes | tepe defteri: pompa tepesinden düşüşler, kartlı/kartsız, kartsızlarda eksik şart |
 | `/teyit [gün]` | herkes | short teyidi: hangi koşul varken tepe adayları daha sık düştü (varken / yokken) |
 | `/disaaktar [gün]` | yönetici | istatistik verisi CSV olarak özelden (tepeler, kartlar, temaslar) |
-| `/haftalik` | yönetici | haftalık dosyanın ön izlemesi özelden (silmez); asıl dosya Pazartesi 03:01'de gruba gider |
+| `/haftalik` | yönetici | haftalık dosyaların (MD + zip) ön izlemesi özelden (silmez); asıl dosyalar Pazartesi 03:01'de gruba gider |
 | `/seviye [gün] [ad]` | herkes | seviye tepkisi: temastan sonra çekilme / 3dk EMA21'e dönüş / kırılım (ör. `/seviye 7 fib`) |
 | `/konu [ad]` · `/konu sil ad` | liste herkes, bağlama yönetici | konulu grupta yönlendirme |
 | `/durum` · `/benkimim` · `/yardim` | herkes | `/durum`: izlenen/hazır coin, **geride kalan coinler** (son 3 dk'da 1m mumu gelmeyen), son 5 dk'da işlenen mum sayısı, **gecikme** (mum kapanışı → bot işledi; ort / en fazla) ve işlem yükü. Gecikme 20 sn'yi aşarsa ya da geride coin varsa `fly logs`'ta `[UYARI]` |
@@ -301,7 +306,8 @@ src/
 ├── marketData.js     # Binance ek verisi: açık pozisyon, long/short, emir defteri, spot, baz, likidasyon akışı
 ├── exportData.js     # CSV dışa aktarma (/disaaktar ve komut satırı)
 ├── marketSnap.js     # 1m–4h göstergeleri, VWAP seti, tepki/destek seviyesi eşleştirme (istatistik kaydı)
-├── weeklyReport.js   # Haftalık MD + CSV (Pazartesi 03:01 TSİ) → gruba, sonra veritabanından silme
+├── weeklyReport.js   # Haftalık MD + zip (CSV'ler; Pazartesi 03:01 TSİ) → gruba, sonra veritabanından silme
+├── zipWriter.js      # Küçük ZIP yazıcı (zlib): büyük CSV'ler satır satır sıkıştırılır, 40 MB'da bölünür
 ├── levelTouch.js     # Seviye tepkisi: dirence alttan temas → 60 dk çekilme / EMA21 / kırılım (canlı + backtest ortak)
 ├── infoBacktest.js   # Bilgi botu backtest'i
 ├── levels.js         # 4h/1d MA200 · EMA200 · 30 günlük tepe · 7/30g en yüksek · 1h/4h tepe · Fib düzeltme/uzantı

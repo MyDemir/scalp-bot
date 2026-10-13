@@ -27,20 +27,25 @@ st.addEvent({ id: 'E1', symbol: 'BUSDT', t: old, price: 2, dropT: old + 5 * MIN,
 st.addEvent({ id: 'E2', symbol: 'BUSDT', t: recent, price: 2, dropT: recent + 5 * MIN, dropMin: 5, card: true, cardGrade: 2, feat, out: {} });
 st.addTouch({ id: 'T1', symbol: 'AUSDT', t: old, name: 'Fib 0.786', kind: 'fib', value: 1, hits: 2, rsiOk: true, card: true, emaGap: 1, pb: 2, pbMin: 5, emaMin: 3, brokeMin: null, brokeAfterEma: false, held: false, up: 0.1, dn: -2, c60: -1, stop: '3dk EMA21', stopDepth: 0, falling: false });
 
-const w = W.buildWeekly(st, { now, s: cfg.info, E: cfg.events });
+const unzip = require('./unzip');
+(async () => {
+const w = await W.buildWeekly(st, { now, s: cfg.info, E: cfg.events });
 assert.deepStrictEqual(w.counts, { cards: 1, touches: 1, drops: 1, peaks: 1 }, 'son 5 saat kapsam dışı');
-assert.deepStrictEqual(w.files.map(f => f.name), ['haftalik-2026-H40.md', 'tepeler-2026-H40.csv', 'kartlar-2026-H40.csv', 'temaslar-2026-H40.csv']);
+assert.deepStrictEqual(w.files.map(f => f.name), ['haftalik-2026-H40.md', 'veri-2026-H40.zip']);
+const Z = unzip(w.files[1].buf);
+assert.deepStrictEqual(Object.keys(Z).sort(), ['kartlar.csv', 'temaslar.csv', 'tepeler.csv']);
 assert(w.md.includes('## Teyit adayları'), 'MD teyit bölümü');
 assert(w.md.includes('# Haftalık istatistik — 2026-H40') && w.md.includes('## Düşüşler (1)') && w.md.includes('**BUSDT**') && w.md.includes('tepki: Günlük VWAP +2σ') && w.md.includes('dip −%3.1 (18 dk) 15dk EMA21') && w.md.includes('kart ❌ eksik: seviye'));
 assert(w.md.includes('## Kartlar (1)') && w.md.includes('**AUSDT** #1 derece 3'));
-const dcsv = w.files[1].buf.toString('utf8');
-assert(dcsv.split('\n')[0].includes('rsi_4h') && dcsv.split('\n')[0].includes('pkLv') && dcsv.trim().split('\n').length === 2);
+const dcsv = Z['tepeler.csv'];
+assert(dcsv.startsWith('\uFEFF') && dcsv.split('\n')[0].includes('rsi_4h') && dcsv.split('\n')[0].includes('pkLv') && dcsv.trim().split('\n').length === 2);
+assert(Z['kartlar.csv'].trim().split('\n').length === 2 && Z['temaslar.csv'].includes('3dk EMA21'));
 fs.writeFileSync(dir + '/' + w.files[0].name, w.files[0].buf);
 console.log(w.md.split('\n').slice(0, 40).join('\n'));
-ok(`Dosyalar: ${w.files.map(f => f.name).join(', ')} — kapsam rapordan 5 saat öncesine kadar (son 5 saat sonraki haftaya); MD'de özet + olay satırları (tepki seviyesi, VWAP σ, dip ve destek, eksik şart)`);
+ok(`Dosyalar: ${w.files.map(f => f.name).join(', ')} (zip: ${Object.keys(Z).join(', ')}) — kapsam rapordan 5 saat öncesine kadar (son 5 saat sonraki haftaya); MD'de özet + olay satırları (tepki seviyesi, VWAP σ, dip ve destek, eksik şart)`);
 
 // ── 3) İş: ilk kurulum, gönderim hatası, başarılı gönderim + silme ──
-(async () => {
+{
   const sent = []; let fail = true;
   const job = W.createWeeklyJob({ store: st, file: dir + '/weekly-state.json', getSettings: () => cfg.info, E: cfg.events, logger: { log() {}, warn() {}, error: x => { throw new Error(x); } },
     send: async (files, cap) => { if (fail) return false; sent.push({ files: files.map(f => f.name), cap }); return true; },
@@ -55,13 +60,40 @@ ok(`Dosyalar: ${w.files.map(f => f.name).join(', ')} — kapsam rapordan 5 saat 
   assert.strictEqual(await job.tick(t1 + 5 * MIN), null, '10 dk dolmadan tekrar denenmez');
   fail = false;
   assert.strictEqual(await job.tick(t1 + 11 * MIN), 'sent');
-  assert(sent.length === 1 && sent[0].files.length === 4 && sent[0].cap.includes('Haftalık istatistik'));
+  assert(sent.length === 1 && sent[0].files.length === 2 && sent[0].cap.includes('Haftalık istatistik'));
   assert.strictEqual(st.since(0).length, 0, 'gönderildi → kartlar silindi');
   assert.strictEqual(st.eventsSince(0).length, 0); assert.strictEqual(st.touchesSince(0).length, 0);
   assert.strictEqual(await job.tick(t1 + 30 * MIN), null, 'aynı hafta ikinci kez yok');
   const state = JSON.parse(fs.readFileSync(dir + '/weekly-state.json', 'utf8'));
   assert.strictEqual(state.lastSlot, Date.UTC(2026, 9, 12, 0, 1));
   st.close();
-  ok('İş: ilk kurulumda gönderim/silme yok (ilk rapor sonraki Pazartesi); gönderim hatasında veri silinmedi, 10 dk sonra tekrar; gönderilince 4 dosya + kartlar/temaslar/düşüşler silindi (VACUUM); aynı hafta tekrar yok; durum dosyaya yazıldı');
+  ok('İş: ilk kurulumda gönderim/silme yok (ilk rapor sonraki Pazartesi); gönderim hatasında veri silinmedi, 10 dk sonra tekrar; gönderilince MD + zip, kartlar/temaslar/düşüşler silindi (VACUUM); aynı hafta tekrar yok; durum dosyaya yazıldı');
+}
+
+// ── 4) Büyük hafta: 30 000 tepe adayı — parça parça okunur, bellek sınırlı, zip 40 MB sınırında bölünür ──
+{
+  const st2 = createCardStore({ file: dir + '/big.db', logger: { log() {}, error: x => { throw new Error(x); } } });
+  const N = 30000, t0 = now - 6 * 24 * H;
+  const ins = st2.addEvent;
+  const big = { ...feat }; for (let i = 0; i < 200; i++) big['x' + i] = Math.random();      // ~214 alanlık gerçek satır gibi
+  for (let i = 0; i < N; i++) ins({ id: 'B' + i, symbol: 'S' + (i % 300) + 'USDT', t: t0 + i * 15e3, price: 1 + i / N, dropT: null, dropMin: null, card: false, cardGrade: null,
+    outcome: i % 5 === 0 ? 'düştü' : i % 2 ? 'devam' : 'yatay', feat: { ...big, c5Red: i % 3 === 0, c5Next60Low: -(i % 4) }, out: { 60: { low: -1, high: 1, close: 0 }, 240: { low: -2, high: 1, close: -1 } } });
+  global.gc?.();
+  const h0 = process.memoryUsage().heapUsed;
+  let peak = 0; const iv = setInterval(() => { peak = Math.max(peak, process.memoryUsage().heapUsed - h0); }, 5);
+  let ticks = 0; const lagIv = setInterval(() => ticks++, 20);       // olay döngüsü dönüyor mu (mum gecikmesi)
+  const t1 = Date.now();
+  const wb = await W.buildWeekly(st2, { now, s: cfg.info, E: cfg.events, maxZipBytes: 1.5e5 });
+  const ms = Date.now() - t1; clearInterval(iv); clearInterval(lagIv);
+  assert.strictEqual(wb.counts.peaks, N); assert.strictEqual(wb.counts.drops, N / 5);
+  assert(wb.files.length > 2 && wb.files.slice(1).every(f => f.buf.length < 0.5e6), 'zip bölündü: ' + wb.files.map(f => f.name + ' ' + f.buf.length).join(', '));
+  let rows = 0; for (const f of wb.files.slice(1)) for (const [k, v] of Object.entries(unzip(f.buf))) if (k.startsWith('tepeler')) rows += v.trim().split('\n').length - 1;
+  assert.strictEqual(rows, N, 'tüm satırlar zip parçalarında');
+  assert(wb.md.includes(`… ve ${N / 5 - 300} düşüş daha`) && wb.md.length < 400e3, 'MD sınırlı');
+  assert(peak < 150e6, 'bellek artışı sınırlı: ' + (peak / 1e6).toFixed(0) + ' MB');
+  assert(ticks >= ms / 20 * 0.3, 'olay döngüsü bloklanmadı: ' + ticks + ' tik / ' + ms + ' ms');
+  st2.close();
+  ok(`Büyük hafta: ${N} tepe adayı ${(ms / 1000).toFixed(1)} sn'de, bellek artışı en fazla ${(peak / 1e6).toFixed(0)} MB, ${wb.files.length - 1} zip parçası (sınır 150 KB), MD'de ilk 300 düşüş; olay döngüsü dönmeye devam etti (${ticks} tik)`);
+}
   console.log('\n' + R.join('\n'));
 })().catch(e => { console.error(e); process.exit(1); });

@@ -82,7 +82,7 @@ function startTelegram(port, { admins = [] } = {}) {
         const fd = await new Response(raw, { headers: { 'content-type': ct } }).formData();
         for (const [k, v] of fd.entries()) {
           if (typeof v === 'string') { try { body[k] = /^[\[{]/.test(v) ? JSON.parse(v) : v; } catch { body[k] = v; } }
-          else { body[k + 'Bytes'] = (await v.arrayBuffer()).byteLength; body[k + 'Name'] = v.name; if (k === 'document') body.documentText = await v.text(); }
+          else { const ab = Buffer.from(await v.arrayBuffer()); body[k + 'Bytes'] = ab.length; body[k + 'Name'] = v.name; if (k === 'document') { body.documentText = ab.toString('utf8'); body.documentBuf = ab; } }
         }
         body.text = body.caption; body.photo = true;
         if (body.disable_notification === 'true') body.disable_notification = true;

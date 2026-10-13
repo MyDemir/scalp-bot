@@ -153,11 +153,18 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   assert(csv.startsWith('﻿') && lines.length === 4 && lines[0].replace('﻿', '').split(',').length === dropCols().length);
   assert(lines[0].includes('low240') && lines[0].includes('rsi15') && lines[0].includes('fails') && lines[0].includes('rsi_4h') && lines[0].includes('vwW_sig') && lines[0].includes('trLv'));
   st.addTouch({ id: 't1', symbol: 'DROPUSDT', t: now - 1000, name: 'Fib 0.786', kind: 'fib', value: 1, hits: 2, rsiOk: true, card: false, emaGap: 1, pb: 2, pbMin: 5, emaMin: 3, brokeMin: null, brokeAfterEma: false, held: false, up: 0.1, dn: -2, c60: -1, stop: '3dk EMA21', stopDepth: 0, falling: false });
-  const ex = buildExports(st, 7);
-  assert.deepStrictEqual(ex.map(f => [f.name, f.n]), [['tepeler.csv', 3], ['kartlar.csv', 0], ['temaslar.csv', 1]]);
-  assert(ex[2].csv.includes('stop') && ex[2].csv.includes('3dk EMA21'));
+  const ex = await buildExports(st, 7);
+  assert.deepStrictEqual(ex.counts, { tepeler: 3, kartlar: 0, temaslar: 1 });
+  assert.deepStrictEqual(ex.files.map(f => f.name), ['veri.zip']);
+  const Z = require('./unzip')(ex.files[0].buf);
+  assert.deepStrictEqual(Object.keys(Z), ['tepeler.csv', 'kartlar.csv', 'temaslar.csv']);
+  assert(Z['temaslar.csv'].includes('stop') && Z['temaslar.csv'].includes('3dk EMA21') && Z['tepeler.csv'].trim().split('\n').length === 4);
+  // /kacan büyük veri yolu: yalnız "düştü"ler sade biçimde + sayaçlar → aynı metin
+  const slim = []; await st.forEachEvent({ since: now - 7 * 86400e3, outcome: 'düştü' }, r => slim.push(require(`${REPO}/src/eventLog`).slimDrop(r)));
+  slim.sort((a, b) => a.t - b.t);
+  assert.strictEqual(dropText(slim, { title: 'son 7 gün · 3 düşüş', s, counts: st.eventCounts({ since: now - 7 * 86400e3 }) }), txt, 'sade satırlarla /kacan metni aynı');
   st.close();
-  ok(`Kayıt: events tablosuna yazıldı/okundu (göstergeler + 4 pencere birebir, tekrar id yok, 7 gün süzgeci); /kacan: kartlı/kartsız, eksik şart dağılımı, kartlı/kartsız karşılaştırma, tanımlar açılır blokta, satır ≤ ${maxLine}; CSV: ${dropCols().length} sütun, BOM'lu; dışa aktarma 3 dosya`);
+  ok(`Kayıt: events tablosuna yazıldı/okundu (göstergeler + 4 pencere birebir, tekrar id yok, 7 gün süzgeci); /kacan: kartlı/kartsız, eksik şart dağılımı, kartlı/kartsız karşılaştırma, tanımlar açılır blokta, satır ≤ ${maxLine}; CSV: ${dropCols().length} sütun, BOM'lu; dışa aktarma tek zip (3 CSV); /kacan sade satırlarla aynı metin`);
 }
 
 // ── 6) /teyit: tüm adaylar (düştü/devam/yatay) üzerinde koşul karşılaştırması ──
@@ -171,6 +178,8 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   const maxLine = Math.max(...txt.replace(/<blockquote[\s\S]*<\/blockquote>/, '').replace(/<[^>]+>/g, '').split('\n').map(l => [...l].length));
   assert(maxLine <= 42, 'teyit satır ≤ 42: ' + maxLine + ' ' + txt.replace(/<blockquote[\s\S]*<\/blockquote>/, '').replace(/<[^>]+>/g, '').split('\n').filter(l => [...l].length > 42).join(' / '));
   assert(teyitText([], {}).length > 0);
+  { const { createTeyitAcc } = require(`${REPO}/src/eventLog`); const acc = createTeyitAcc(); for (const r of all) acc.add(r);
+    assert.strictEqual(teyitText(acc, { title: 'test', minN: 1 }), txt, 'sayaçla /teyit metni diziyle aynı'); }
   ok(`/teyit: ${all.length} aday (${drops(all).length} düştü), ${T.length} koşul karşılaştırıldı, satır ≤ ${maxLine}`);
 }
 

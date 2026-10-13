@@ -8,7 +8,7 @@ const { formatCard, summaryText, esc, px, pct, dayTime } = require('./infoCard')
 const { evaluate, circles } = require('./infoEngine');
 const { classTable, median, touchText } = require('./infoStats');
 const { rowToStat } = require('./cardStore');
-const { dropText, teyitText } = require('./eventLog');
+const { dropText, teyitText, createTeyitAcc, slimDrop } = require('./eventLog');
 const { buildExports } = require('./exportData');
 const { buildWeekly } = require('./weeklyReport');
 const cfgAll = require('./config');
@@ -177,6 +177,13 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
     return null;
   }
 
+  // Büyük veri okuyan raporlar (/kacan, /teyit, /disaaktar, /haftalik) aynı anda tek tane — bellek ve mum gecikmesi için
+  let heavyBusy = false;
+  const heavy = async fn => {
+    if (heavyBusy) return '⏳ Başka bir rapor hazırlanıyor — birazdan tekrar dene.';
+    heavyBusy = true;
+    try { return await fn(); } finally { heavyBusy = false; }
+  };
   const adminOnly = fn => async (args, msg) => ((await telegram.isAdmin(msg.from?.id)) ? fn(args, msg) : 'Bu komut için grup yöneticisi olmalısın.');
 
   const help = () => `
@@ -321,46 +328,50 @@ ${mv.join('\n')}` : ''}`.slice(0, 4000);
       return touchText(rows, { title: `son ${days} gün · ${rows.length} temas`, filter: parts.join(' '), s: settings.get() });
     },
 
-    kacan: (args) => {
-      if (!store || !store.enabled() || !store.eventsSince) return 'Kart geçmişi kapalı (veritabanı açılamadı).';
+    kacan: (args) => heavy(async () => {
+      if (!store || !store.enabled() || !store.forEachEvent) return 'Kart geçmişi kapalı (veritabanı açılamadı).';
       const days = Math.max(1, Math.min(60, Number(String(args).trim()) || 7));
-      const rows = store.eventsSince(Date.now() - days * 86_400_000);
-      return dropText(rows, { title: `son ${days} gün · ${rows.filter(r => r.outcome === 'düştü').length} düşüş`, s: settings.get(), E: { ...require('./eventLog').DEFAULTS, ...(cfgAll.events || {}) } });
-    },
+      const since = Date.now() - days * 86_400_000;
+      const counts = store.eventCounts({ since });
+      const rows = [];                                   // yalnız "düştü"ler, rapor alanlarıyla (bellek)
+      await store.forEachEvent({ since, outcome: 'düştü' }, r => { rows.push(slimDrop(r)); });
+      rows.sort((a, b) => a.t - b.t);
+      return dropText(rows, { title: `son ${days} gün · ${rows.length} düşüş`, s: settings.get(), E: { ...require('./eventLog').DEFAULTS, ...(cfgAll.events || {}) }, counts });
+    }),
 
-    teyit: (args) => {
-      if (!store || !store.enabled() || !store.eventsSince) return 'Kart geçmişi kapalı (veritabanı açılamadı).';
+    teyit: (args) => heavy(async () => {
+      if (!store || !store.enabled() || !store.forEachEvent) return 'Kart geçmişi kapalı (veritabanı açılamadı).';
       const days = Math.max(1, Math.min(60, Number(String(args).trim()) || 7));
-      const rows = store.eventsSince(Date.now() - days * 86_400_000);
-      return teyitText(rows, { title: `son ${days} gün · ${rows.length} tepe adayı`, E: { ...require('./eventLog').DEFAULTS, ...(cfgAll.events || {}) } });
-    },
+      const E = { ...require('./eventLog').DEFAULTS, ...(cfgAll.events || {}) };
+      const acc = createTeyitAcc(); acc.setDropPct(E.dropPct);
+      await store.forEachEvent({ since: Date.now() - days * 86_400_000 }, r => acc.add(r));   // satırlar tutulmaz, yalnız sayaçlar
+      return teyitText(acc, { title: `son ${days} gün · ${acc.n} tepe adayı`, E });
+    }),
 
-    disaaktar: adminOnly(async (args, msg) => {
+    disaaktar: adminOnly((args, msg) => heavy(async () => {
       if (!store || !store.enabled()) return 'Kart geçmişi kapalı (veritabanı açılamadı).';
       const days = Math.max(1, Math.min(90, Number(String(args).trim()) || 30));
       const uid = msg.from?.id;
-      const files = buildExports(store, days);
-      let sent = 0;
-      for (const f of files) {
-        const ok = await telegram.sendDocumentPrivate(uid, f.name, Buffer.from(f.csv, 'utf8'), `${f.name} · son ${days} gün · ${f.n} satır`);
+      const { files, counts } = await buildExports(store, days, Date.now(), { base: `veri-son${days}gun` });
+      for (const [k, f] of files.entries()) {
+        const ok = await telegram.sendDocumentPrivate(uid, f.name, f.buf, k === 0 ? `📤 son ${days} gün · tepeler ${counts.tepeler} · kartlar ${counts.kartlar} · temaslar ${counts.temaslar} satır (zip içinde CSV)` : null, f.type);
         if (!ok) {
           const bot = telegram.getBotUsername?.();
           return `❌ Özelden gönderemedim. Önce bota özelden bir kez /start yaz${bot ? `: https://t.me/${bot}` : ''} — sonra tekrar /disaaktar.`;
         }
-        sent++;
       }
-      return `📤 ${sent} dosya özelden gönderildi (son ${days} gün): ${files.map(f => `${f.name} ${f.n}`).join(' · ')}`;
-    }),
+      return `📤 ${files.length} zip özelden gönderildi (son ${days} gün): tepeler.csv ${counts.tepeler} · kartlar.csv ${counts.kartlar} · temaslar.csv ${counts.temaslar}`;
+    })),
 
-    haftalik: adminOnly(async (args, msg) => {
+    haftalik: adminOnly((args, msg) => heavy(async () => {
       if (!store || !store.enabled()) return 'Kart geçmişi kapalı (veritabanı açılamadı).';
-      const w = buildWeekly(store, { s: settings.get(), E: { ...require('./eventLog').DEFAULTS, ...(cfgAll.events || {}) } });
+      const w = await buildWeekly(store, { s: settings.get(), E: { ...require('./eventLog').DEFAULTS, ...(cfgAll.events || {}) } });
       for (const [k, f] of w.files.entries()) {
-        const ok = await telegram.sendDocumentPrivate(msg.from?.id, f.name, f.buf, k === 0 ? `📦 Ön izleme · ${w.label} · ${w.counts.cards} kart · ${w.counts.drops} düşüş · ${w.counts.touches} temas (silinmedi)` : null, f.type);
+        const ok = await telegram.sendDocumentPrivate(msg.from?.id, f.name, f.buf, k === 0 ? `📦 Ön izleme · ${w.label} · ${w.counts.cards} kart · ${w.counts.peaks} tepe adayı (${w.counts.drops} düştü) · ${w.counts.touches} temas (silinmedi)` : null, f.type);
         if (!ok) { const bot = telegram.getBotUsername?.(); return `❌ Özelden gönderemedim. Önce bota özelden bir kez /start yaz${bot ? `: https://t.me/${bot}` : ''}.`; }
       }
       return `📦 Haftalık ön izleme özelden gönderildi (${w.files.length} dosya). Asıl rapor Pazartesi 03:01'de gruba gider, ardından veritabanı temizlenir.`;
-    }),
+    })),
 
     konu: async (args, msg) => {
       const [a0, a1] = args.split(/\s+/).filter(Boolean).map(x => x.toLowerCase());

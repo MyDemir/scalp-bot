@@ -11,11 +11,13 @@
  *
  * Telegram: /disaaktar [gün] (yönetici) → dosyalar özelden gelir.
  * Komut satırı (Fly makinesinde):  node src/exportData.js --days 30 --out /data/export
- *   bilgisayara almak:  fly ssh sftp get /data/export/tepeler.csv
+ *   bilgisayara almak:  fly ssh sftp get /data/export/veri.zip
+ * Çıktı zip (tepeler.csv · kartlar.csv · temaslar.csv) — haftalarca veride bile bellek şişmez.
  */
 
 const { rowToStat } = require('./cardStore');
-const { toCsv, flatDrop, dropCols } = require('./eventLog');
+const { flatDrop, dropCols, csvLine, csvHeader } = require('./eventLog');
+const { createZipSet } = require('./zipWriter');
 
 /** İç içe nesneyi tek seviyeye indirir: { rsi: { '3m': 90 } } → { rsi_3m: 90 }; diziler "a|b" */
 function flatten(o, prefix = '', out = {}) {
@@ -29,22 +31,29 @@ function flatten(o, prefix = '', out = {}) {
 const colsOf = rows => { const set = new Set(); for (const r of rows) for (const k of Object.keys(r)) set.add(k); return [...set]; };
 
 /**
+ * Tek zip: tepeler.csv · kartlar.csv · temaslar.csv (40 MB'ı aşarsa veri-…-2.zip …). Tepe adayları parça parça okunur.
  * @param {object} store  cardStore
- * @returns {{name:string, csv:string, n:number}[]}
+ * @returns {Promise<{files:{name, buf, type}[], counts:{tepeler, kartlar, temaslar}}>}
  */
-function buildExports(store, days = 30, now = Date.now()) {
+async function buildExports(store, days = 30, now = Date.now(), { maxZipBytes = 40e6, base = 'veri' } = {}) {
   const since = now - days * 86_400_000;
-  const out = [];
-  const ev = store.eventsSince ? store.eventsSince(since) : [];
-  out.push({ name: 'tepeler.csv', n: ev.length, csv: toCsv(ev.map(r => flatDrop(r)), dropCols()) });
+  const zip = createZipSet(base, { maxBytes: maxZipBytes });
+  const counts = { tepeler: 0, kartlar: 0, temaslar: 0 };
+  const cols = dropCols(), te = zip.entry('tepeler.csv', csvHeader(cols));
+  if (store.forEachEvent) await store.forEachEvent({ since }, async r => { counts.tepeler++; await te.write(csvLine(flatDrop(r), cols)); });
+  await te.end();
   const cards = store.since(since).map(rowToStat).filter(r => r.kind === 'card').map(r => {
     const { bursts, text, kind, partial, done, ...rest } = r;
     return flatten({ ...rest, time: new Date(r.t).toISOString(), partial: partial ? 1 : 0 });
   });
-  out.push({ name: 'kartlar.csv', n: cards.length, csv: toCsv(cards, colsOf(cards)) });
   const tc = (store.touchesSince ? store.touchesSince(since) : []).map(r => flatten({ ...r, time: new Date(r.t).toISOString() }));
-  out.push({ name: 'temaslar.csv', n: tc.length, csv: toCsv(tc, colsOf(tc)) });
-  return out;
+  for (const [name, rows, key] of [['kartlar.csv', cards, 'kartlar'], ['temaslar.csv', tc, 'temaslar']]) {
+    const c = colsOf(rows), e = zip.entry(name, csvHeader(c));
+    for (const r of rows) await e.write(csvLine(r, c));
+    await e.end();
+    counts[key] = rows.length;
+  }
+  return { files: await zip.finish(), counts };
 }
 
 module.exports = { buildExports, flatten };
@@ -59,9 +68,9 @@ if (require.main === module) {
   const store = createCardStore({ recover: false });      // çalışan botun yarım takiplerine dokunma
   if (!store.enabled()) { console.error('Veritabanı açılamadı'); process.exit(1); }
   fs.mkdirSync(dir, { recursive: true });
-  for (const f of buildExports(store, days)) {
-    fs.writeFileSync(require('path').join(dir, f.name), f.csv);
-    console.log(`${f.name}: ${f.n} satır → ${require('path').join(dir, f.name)}`);
-  }
-  store.close();
+  buildExports(store, days).then(({ files, counts }) => {
+    for (const f of files) { fs.writeFileSync(require('path').join(dir, f.name), f.buf); console.log(`${f.name} → ${require('path').join(dir, f.name)}`); }
+    console.log(`tepeler ${counts.tepeler} · kartlar ${counts.kartlar} · temaslar ${counts.temaslar} satır`);
+    store.close();
+  }).catch(err => { console.error(err); process.exit(1); });
 }

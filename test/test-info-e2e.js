@@ -296,21 +296,24 @@ const results = []; const ok = s => results.push('✅ ' + s);
     await waitFor(() => tg.sent.slice(bm).some(m => m.text.includes('yöneticisi olmalısın')), 9000, '/disaaktar üye');
     const d0 = tg.docs.length, b6 = tg.sent.length;
     tg.command(CHAT, ADMIN, '/disaaktar 1');
-    await waitFor(() => tg.docs.length >= d0 + 3 && tg.sent.length > b6, 5000, '/disaaktar');
+    await waitFor(() => tg.docs.length >= d0 + 1 && tg.sent.length > b6, 5000, '/disaaktar');
     const names = tg.docs.slice(d0).map(d => d.documentName);
-    assert.deepStrictEqual(names, ['tepeler.csv', 'kartlar.csv', 'temaslar.csv']);
-    assert(tg.docs.slice(d0).every(d => Number(d.chat_id) === ADMIN && d.documentBytes > 0 && /^\uFEFF?(id|symbol),/.test(d.documentText)), 'özelden CSV: ' + tg.docs.slice(d0).map(d => [d.chat_id, d.documentText.slice(0, 20)]).join(' | '));
-    const kc = tg.docs.slice(d0)[1].documentText.split('\n').filter(Boolean);
+    assert.deepStrictEqual(names, ['veri-son1gun.zip']);
+    const Z = require('./unzip')(tg.docs[d0].documentBuf);
+    assert.deepStrictEqual(Object.keys(Z), ['tepeler.csv', 'kartlar.csv', 'temaslar.csv']);
+    assert(Number(tg.docs[d0].chat_id) === ADMIN && Object.values(Z).every(t => /^\uFEFF?(id|symbol),/.test(t)), 'özelden zip: ' + Object.values(Z).map(t => t.slice(0, 20)).join(' | '));
+    const kc = Z['kartlar.csv'].split('\n').filter(Boolean);
     assert(kc.length === cards.length + 1 && kc[0].includes('rsi_3m') && kc[0].includes('fwd_60_low'), 'kartlar.csv: ' + kc[0].slice(0, 200));
-    assert(tg.sent.slice(b6).some(m => m.text.includes('📤 3 dosya özelden gönderildi')));
+    assert(tg.sent.slice(b6).some(m => m.text.includes('📤 1 zip özelden gönderildi')));
     { const d1 = tg.docs.length, nCards = db.prepare('SELECT COUNT(*) n FROM cards').get().n;
       tg.command(CHAT, ADMIN, '/haftalik');
-      await waitFor(() => tg.docs.length >= d1 + 4, 5000, '/haftalik');
+      await waitFor(() => tg.docs.length >= d1 + 2, 5000, '/haftalik');
       const hw = tg.docs.slice(d1).map(d => d.documentName);
-      assert(/^haftalik-\d{4}-H\d\d\.md$/.test(hw[0]) && hw.slice(1).every(n => /^(tepeler|kartlar|temaslar)-\d{4}-H\d\d\.csv$/.test(n)), 'haftalık ön izleme: ' + hw);
+      assert(hw.length === 2 && /^haftalik-\d{4}-H\d\d\.md$/.test(hw[0]) && /^veri-\d{4}-H\d\d\.zip$/.test(hw[1]), 'haftalık ön izleme: ' + hw);
+      assert.deepStrictEqual(Object.keys(require('./unzip')(tg.docs[d1 + 1].documentBuf)).sort(), ['kartlar.csv', 'temaslar.csv', 'tepeler.csv']);
       assert(tg.docs[d1].documentText.includes('# Haftalık istatistik'));
       assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM cards').get().n, nCards, 'ön izleme veri silmemeli'); }
-    ok(`Düşüş defteri — ${eRows.length} olay; /kacan yanıt verdi; /disaaktar üyeye kapalı, yöneticiye 3 CSV'yi özelden gönderdi; /haftalik ön izleme (MD + 3 CSV) özelden, veri silinmedi (kartlar.csv ${kc.length - 1} satır, rsi_3m · fwd_60_low … sütunları)`); }
+    ok(`Düşüş defteri — ${eRows.length} olay; /kacan yanıt verdi; /disaaktar üyeye kapalı, yöneticiye zip'i (3 CSV) özelden gönderdi; /haftalik ön izleme (MD + zip) özelden, veri silinmedi (kartlar.csv ${kc.length - 1} satır, rsi_3m · fwd_60_low … sütunları)`); }
   console._log('\n' + sm.text.replace(/<[^>]+>/g, '').split('\n').slice(0, 12).join('\n'));
 
   // ── Kopukluk: sunucu bağlantıyı kapatır → yeniden bağlan + boşluk doldurma ──

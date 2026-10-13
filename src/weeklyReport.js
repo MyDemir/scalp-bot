@@ -4,7 +4,10 @@
  * Haftalık istatistik dosyası — her Pazartesi 03:01 (TSİ) gruba gönderilir, sonra veritabanından silinir.
  *
  *   Dosyalar : haftalik-<yıl>-H<hafta>.md  — okunur özet + olay listesi (kartlar, düşüşler, seviye temasları)
- *              tepeler-….csv (tüm tepe adayları) · kartlar-….csv · temaslar-….csv — tüm sayılar (Sheets / Excel / Python)
+ *              veri-<yıl>-H<hafta>.zip — tepeler.csv (tüm tepe adayları) · kartlar.csv · temaslar.csv (Sheets / Excel / Python)
+ *              Zip 40 MB'ı aşarsa (Telegram sınırı 50 MB) kalan satırlar veri-…-2.zip'e geçer.
+ *   Bellek   : tepe adayları (haftada on binlerce, 214 sütun) veritabanından PARÇA PARÇA okunur, CSV satırı doğrudan
+ *              zip'e sıkıştırılır; özet sayaçlarla hesaplanır — hiçbir anda tüm hafta bellekte tutulmaz.
  *   Kapsam   : rapor anından 5 saat öncesine kadarki TÜM kayıtlar (kartın 240 dk takibi ve düşüşün 240 dk sonrası
  *              dolmuş olsun diye; son 5 saat bir sonraki haftaya kalır). Önceki raporda gönderilemeyenler de girer.
  *   Silme    : dosyaların HEPSİ gruba gittikten sonra kapsamdaki kartlar, temaslar ve düşüşler silinir (VACUUM ile
@@ -17,7 +20,8 @@
 const fs = require('fs');
 const path = require('path');
 const { rowToStat } = require('./cardStore');
-const { toCsv, flatDrop, dropCols, dropText, teyitText } = require('./eventLog');
+const { flatDrop, dropCols, dropText, teyitText, createTeyitAcc, slimDrop, csvLine, csvHeader } = require('./eventLog');
+const { createZipSet } = require('./zipWriter');
 const { touchText } = require('./infoStats');
 const { flatten } = require('./exportData');
 
@@ -82,38 +86,68 @@ function cardLine(r) {
     + ` · 60dk en düşük ${pS(f60?.low)} / en yüksek ${pS(f60?.high)}${r.partial ? ' · (takip eksik)' : ''}`;
 }
 
+const MD_DROP_LINES = 300;          // MD'deki düşüş satırı sınırı (tamamı CSV'de)
+
 /**
  * @param {object} store  cardStore
- * @returns {{label, md, files:{name, buf}[], counts, cutoff}}
+ * @returns {Promise<{label, md, files:{name, buf, type}[], counts, cutoff, from}>}
  */
-function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = now - LAG_MS } = {}) {
+async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = now - LAG_MS, maxZipBytes = 40e6 } = {}) {
   const label = weekLabel(cutoff);
   const cards = store.since(0).filter(r => r.t < cutoff).map(rowToStat).filter(r => r.kind === 'card');
   const touches = (store.touchesSince ? store.touchesSince(0) : []).filter(r => r.t < cutoff);
-  const peaks = (store.eventsSince ? store.eventsSince(0) : []).filter(r => r.t < cutoff);   // tüm tepe adayları
-  const drops = peaks.filter(r => (r.outcome || 'düştü') === 'düştü');
-  const all = [...cards, ...touches, ...peaks].map(r => r.t);
-  const from = all.length ? Math.min(...all) : cutoff;
-  const counts = { cards: cards.length, touches: touches.length, drops: drops.length, peaks: peaks.length };
+  const counts = { cards: cards.length, touches: touches.length, drops: 0, peaks: 0 };
+  let from = cutoff;
+  for (const r of cards) if (r.t < from) from = r.t;
+  for (const r of touches) if (r.t < from) from = r.t;
+
+  const zip = createZipSet(`veri-${label}`, { maxBytes: maxZipBytes });
+  const cardRows = cards.map(r => { const { bursts, text, kind, done, ...rest } = r; return flatten({ ...rest, time: new Date(r.t).toISOString(), partial: r.partial ? 1 : 0 }); });
+  const touchRows = touches.map(r => flatten({ ...r, time: new Date(r.t).toISOString() }));
+  const colsOf = rows => { const set = new Set(); for (const r of rows) for (const k of Object.keys(r)) set.add(k); return [...set]; };
+  for (const [name, rows] of [['kartlar.csv', cardRows], ['temaslar.csv', touchRows]]) {
+    const cols = colsOf(rows), e = zip.entry(name, csvHeader(cols));
+    for (const r of rows) await e.write(csvLine(r, cols));
+    await e.end();
+  }
+
+  // Tepe adayları: parça parça oku → CSV satırı zip'e, teyit sayaçları, "düştü"ler sade biçimde (rapor alanları)
+  const acc = createTeyitAcc();
+  if (E.dropPct) acc.setDropPct(E.dropPct);
+  const drops = [];
+  const dcols = dropCols(), te = zip.entry('tepeler.csv', csvHeader(dcols));
+  if (store.forEachEvent) {
+    await store.forEachEvent({ until: cutoff }, async r => {
+      counts.peaks++;
+      if (r.t < from) from = r.t;
+      acc.add(r);
+      if ((r.outcome || 'düştü') === 'düştü') { counts.drops++; drops.push(slimDrop(r)); }
+      await te.write(csvLine(flatDrop(r), dcols));
+    });
+  }
+  await te.end();
+  drops.sort((a, b) => a.t - b.t);
+
   const grade = g => cards.filter(c => c.grade === g).length;
+  const oc = { düştü: counts.drops, devam: acc.oc('devam'), yatay: acc.oc('yatay') };
   const md = [
     `# Haftalık istatistik — ${label}`,
     '',
     `Kapsam: ${fmt(from)} → ${fmt(cutoff)} (TSİ) · ${counts.cards} kart · ${counts.peaks} tepe adayı (${counts.drops} düştü) · ${counts.touches} seviye teması`,
     '',
-    'Bu dosya botun kaydettiği olayların dökümüdür; kazanç/kayıp hesabı yoktur, "eşlik eden durum"dur. Sayısal analiz için aynı mesajdaki CSV dosyalarını kullan.',
+    'Bu dosya botun kaydettiği olayların dökümüdür; kazanç/kayıp hesabı yoktur, "eşlik eden durum"dur. Sayısal analiz için aynı mesajdaki zip içindeki CSV dosyalarını kullan.',
     '',
     '## Kartlar',
     `Derece: 🔴 ${grade(1)} · 🔴🔴 ${grade(2)} · 🔴🔴🔴 ${grade(3)} · 🔴🔴🔴🔴 ${grade(4)}`,
     '',
     '## Düşüş defteri (özet)',
     '```',
-    plain(dropText(peaks, { title: `${counts.drops} düşüş`, s, E })),
+    plain(dropText(drops, { title: `${counts.drops} düşüş`, s, E, counts: oc })),
     '```',
     '',
     '## Teyit adayları (tüm tepe adayları: düştü / devam / yatay)',
     '```',
-    plain(teyitText(peaks, { title: `${counts.peaks} tepe adayı`, E })),
+    plain(teyitText(acc, { title: `${counts.peaks} tepe adayı`, E })),
     '```',
     '',
     '## Seviye tepkisi (özet)',
@@ -124,7 +158,8 @@ function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = now - L
     `## Düşüşler (${counts.drops})`,
     'Her satır: tepe zamanı · coin · tepe fiyatı · pompa (4 saatlik dipten) · tepe anında RSI 1/3/5/15dk/1s/4s · tepkinin geldiği seviye (tepenin %0.3 içi) · tepede VWAP (σ) · tepeden sonraki 60 dk\'nın dibi ve orada en yakın destek · kart durumu · tepeye göre 60/240 dk en düşük',
     '',
-    ...drops.map(dropLine),
+    ...drops.slice(0, MD_DROP_LINES).map(dropLine),
+    ...(drops.length > MD_DROP_LINES ? [`- … ve ${drops.length - MD_DROP_LINES} düşüş daha — tamamı tepeler.csv'de (outcome = düştü)`] : []),
     '',
     `## Kartlar (${counts.cards})`,
     ...cards.map(cardLine),
@@ -142,15 +177,7 @@ function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = now - L
     '',
   ].join('\n');
 
-  const cardRows = cards.map(r => { const { bursts, text, kind, done, ...rest } = r; return flatten({ ...rest, time: new Date(r.t).toISOString(), partial: r.partial ? 1 : 0 }); });
-  const touchRows = touches.map(r => flatten({ ...r, time: new Date(r.t).toISOString() }));
-  const colsOf = rows => { const set = new Set(); for (const r of rows) for (const k of Object.keys(r)) set.add(k); return [...set]; };
-  const files = [
-    { name: `haftalik-${label}.md`, buf: Buffer.from(md, 'utf8'), type: 'text/markdown' },
-    { name: `tepeler-${label}.csv`, buf: Buffer.from(toCsv(peaks.map(r => flatDrop(r)), dropCols()), 'utf8'), type: 'text/csv' },
-    { name: `kartlar-${label}.csv`, buf: Buffer.from(toCsv(cardRows, colsOf(cardRows)), 'utf8'), type: 'text/csv' },
-    { name: `temaslar-${label}.csv`, buf: Buffer.from(toCsv(touchRows, colsOf(touchRows)), 'utf8'), type: 'text/csv' },
-  ];
+  const files = [{ name: `haftalik-${label}.md`, buf: Buffer.from(md, 'utf8'), type: 'text/markdown' }, ...(await zip.finish())];
   return { label, md, files, counts, cutoff, from };
 }
 
@@ -161,11 +188,11 @@ function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = now - L
 function createWeeklyJob({ store, file, send, purge, getSettings = () => ({}), E = {}, logger = console }) {
   let state = null;
   let retryAt = 0, running = false;
-  const load = () => {
+  const load = (now = Date.now()) => {
     if (state) return state;
     try { state = JSON.parse(fs.readFileSync(file, 'utf8')); }
     catch {
-      state = { lastSlot: lastSlot() };                               // ilk kurulum: ilk rapor bir sonraki Pazartesi
+      state = { lastSlot: lastSlot(now) };                            // ilk kurulum: ilk rapor bir sonraki Pazartesi
       try { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(state)); } catch { /* yok */ }
     }
     return state;
@@ -173,12 +200,12 @@ function createWeeklyJob({ store, file, send, purge, getSettings = () => ({}), E
   const save = () => { try { fs.writeFileSync(file, JSON.stringify(state)); } catch (err) { logger.error(`[HAFTALIK] durum yazılamadı: ${err.message}`); } };
 
   async function tick(now = Date.now()) {
-    load();
+    load(now);
     const slot = lastSlot(now);
     if (running || slot <= state.lastSlot || now < retryAt) return null;
     running = true;
     try {
-      const w = buildWeekly(store, { now, s: getSettings(), E });
+      const w = await buildWeekly(store, { now, s: getSettings(), E });
       const caption = `📦 <b>Haftalık istatistik</b> · ${w.label}\n${w.counts.cards} kart · ${w.counts.drops} düşüş · ${w.counts.touches} seviye teması`;
       const ok = await send(w.files, caption);
       if (!ok) { retryAt = now + 10 * MIN; logger.warn('[HAFTALIK] gönderilemedi — 10 dk sonra tekrar, veri silinmedi'); return 'fail'; }
