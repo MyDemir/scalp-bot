@@ -18,11 +18,11 @@ const path = require('path');
 const fs   = require('fs');
 
 const MIN = 60_000;
-const WINDOWS = [15, 60, 240];
+const WINDOWS = [5, 15, 30, 60, 240];          // kart sonrası (dk) — eski veritabanına eksik sütunlar eklenir
 const KEEP_DAYS = 90;
 const TOUCH_KEEP_DAYS = 60;
 const EVENT_KEEP_DAYS = 60;
-const EVENT_WINDOWS = [5, 15, 60, 240];
+const EVENT_WINDOWS = [5, 15, 30, 60, 240];    // tepe adayı sonrası (dk)
 
 function defaultFile() {
   const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'signals.db');
@@ -44,9 +44,7 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
       CREATE TABLE IF NOT EXISTS cards (
         id TEXT PRIMARY KEY, kind TEXT NOT NULL, symbol TEXT NOT NULL, t INTEGER NOT NULL,
         seq INTEGER, price REAL NOT NULL, data TEXT,
-        low15 REAL, high15 REAL, close15 REAL,
-        low60 REAL, high60 REAL, close60 REAL,
-        low240 REAL, high240 REAL, close240 REAL,
+        ${WINDOWS.map(w => `low${w} REAL, high${w} REAL, close${w} REAL,`).join('\n        ')}
         done INTEGER NOT NULL DEFAULT 0, partial INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS cards_t ON cards(t);
@@ -72,6 +70,11 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
     }
     const ecols = new Set(db.prepare('PRAGMA table_info(events)').all().map(c => c.name));
     if (!ecols.has('outcome')) db.exec('ALTER TABLE events ADD COLUMN outcome TEXT');
+    // Sonradan eklenen pencereler (5 / 30 dk): eski tablolara sütun ekle
+    const ccols = new Set(db.prepare('PRAGMA table_info(cards)').all().map(c => c.name));
+    for (const [tbl, have, ws] of [['cards', ccols, WINDOWS], ['events', ecols, EVENT_WINDOWS]]) {
+      for (const w of ws) for (const k of ['low', 'high', 'close']) if (!have.has(`${k}${w}`)) db.exec(`ALTER TABLE ${tbl} ADD COLUMN ${k}${w} REAL`);
+    }
     const n = recover ? db.prepare('UPDATE cards SET done = 1, partial = 1 WHERE done = 0').run().changes : 0;
     if (n) logger.log(`[GEÇMİŞ] Yeniden başlatma: ${n} yarım takip "eksik" olarak kapatıldı`);
   } catch (err) {

@@ -91,7 +91,7 @@ module.exports = {
     sampleGapMin:   5,     // "devam" eden adaylar (pompa sürerken) en fazla bu kadar dk'da bir kaydedilir; düştü/yatay hep
     cardBeforeMin:  15,    // "kartlı": tepeden 15 dk önce …
     cardAfterMin:   5,     // … ile düşüşten 5 dk sonrası arasında kart
-    windows:        [5, 15, 60, 240],   // sonrası pencereleri (dk) — cards.db sütunları bunlara göre, DEĞİŞTİRME
+    windows:        [5, 15, 30, 60, 240],   // sonrası pencereleri (dk) — cards.db sütunları (cardStore EVENT_WINDOWS) ile aynı olmalı
   },
 
   autoFilter: {

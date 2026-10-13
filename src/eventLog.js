@@ -35,7 +35,7 @@ const TROUGH_MIN = 60;      // dip: tepeden sonraki 60 dk'nın en düşüğü
 const DEFAULTS = {
   pumpPct: 3, pumpLookbackMin: 240, localHighMin: 60,
   peakWindowMin: 15, dropPct: 1.5, contPct: 0, sampleGapMin: 5, cardBeforeMin: 15, cardAfterMin: 5,
-  windows: [5, 15, 60, 240],
+  windows: [5, 15, 30, 60, 240],
 };
 
 const num = (v, d = 2) => (v == null || !Number.isFinite(v) ? null : +v.toFixed(d));

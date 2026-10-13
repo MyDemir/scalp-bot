@@ -173,10 +173,10 @@ EMA21 3dk 1.03448 (−%1.5) · 5dk 1.0224 (−%2.7) · 15dk 1.00286 (−%4.7)
 `/ayarlar` → 🔻 Tepe reddi: aç/kapa (`peakAlert`), en az skor (`peakAlertMin`, varsayılan **4** → yalnız 03–15 TSİ; 3 = her saat),
 pompa en az % (`peakAlertPumpPct`, varsayılan 5), **yalnız RSI kart şartı sağlanan coinlerde** (`peakAlertRsiOnly`, varsayılan kapalı — açıkken o an RSI şartı (`rsiMin`, `minTFs`) sağlanmayan tepeler atlanır; H42'de skor ≥ 3 + RSI şartlı adaylar %41 gerçek tepe ama sayıca çok az), coin başına aralık (`peakAlertGapMin`, varsayılan 30 dk). Mesajda RSI şartı sağlanıyorsa `RSI şartı ✅` yazar. Varsayılanlarla
 H42'de günde ~60 bildirim olurdu (skor ≥ 3, pompa ≥ %3 ile ~600). Susturulan coinlere gitmez. Kayıt: `cards` tablosu, `kind = tepe`
-(15/60/240 dk sonrası takip edilir; `/gecmis`'te görünür). Bilgi amaçlıdır, al/sat sinyali değildir.
+(5/15/30/60/240 dk sonrası takip edilir; `/gecmis`'te görünür). Bilgi amaçlıdır, al/sat sinyali değildir.
 
 ### Kart geçmişi
-Her kart ve ⚡ uyarı `/data/cards.db`'ye (SQLite) yazılır; sonrasında fiyat 15 / 60 / 240 dk izlenir
+Her kart ve ⚡ uyarı `/data/cards.db`'ye (SQLite) yazılır; sonrasında fiyat 5 / 15 / 30 / 60 / 240 dk izlenir
 (en düşük / en yüksek / kapanış değişimi, kart anındaki fiyata göre — kazanç/kayıp değil). 90 gün saklanır.
 Yeniden başlatmada yarım kalan takipler "eksik" işaretlenir.
 - `/gecmis ETH [adet]` — coinin son kartları + sonrasında fiyat
@@ -236,7 +236,7 @@ için hangi durumların düşüşe eşlik ettiğini veriden bulmak.
     REST kuyruğu doluysa atlanır (kartlar öncelikli); kartı etkilemez.
 - **Dip:** tepeden sonraki 60 dk'nın en düşüğü — kaç % / kaç dk, %0.3 içindeki en yakın destek (aynı seviye listesi) ve
   3/5/15dk EMA21 merdiveninde nereye indiği; 55. dk'dan sonraysa "hâlâ düşüyor".
-- **Sonrası:** tepeye göre 5 / 15 / 60 / 240 dk en düşük / en yüksek / kapanış (%).
+- **Sonrası:** tepeye göre 5 / 15 / 30 / 60 / 240 dk en düşük / en yüksek / kapanış (%).
 - Kartı ve tetik kurallarını etkilemez. `/data/cards.db` → `events` tablosu (haftalık raporla temizlenir). Eşikler `src/config.js` → `events`.
 
 `/kacan [gün]` — yalnız **düştü** sonuçlu adaylar: kartlı/kartsız sayısı, kartsızlarda eksik şart dağılımı ("RSI 85+ yok %62 ·
@@ -249,7 +249,7 @@ likidasyonu, funding, spot prim, piyasa geneli …): o koşul **varken / yokken*
 ilk günlerde az örnek olur, backtest hemen geçmiş veriden verir.
 
 `/disaaktar [gün]` (yönetici) — tek **zip** **özelden** gelir (önce bota özelden bir kez /start yaz); içinde 3 CSV:
-`tepeler.csv` (tüm tepe adayları + `outcome`, tüm göstergeler), `kartlar.csv` (kartlar + kart anı göstergeleri + 15/60/240 dk sonrası),
+`tepeler.csv` (tüm tepe adayları + `outcome`, tüm göstergeler), `kartlar.csv` (kartlar + kart anı göstergeleri + 5/15/30/60/240 dk sonrası),
 `temaslar.csv` (seviye tepkisi). UTF-8, virgülle ayrılmış, ondalık nokta → Google Sheets / Excel / Python (pandas).
 Zip 40 MB'ı aşarsa (Telegram sınırı 50 MB) kalan satırlar `…-2.zip`'e geçer (`tepeler-2.csv`).
 Komut satırından: `fly ssh console` → `cd /app && node src/exportData.js --days 30` → `/data/export/veri.zip`,
@@ -329,7 +329,7 @@ src/
 ├── infoTelegram.js   # /ayarlar, /coin, /sustur, /takip … + buton işleyicileri
 ├── infoSettings.js   # Ayarlar (varsayılan config.info, değişiklikler /data/info-settings.json)
 ├── infoStats.js      # Kart sınıfları + "sonrası" medyanları (backtest ve /istatistik ortak)
-├── cardStore.js      # Kart geçmişi (SQLite /data/cards.db) + 15/60/240 dk takip + seviye tepkisi tablosu
+├── cardStore.js      # Kart geçmişi (SQLite /data/cards.db) + 5/15/30/60/240 dk takip + seviye tepkisi tablosu
 ├── peakAlert.js      # 🔻 Tepe reddi: skor (mum reddi · kırmızı · hacim · seans) + ayrı bildirim metni
 ├── eventLog.js       # Tepe defteri: pompa tepe adayı → düştü/devam/yatay, kartlı/kartsız, /kacan, /teyit (canlı + backtest ortak)
 ├── peakFeatures.js   # Tepe adayı ek özellikleri: CVD, mum yapısı, Bollinger, hız, piyasa, zaman, coin geçmişi

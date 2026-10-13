@@ -173,7 +173,7 @@ async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = n
     '- VWAP: vwD/vwW/vwM_pct ve _sig (günlük/haftalık/aylık; % ve σ), vw90_pct/_sig (kayan 90 dk), vw24h_pct, vw7d_pct, avwLow_pct (pompa dibinden sabitlenmiş)',
     '- Tepe: pkLv / pkLvKind / pkLvDist / pkLvTouches (tepki seviyesi ve önceki ~100 günde kaç kez test edildiği), pkNear (%0.5 içindeki tüm seviyeler) · Dip: trPct, trMin, trLv, trLvDist, trLvTouches, trNear, trEma (3/5/15dk EMA21 merdiveni), trFalling',
     '- temaslar.csv: lvTouches = seviyenin önceki ~100 günde (4s mumlar) kaç ayrı kez test edildiği · kartlar.csv: level_touches',
-    '- Kart şartı: rsiOk, hits, ok, fails (rsi|seviye…), score, checkOk · sonrası: low/high/close 5, 15, 60, 240 (tepeye göre %)',
+    '- Kart şartı: rsiOk, hits, ok, fails (rsi|seviye…), score, checkOk · sonrası: low/high/close 5, 15, 30, 60, 240 (tepeye göre %)',
     '',
   ].join('\n');
 
