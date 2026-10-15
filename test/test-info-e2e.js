@@ -30,6 +30,7 @@ const defs = {
   LOWUSDT: { m1: gen({ seed: 8, days: 41, start, p0: 1 }), histUntil: nowF, vol: 1e6 },
   USDCUSDT: { m1: gen({ seed: 9, days: 41, start, p0: 1 }), histUntil: nowF, vol: 5e9, base: 'USDC' },
   NEWUSDT: { m1: gen({ seed: 11, days: 41, start, p0: 3 }), histUntil: nowF, vol: 1e6 },
+  TSLAUSDT: { m1: gen({ seed: 13, days: 41, start, p0: 250 }), histUntil: nowF, vol: 5e8, tradfi: true },   // kripto dışı (TRADIFI_PERPETUAL)
 };
 { const a = defs.LOWUSDT.m1, i = 40 * D + 2,   // açılıştan 2 dk sonra: hacim katı bellekte yok → REST yedeği
   o = a[i - 1].c, nc = o * 1.026, f = nc / a[i].c;
@@ -257,6 +258,16 @@ const results = []; const ok = s => results.push('✅ ' + s);
   await waitFor(() => !ws.conns[0].subs.has('calmusdt@kline_1m') && ws.conns[0].subs.has('newusdt@kline_1m'), 3000, 'abonelik');
   assert.strictEqual(ws.conns.length, 1, 'yeni bağlantı açılmamalı');
   ok('Evren yenileme — NEW evrene girdi (tohum + SUBSCRIBE), CALM evrenden çıktı (UNSUBSCRIBE); bağlantı kopmadı');
+
+  // ── Hisse/emtia ayarı: TRADIFI_PERPETUAL varsayılan kapalı, açınca evrene girer, kapatınca çıkar ──
+  assert(!bot.series.has('TSLAUSDT'), 'kripto dışı varsayılan izlenmemeli');
+  bot.settings.set('tradfi', true);
+  await waitFor(() => bot.series.has('TSLAUSDT') && bot.series.get('TSLAUSDT').ready() && ws.conns[0].subs.has('tslausdt@kline_1m'), 5000, 'tradfi açık');
+  assert(/hisse\/emtia açık \(1 izleniyor\)/.test(bot.statusText()), bot.statusText());
+  bot.settings.set('tradfi', false);
+  await waitFor(() => !bot.series.has('TSLAUSDT') && !ws.conns[0].subs.has('tslausdt@kline_1m'), 5000, 'tradfi kapalı');
+  assert(bot.series.has('NEWUSDT') && bot.series.has('PUMPUSDT'), 'kripto coinler etkilenmemeli');
+  ok('🌐 Hisse/emtia ayarı — açınca TSLA (TRADIFI_PERPETUAL) evrene girdi, kapatınca çıktı; kripto coinler etkilenmedi');
 
   // ── Kart geçmişi ──
   const st = bot.getStore();

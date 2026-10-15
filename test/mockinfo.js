@@ -25,7 +25,7 @@ function startRest(port, market, hits = []) {
     const key = u.pathname.split('/').pop();
     hits.push(`${key}${q.symbol ? ' ' + q.symbol : ''}${q.interval ? ' ' + q.interval : ''}${q.limit ? ' ' + q.limit : ''}`);
     let body;
-    if (key === 'exchangeInfo') body = { symbols: Object.entries(market).map(([s, m]) => ({ symbol: s, contractType: 'PERPETUAL', status: 'TRADING', quoteAsset: 'USDT', baseAsset: m.base || s.replace(/USDT$/, '') })) };
+    if (key === 'exchangeInfo') body = { symbols: Object.entries(market).map(([s, m]) => ({ symbol: s, contractType: m.tradfi ? 'TRADIFI_PERPETUAL' : 'PERPETUAL', status: 'TRADING', quoteAsset: 'USDT', baseAsset: m.base || s.replace(/USDT$/, '') })) };
     else if (key === '24hr') body = Object.entries(market).map(([s, m]) => ({ symbol: s, quoteVolume: String(m.vol ?? 1e9) }));
     else if (key === 'premiumIndex') body = Object.keys(market).map(s => ({ symbol: s, lastFundingRate: '-0.00012', nextFundingTime: Date.now() + 2 * 3600e3 }));
     else if (key === 'openInterestHist') body = Array.from({ length: 13 }, (_, i) => ({ symbol: q.symbol, sumOpenInterest: String(1000 + i * 3) }));

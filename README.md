@@ -292,6 +292,12 @@ Yönetici: `TELEGRAM_ADMIN_IDS` (virgüllü kullanıcı ID'leri; `/benkimim` ile
 değilse **grubun yöneticileri**. Ayarlar `/data/info-settings.json`'a yazılır → deploy sonrası korunur.
 Varsayılanlar `src/config.js` → `info` bölümünde.
 
+**🌐 Hisse / emtia (kripto dışı) — `tradfi`, varsayılan kapalı.** Binance'in kripto dışı vadelileri (hisse, ETF,
+altın/gümüş, döviz; exchangeInfo'da `contractType: TRADIFI_PERPETUAL`) yalnız bu ayar açıkken evrene girer
+(24s hacim şartı onlara da uygulanır). `/ayarlar → 🌐 İzlenen coinler → Hisse/emtia` ya da `/ayar tradfi aç` / `kapat`;
+değişiklik beklemeden uygulanır (kapatınca abonelikleri bırakılır). Kendi piyasası kapalıyken mum gelmeyebileceği için
+bu semboller `/durum`'daki "geride" uyarısına sayılmaz; `/durum` açıkken kaç tanesinin izlendiğini gösterir.
+
 ### Bilgi botu backtest'i
 Geçmişte bot çalışsaydı hangi kartlar gelirdi — **canlıyla aynı kod** (series + infoEngine + infoCard),
 her 1m kapanışı sırayla oynatılır, look-ahead yok. Kazanç/kayıp hesabı yoktur; her kart için yalnızca

@@ -117,13 +117,33 @@ async function fetchOIChange1h(symbol) {
 
 // ── Sembol listesi ─────────────────────────────────────────────────────────
 
-/** İşlem gören USDT-margined perpetual sözleşmeler (exchangeInfo) */
-async function getTradableSymbols(excludeBaseAssets = []) {
+/**
+ * Kripto dışı (TradFi) kontrat mı — hisse, ETF, altın/gümüş, döviz.
+ * Binance bunları contractType "TRADIFI_PERPETUAL" ile listeler; ileride alan değişirse diye
+ * underlyingType / underlyingSubType işaretlerine de bakılır.
+ */
+const TRADFI_TYPES = new Set(['EQUITY', 'STOCK', 'ETF', 'COMMODITY', 'METAL', 'FX', 'FOREX']);
+function isTradfiInfo(s) {
+  if (s.contractType === 'TRADIFI_PERPETUAL') return true;
+  if (TRADFI_TYPES.has(String(s.underlyingType || '').toUpperCase())) return true;
+  return Array.isArray(s.underlyingSubType) && s.underlyingSubType.some(x => /tradfi/i.test(String(x)));
+}
+const tradfiSet = new Set();         // son exchangeInfo'daki kripto dışı semboller
+function isTradfi(symbol) { return tradfiSet.has(symbol); }
+
+/**
+ * İşlem gören USDT-margined perpetual sözleşmeler (exchangeInfo)
+ * @param {{tradfi?:boolean}} o  tradfi: kripto dışı kontratlar da dahil (varsayılan hayır)
+ */
+async function getTradableSymbols(excludeBaseAssets = [], { tradfi = false } = {}) {
   const info = await fetchExchangeInfo();
   const exclude = new Set(excludeBaseAssets.map(s => s.toUpperCase()));
+  const live = info.symbols.filter(s => s.status === 'TRADING' && s.quoteAsset === 'USDT');
+  tradfiSet.clear();
+  for (const s of live) if (isTradfiInfo(s)) tradfiSet.add(s.symbol);
   return new Set(
-    info.symbols
-      .filter(s => s.contractType === 'PERPETUAL' && s.status === 'TRADING' && s.quoteAsset === 'USDT')
+    live
+      .filter(s => (tradfiSet.has(s.symbol) ? tradfi : s.contractType === 'PERPETUAL'))
       .filter(s => !exclude.has(String(s.baseAsset).toUpperCase()))
       .map(s => s.symbol),
   );
@@ -136,8 +156,8 @@ async function getTradableSymbols(excludeBaseAssets = []) {
  * @param {{minVolume24hUSDT:number, maxCoins:number, excludeBaseAssets:string[]}} filterCfg  maxCoins 0 = sınırsız
  */
 async function getLiquidSymbols(filterCfg) {
-  const { minVolume24hUSDT, maxCoins, excludeBaseAssets = [] } = filterCfg;
-  const tradable = await getTradableSymbols(excludeBaseAssets);
+  const { minVolume24hUSDT, maxCoins, excludeBaseAssets = [], tradfi = false } = filterCfg;
+  const tradable = await getTradableSymbols(excludeBaseAssets, { tradfi });
   const tickers  = await fetch24hTickers();
 
   const list = tickers
@@ -152,8 +172,8 @@ async function getLiquidSymbols(filterCfg) {
  * İşlemdeki USDT perpetual'ların 24s hacmi (USDT).
  * @returns {Map<string, number>}
  */
-async function getSymbolVolumes(excludeBaseAssets = []) {
-  const tradable = await getTradableSymbols(excludeBaseAssets);
+async function getSymbolVolumes(excludeBaseAssets = [], { tradfi = false } = {}) {
+  const tradable = await getTradableSymbols(excludeBaseAssets, { tradfi });
   const tickers  = await fetch24hTickers();
   const out = new Map();
   for (const t of tickers) if (tradable.has(t.symbol)) out.set(t.symbol, parseFloat(t.quoteVolume) || 0);
@@ -202,6 +222,7 @@ module.exports = {
   fetchPremium,
   fetchOIChange1h,
   getTradableSymbols,
+  isTradfi,
   getLiquidSymbols,
   getSymbolVolumes,
   startWebSocket,

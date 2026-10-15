@@ -241,7 +241,7 @@ async function main() {
   } else {
     const minVol = Number(a['min-volume'] ?? s.minVolumeM * 1e6);
     const { getLiquidSymbols } = require('./binanceClient');
-    symbols = await getLiquidSymbols({ minVolume24hUSDT: minVol, maxCoins: Number(a['max-coins'] ?? 0), excludeBaseAssets: cfg.autoFilter.excludeBaseAssets });
+    symbols = await getLiquidSymbols({ minVolume24hUSDT: minVol, maxCoins: Number(a['max-coins'] ?? 0), excludeBaseAssets: cfg.autoFilter.excludeBaseAssets, tradfi: Boolean(s.tradfi) });
     universe = `24s hacim ≥ ${(minVol / 1e6).toLocaleString()}M $${a['max-coins'] ? `, en likit ${a['max-coins']}` : ''}`;
   }
   if (!symbols.length) throw new Error('Sembol listesi boş');

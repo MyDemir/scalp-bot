@@ -67,6 +67,7 @@ module.exports = {
     peakAlertRsiOnly: false, // true: yalnız RSI kart şartı (rsiMin, minTFs) o an sağlanan coinlerde
 
     minVolumeM:    3,
+    tradfi:        false, // kripto dışı kontratlar (hisse · ETF · emtia · döviz — Binance TRADIFI_PERPETUAL) izlensin mi
     moveAlertPct:  2,
     cardSound:     true,
     chart:         true,

@@ -60,6 +60,7 @@ function staleList(now = Date.now()) {
   const out = [];
   for (const [sym, sr] of series) {
     if (busy.has(sym) || !sr.ready()) continue;
+    if (binance.isTradfi?.(sym)) continue;            // hisse/emtia: piyasa kapalıyken mum gelmeyebilir — uyarı sayılmaz
     const t = sr.lastT('1m');
     if (t == null || now - (t + 60_000) > STALE_MS) out.push(sym);
   }
@@ -349,7 +350,7 @@ async function backfillGap(symbols, downSince) {
 async function refreshUniverse(initial = false) {
   let vols;
   try {
-    vols = await binance.getSymbolVolumes(cfg.autoFilter.excludeBaseAssets);
+    vols = await binance.getSymbolVolumes(cfg.autoFilter.excludeBaseAssets, { tradfi: Boolean(settings.get().tradfi) });
   } catch (err) {
     console.error(`[EVREN] hacim listesi alınamadı: ${err?.message || err}`);
     if (initial) throw err;
@@ -385,6 +386,12 @@ async function pollPremium() {
 
 // ── Durum / heartbeat ─────────────────────────────────────────────────────
 
+function tradfiCount() {
+  let n = 0;
+  for (const sym of series.keys()) if (binance.isTradfi?.(sym)) n++;
+  return n;
+}
+
 function readyCount() {
   let n = 0;
   for (const sr of series.values()) if (sr.ready()) n++;
@@ -399,7 +406,7 @@ function statusText() {
 Coin: ${series.size} izleniyor · ${readyCount()} hazır${busy.size ? ` · ${busy.size} yükleniyor` : ''}${failed.size ? ` · ${failed.size} hata` : ''}
 ${(() => { const st = staleList(); return st.length ? `⚠️ Geride (son 3 dk mum yok): ${st.length} coin — ${st.slice(0, 8).join(', ')}${st.length > 8 ? '…' : ''}` : '✅ Tüm hazır coinlerde son 3 dk mumu var'; })()}
 Son 5 dk: ${diagText(lastDiag && lastDiag.n ? lastDiag : diag)}
-Evren: 24s hacim ≥ ${s.minVolumeM}M $
+Evren: 24s hacim ≥ ${s.minVolumeM}M $${s.tradfi ? ` · hisse/emtia açık (${tradfiCount()} izleniyor)` : ''}
 Bugün: ${stats.cardsToday} kart · Telegram kuyruğu: ${telegram.queueLength()}
 Hareket: ${s.moveAlertPct > 0 ? `1 dk ≥ %${s.moveAlertPct} → RSI kartına eklenir (RSI şartı varsa)` : 'kapalı'}
 Şart: RSI ≥ ${s.rsiMin} (${s.minTFs}/3)${s.levelRequired ? ` + seviye ≤ %${s.levelMaxPct}` : ''}${s.sepRequired ? ' + ayrışma' : ''}${s.confRequired ? ' + destek' : ''}${s.macdRequired ? ' + MACD' : ''}
@@ -497,7 +504,7 @@ async function main() {
 
   setInterval(() => refreshUniverse().catch(err => console.error('[EVREN]', err?.message || err)), UNIVERSE_EVERY_MS);
   settings.onChange((key) => {
-    if (key === 'minVolumeM') refreshUniverse().catch(err => console.error('[EVREN]', err?.message || err));
+    if (key === 'minVolumeM' || key === 'tradfi') refreshUniverse().catch(err => console.error('[EVREN]', err?.message || err));
   });
 
   const s2 = settings.get();

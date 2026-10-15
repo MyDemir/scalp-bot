@@ -71,6 +71,7 @@ const DEFS = [
   { key: 'peakAlertRsiOnly', short: 'Tepe: RSI şartı', label: 'Tepe reddi: yalnız RSI kart şartı sağlanan coinlerde', type: 'bool' },
   { key: 'peakAlertGapMin', short: 'Tepe aralık dk', label: 'Tepe reddi: coin başına en fazla … dk\'da bir', type: 'int', min: 5, max: 240, step: 5 },
   { key: 'minVolumeM', short: 'Hacim M$', label: 'Evren: 24s hacim ≥ (milyon $)', type: 'num', min: 0, max: 500, step: 1 },
+  { key: 'tradfi', short: 'Hisse/emtia', label: 'Evren: kripto dışı kontratlar (hisse · ETF · altın/gümüş · döviz) izlensin', type: 'bool' },
 ];
 const DEF_BY_KEY = Object.fromEntries(DEFS.map(d => [d.key, d]));
 

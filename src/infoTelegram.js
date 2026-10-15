@@ -51,8 +51,8 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
       sum: v => `kart ${v.cardSound ? 'sesli' : 'sessiz'}` },
     { id: 'cht', title: '🖼 Grafik', keys: ['chart', 'chartTf', 'chartFib', 'chartIchi', 'chartMinTouches'],
       sum: v => (v.chart ? `${v.chartTf}${v.chartIchi ? ' · Ichimoku' : ''}${v.chartFib ? ' · Fibonacci' : ''}` : 'kapalı') },
-    { id: 'uni', title: '🌐 İzlenen coinler', keys: ['minVolumeM'],
-      sum: v => `24s hacim ≥ ${v.minVolumeM}M $` },
+    { id: 'uni', title: '🌐 İzlenen coinler', keys: ['minVolumeM', 'tradfi'],
+      sum: v => `24s hacim ≥ ${v.minVolumeM}M $ · hisse/emtia ${v.tradfi ? 'açık' : 'kapalı'}` },
   ];
   {
     const used = new Set(SECTIONS.flatMap(x => x.keys));
