@@ -25,7 +25,7 @@ async function main() {
   assert.strictEqual(sent.length, 1);
 
   assert.strictEqual(auth.verifyCode('12345678', '111111'), null);
-  assert.strictEqual(auth.verifyCode('12345678', '000042'), null, 'wrong code attempt must not allow login');
+  assert.strictEqual(auth.verifyCode('12345678', '222222'), null, 'wrong code attempt must not allow login');
   // A new code cannot be requested until cooldown elapses.
   time += 60_001;
   await auth.requestCode('12345678');
