@@ -354,7 +354,7 @@ app.post('/api/run-tests', (req, res) => {
     if (code !== 0) {
       console.error(`[TEST] Test paketi başarısız oldu (Çıkış kodu: ${code})`);
     } else {
-      console.log('[TEST] Tüm testler başarıyla geçti (18/18)');
+      console.log('[TEST] Tüm testler başarıyla geçti');
     }
     res.json({
       ok: code === 0,
@@ -1037,7 +1037,7 @@ def report_status(error_msg=None):
         return '<div class="py-1 px-2 rounded hover:bg-slate-900/60 transition flex items-start gap-2.5 leading-relaxed font-mono text-[11px] border border-transparent hover:border-slate-800">' +
           '<span class="text-slate-600 shrink-0 select-none">' + timeStr + '</span>' +
           '<span class="text-[10px] px-1.5 py-0.2 rounded border shrink-0 font-bold ' + levelColor + '">' + levelLabel + '</span>' +
-          '<span class="text-sky-400 font-semibold shrink-0">[' + l.tag + ']</span>' +
+          '<span class="text-sky-400 font-semibold shrink-0">[' + escapeHtml(l.tag) + ']</span>' +
           '<span class="text-slate-200 break-all">' + escapeHtml(l.message) + '</span>' +
         '</div>';
       }).join('');
@@ -1072,7 +1072,7 @@ def report_status(error_msg=None):
     }
 
     function escapeHtml(str) {
-      return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return String(str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     function renderBots(bots) {
@@ -1084,30 +1084,33 @@ def report_status(error_msg=None):
           : '<span class="text-[11px] font-mono text-rose-400 flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> Çevrimdışı</span>';
 
         const lastSeenText = b.lastSeen === 0 ? 'Bağlantı bekleniyor' : (b.lastSeenSecondsAgo < 60 ? b.lastSeenSecondsAgo + ' sn önce' : Math.floor(b.lastSeenSecondsAgo / 60) + ' dk önce');
-        const metricsHtml = Object.entries(b.metrics || {}).map(([k, v]) => '<div class="text-[11px] flex justify-between py-0.5"><span class="text-slate-400">' + k + ':</span> <span class="font-mono text-slate-200">' + v + '</span></div>').join('');
+        const metricsHtml = Object.entries(b.metrics || {}).map(([k, v]) => '<div class="text-[11px] flex justify-between py-0.5"><span class="text-slate-400">' + escapeHtml(k) + ':</span> <span class="font-mono text-slate-200">' + escapeHtml(v) + '</span></div>').join('');
 
         return '<div class="glass-panel rounded-lg p-5 space-y-4 hover:border-slate-600 transition">' +
           '<div class="flex items-start justify-between">' +
             '<div>' +
-              '<h3 class="font-bold text-white text-sm tracking-tight flex items-center gap-2">' + b.name +
+              '<h3 class="font-bold text-white text-sm tracking-tight flex items-center gap-2">' + escapeHtml(b.name) +
                 (b.type === 'local' ? '<span class="text-[10px] text-amber-400 font-mono">[Yerel]</span>' : '') +
               '</h3>' +
-              '<div class="text-xs text-sky-400 font-mono mt-0.5">' + (b.telegram || '—') + '</div>' +
+              '<div class="text-xs text-sky-400 font-mono mt-0.5">' + escapeHtml(b.telegram || '—') + '</div>' +
             '</div>' +
             statusBadge +
           '</div>' +
           '<div class="bg-obsidian-950 p-3 rounded border hairline-border text-xs space-y-1">' +
             '<div class="text-slate-500 text-[10px] uppercase font-mono tracking-wider font-semibold">Son Sinyal / Durum</div>' +
-            '<div class="text-slate-200 font-mono truncate">' + (b.lastSignal || '—') + '</div>' +
+            '<div class="text-slate-200 font-mono truncate">' + escapeHtml(b.lastSignal || '—') + '</div>' +
           '</div>' +
           (b.lastError ? '<div class="text-[11px] text-rose-400 bg-rose-500/10 p-2 rounded border border-rose-500/20 font-mono">Hata: ' + escapeHtml(b.lastError) + '</div>' : '') +
           (metricsHtml ? '<div class="space-y-0.5 pt-2 border-t hairline-border">' + metricsHtml + '</div>' : '') +
           '<div class="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t hairline-border font-mono">' +
             '<span>Son nabız: ' + lastSeenText + '</span>' +
-            (b.type !== 'local' ? '<button onclick="deleteBot(\\'' + b.id + '\\')" class="text-rose-400 hover:text-rose-300">Kaldır</button>' : '<span class="text-slate-600">Sistem Servisi</span>') +
+            (b.type !== 'local' ? '<button type="button" data-delete-bot="' + escapeHtml(b.id) + '" class="text-rose-400 hover:text-rose-300">Kaldır</button>' : '<span class="text-slate-600">Sistem Servisi</span>') +
           '</div>' +
         '</div>';
       }).join('');
+      container.querySelectorAll('[data-delete-bot]').forEach(button => {
+        button.addEventListener('click', () => deleteBot(button.dataset.deleteBot));
+      });
     }
 
     function renderCards(cards) {
@@ -1121,19 +1124,192 @@ def report_status(error_msg=None):
         const d = c.data ? (typeof c.data === 'string' ? JSON.parse(c.data || '{}') : c.data) : c;
         const sym = c.symbol || d.symbol || 'PARİTE';
         const price = c.price || d.price || '—';
-        const grade = d.grade || 1;
+        const grade = Math.max(1, Math.min(4, Number(d.grade) || 1));
         const timeStr = c.t ? new Date(c.t).toLocaleTimeString('tr-TR') : '';
         const isBuy = d.burst?.dir === 'buy';
 
         return '<div class="glass-panel rounded-lg p-4 hover:border-slate-600 transition space-y-3">' +
           '<div class="flex items-center justify-between">' +
             '<div class="flex items-center gap-3">' +
-              '<span class="font-bold text-white text-base font-mono">' + sym + '</span>' +
+              '<span class="font-bold text-white text-base font-mono">' + escapeHtml(sym) + '</span>' +
               '<span class="text-xs font-mono ' + (isBuy ? 'text-emerald-400' : 'text-amber-400') + '">' + (isBuy ? '● ALIM PATLAMASI' : '● SATIŞ / DİRENÇ') + '</span>' +
               '<span class="text-xs text-slate-500 font-mono tracking-widest">' + '●'.repeat(grade) + '</span>' +
             '</div>' +
             '<div class="text-right">' +
-              '<div class="font-mono text-sm text-white font-bold tabular">$' + price + '</div>' +
+              '<div class="font-mono text-sm text-white font-bold tabular">
+              '<div class="text-[10px] text-slate-500 font-mono">' + timeStr + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="grid grid-cols-3 gap-3 text-xs font-mono bg-obsidian-950 p-2.5 rounded border hairline-border">' +
+            '<div><span class="text-slate-500">RSI:</span> <span class="text-amber-400 font-semibold">' + escapeHtml(d.rsi?.val || d.rsi15 || '—') + '</span></div>' +
+            '<div><span class="text-slate-500">Direnç:</span> <span class="text-sky-400 font-semibold truncate">' + escapeHtml(d.level?.name || 'Tespit Edildi') + '</span></div>' +
+            '<div><span class="text-slate-500">EMA Gap:</span> <span class="text-slate-200">' + escapeHtml(d.emaGap != null ? '%' + d.emaGap : '—') + '</span></div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    function filterCards() {
+      const q = document.getElementById('filter-search').value.trim().toUpperCase();
+      if (!q) { renderCards(allCardsData); return; }
+      const filtered = allCardsData.filter(c => (c.symbol || '').toUpperCase().includes(q));
+      renderCards(filtered);
+    }
+
+    function renderTouches(touches) {
+      const tbody = document.getElementById('touches-table-body');
+      document.getElementById('touches-count').textContent = touches.length + ' kayıt';
+      if (!touches.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="py-8 text-center text-slate-500">Kayıtlı temas yok.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = touches.slice(0, 25).map(t => {
+        const timeStr = t.t ? new Date(t.t).toLocaleTimeString('tr-TR') : '—';
+        const heldBadge = t.held
+          ? '<span class="text-emerald-400 font-semibold">TUTUNDU</span>'
+          : '<span class="text-rose-400 font-semibold">KIRILDI</span>';
+
+        return '<tr class="hover:bg-slate-900/50 transition">' +
+          '<td class="py-2.5 px-3 font-bold text-white">' + escapeHtml(t.symbol) + '</td>' +
+          '<td class="py-2.5 px-3 text-slate-300">' + escapeHtml(t.name) + '</td>' +
+          '<td class="py-2.5 px-3 tabular text-slate-400">$' + (t.value ? t.value.toFixed(4) : '—') + '</td>' +
+          '<td class="py-2.5 px-3 tabular text-slate-400">' + (t.hits || 1) + '</td>' +
+          '<td class="py-2.5 px-3 text-right tabular text-slate-300">%' + (t.pb ? t.pb.toFixed(2) : '0.00') + '</td>' +
+          '<td class="py-2.5 px-3 text-right">' + heldBadge + '</td>' +
+          '<td class="py-2.5 px-3 text-right text-slate-500">' + timeStr + '</td>' +
+        '</tr>';
+      }).join('');
+    }
+
+    async function saveSettings() {
+      const rsi = Number(document.getElementById('setting-rsi').value);
+      const level = Number(document.getElementById('setting-level').value);
+      const burst1 = Number(document.getElementById('setting-burst1').value);
+      const vol = Number(document.getElementById('setting-vol').value);
+      const statusEl = document.getElementById('save-status');
+
+      try {
+        const res = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rsiMin: rsi, levelMaxPct: level, burstPct1: burst1, minVolumeM: vol })
+        }).then(r => r.json());
+
+        if (res.ok) {
+          statusEl.textContent = '✓ Ayarlar başarıyla güncellendi';
+          setTimeout(() => { statusEl.textContent = ''; }, 3000);
+          fetchData();
+        } else {
+          statusEl.textContent = 'Hata: ' + res.error;
+        }
+      } catch (err) {
+        statusEl.textContent = 'İletişim hatası';
+      }
+    }
+
+    function openAddBotModal() { document.getElementById('add-bot-modal').classList.remove('hidden'); }
+    function closeAddBotModal() { document.getElementById('add-bot-modal').classList.add('hidden'); }
+
+    async function saveNewBot() {
+      const id = document.getElementById('input-bot-id').value.trim();
+      const name = document.getElementById('input-bot-name').value.trim();
+      const tg = document.getElementById('input-bot-tg').value.trim();
+      if (!id || !name) return alert('Lütfen ID ve Ad giriniz');
+
+      await fetch('/api/external-bots/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, name, telegram: tg })
+      });
+      closeAddBotModal();
+      fetchData();
+    }
+
+    async function deleteBot(id) {
+      if (!confirm('Bu harici botu kaldırmak istediğinize emin misiniz?')) return;
+      await fetch('/api/external-bots/' + id, { method: 'DELETE' });
+      fetchData();
+    }
+
+    async function runTests() {
+      const modal = document.getElementById('test-modal');
+      const out = document.getElementById('test-output');
+      const spinner = document.getElementById('test-spinner');
+      modal.classList.remove('hidden');
+      spinner.classList.remove('hidden');
+      out.textContent = 'Test paketi yürütülüyor (test/run.js)... Lütfen bekleyin...\\n';
+
+      try {
+        const res = await fetch('/api/run-tests', { method: 'POST' }).then(r => r.json());
+        spinner.classList.add('hidden');
+        out.textContent = res.output || (res.ok ? 'Tüm testler başarıyla geçti!' : 'Testler başarısız oldu.');
+      } catch (err) {
+        spinner.classList.add('hidden');
+        out.textContent = 'Hata: ' + err.message;
+      }
+    }
+    function closeTestModal() { document.getElementById('test-modal').classList.add('hidden'); }
+
+    function copyCode(id) {
+      const text = document.getElementById(id).textContent;
+      navigator.clipboard.writeText(text);
+      alert('Kod panoya kopyalandı!');
+    }
+
+    async function notifyTelegramPanel() {
+      const btn = document.getElementById('btn-notify-tg');
+      const txt = document.getElementById('btn-notify-tg-text');
+      const origText = txt.textContent;
+      btn.disabled = true;
+      txt.textContent = 'İletiliyor...';
+      try {
+        const res = await fetch('/api/notify-panel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ note: 'Web Paneli Üzerinden İletildi' })
+        }).then(r => r.json());
+        if (res.ok) {
+          alert('✅ Başarılı!\nWeb paneli adresi (' + res.url + ') Telegram grubuna ve ' + res.adminCount + ' yöneticiye iletildi.');
+        } else {
+          alert('Hata: ' + (res.error || 'İletilemedi'));
+        }
+      } catch (err) {
+        alert('Ağ Hatası: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        txt.textContent = origText;
+      }
+    }
+
+    document.getElementById('webhook-url').textContent = window.location.origin + '/api/external-bots/heartbeat';
+
+    fetchData();
+    setInterval(fetchData, 3000);
+  </script>
+</body>
+</html>
+`);
+});
+
+// Sunucuyu 0.0.0.0:3000 üzerinde dinle
+const server = app.listen(PORT, HOST, () => {
+  console.log(`[SERVER] Scalp Terminal http://${HOST}:${PORT} üzerinde çalışıyor`);
+  bootBot();
+});
+
+function shutdownServer() {
+  console.log('\n[SERVER] Kapatılıyor...');
+  server.close(() => {
+    binance.stopWebSocket();
+    telegram.stop();
+    process.exit(0);
+  });
+}
+process.on('SIGINT', shutdownServer);
+process.on('SIGTERM', shutdownServer);
+
+module.exports = app;
+ + escapeHtml(price) + '</div>' +
               '<div class="text-[10px] text-slate-500 font-mono">' + timeStr + '</div>' +
             '</div>' +
           '</div>' +
