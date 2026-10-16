@@ -49,8 +49,8 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
   const sessions = new Map();
   const cooldowns = new Map();
   const sessionCookieSecure = env.NODE_ENV === 'production';
-  // Always authorize against the live Telegram group/channel admin list.
-  // If Telegram cannot confirm the list, fail closed rather than trusting a static env allowlist.
+  // Always resolve authorization from the live administrators of TELEGRAM_CHAT_ID.
+  // TELEGRAM_ADMIN_IDS is intentionally not required for web-panel access.
   async function adminIds() {
     if (typeof telegram?.getGroupAdminIds !== 'function') return [];
     try {
