@@ -53,6 +53,12 @@ async function main() {
   groupAdmins = ['12345678'];
   assert.strictEqual(await membershipCheck.verifyCode('87654321', '000042'), null, 'removed group admin must not complete login');
 
+  const refreshed = await auth.refreshAdminList('12345678');
+  assert.strictEqual(refreshed.ok, true, 'current group admin can refresh the list');
+  assert.strictEqual(refreshed.adminCount, 2, 'refresh reports the current live admin count');
+  const deniedRefresh = await auth.refreshAdminList('11111111');
+  assert.strictEqual(deniedRefresh.ok, false, 'non-admin cannot refresh the list');
+
   const sendFailure = createAdminAuth({
     env: { NODE_ENV: 'test' }, now: () => time,
     telegram: { getGroupAdminIds: async () => ['12345678'], sendPrivate: async () => false },
