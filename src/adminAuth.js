@@ -49,13 +49,9 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
   const sessions = new Map();
   const cooldowns = new Map();
   const sessionCookieSecure = env.NODE_ENV === 'production';
-  // An explicit TELEGRAM_ADMIN_IDS allowlist takes precedence; otherwise use live chat admins.
-  // A configured-but-invalid list fails closed rather than silently falling back to group membership.
+  // Always resolve authorization from the live administrators of TELEGRAM_CHAT_ID.
+  // TELEGRAM_ADMIN_IDS is intentionally not required for web-panel access.
   async function adminIds() {
-    const configured = String(env.TELEGRAM_ADMIN_IDS || '').trim();
-    if (configured) {
-      return [...new Set(configured.split(',').map(x => x.trim()).filter(x => /^\d{5,20}$/.test(x)))];
-    }
     if (typeof telegram?.getGroupAdminIds !== 'function') return [];
     try {
       const ids = await telegram.getGroupAdminIds();
