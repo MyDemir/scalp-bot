@@ -1,0 +1,34 @@
+'use strict';
+
+const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+
+const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'server.js'), 'utf8');
+const helper = source.match(/function escapeHtml\(str\) \{[\s\S]*?\n    \}/);
+assert(helper, 'dashboard must define an HTML escaping helper');
+
+const escapeHtml = vm.runInNewContext('(' + helper[0] + ')');
+const payload = `"><img src=x onerror='alert(1)'>&`;
+assert.strictEqual(
+  escapeHtml(payload),
+  '&quot;&gt;&lt;img src=x onerror=&#39;alert(1)&#39;&gt;&amp;',
+  'HTML text and attribute metacharacters must be escaped'
+);
+
+for (const token of [
+  'escapeHtml(b.name)',
+  'escapeHtml(b.telegram ||',
+  'escapeHtml(b.lastSignal ||',
+  'escapeHtml(k)',
+  'escapeHtml(v)',
+  'escapeHtml(l.tag)',
+  'escapeHtml(t.symbol)',
+  'escapeHtml(t.name)',
+  'data-delete-bot="\' + escapeHtml(b.id) + '"',
+]) {
+  assert(source.includes(token), `dashboard must escape untrusted field: ${token}`);
+}
+assert(!source.includes('onclick="deleteBot(\\\' + b.id'), 'external bot IDs must not be injected into inline JavaScript');
+console.log('PASS: dashboard HTML escaping and safe external-bot delete binding');
