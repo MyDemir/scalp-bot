@@ -27,7 +27,7 @@ app.post('/api/auth/request-code', async (req, res) => {
   }
 });
 app.post('/api/auth/verify', (req, res) => {
-  const result = adminAuth.verifyCode(String(req.body?.userId || ''), String(req.body?.code || ''));
+  const result = await adminAuth.verifyCode(String(req.body?.userId || ''), String(req.body?.code || ''));
   if (!result) return res.status(401).json({ ok: false, error: 'Kod geçersiz, süresi dolmuş veya kullanım sınırına ulaşmış.' });
   adminAuth.setCookie(res, result.token);
   res.setHeader('Cache-Control', 'no-store');
