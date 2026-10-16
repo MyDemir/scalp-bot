@@ -447,7 +447,16 @@ ${mv.join('\n')}` : ''}`.slice(0, 4000);
     panelbildir: async (args, msg) => commands.panel('gonder', msg),
     web: (args, msg) => commands.panel(args, msg),
 
-    benkimim: (args, msg) => `Kullanıcı ID: <code>${msg.from?.id ?? '—'}</code>`,
+    benkimim: (args, msg) => {
+      const userId = msg.from?.id;
+      const chatId = msg.chat?.id;
+      const senderChatId = msg.sender_chat?.id;
+      return [
+        `👤 Kullanıcı ID: <code>${userId ?? 'Telegram bu mesajda kullanıcı ID\'sini paylaşmıyor'}</code>`,
+        `💬 Sohbet/Kanal ID: <code>${chatId ?? '—'}</code>`,
+        ...(senderChatId != null ? [`📣 Mesaj adına gönderilen kanal/sohbet ID: <code>${senderChatId}</code>`, 'ℹ️ Mesaj kanal veya anonim yönetici adına gönderildiği için gerçek kullanıcı ID\'si Telegram tarafından gizlenmiş olabilir.'] : []),
+      ].join('\n');
+    },
   };
 
   telegram.setCommands(commands);
