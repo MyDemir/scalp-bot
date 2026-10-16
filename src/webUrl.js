@@ -70,7 +70,7 @@ async function notifyWebPanelToAdmins(telegram, { note = 'Dağıtım Başarılı
     `• Multi-Bot Hub (Tüm Telegram Botlarını Bağlama)\n` +
     `• Hata & Sistem Teşhis Havuzu (Anlık Filtreli)\n` +
     `• Dinamik Motor & Parametre Ayarları\n` +
-    `• Tek Tıkla 18/18 Otomatik Test Doğrulama\n\n` +
+    `• Tek Tıkla Otomatik Test Doğrulama\n\n` +
     `<i>💡 İpucu: Telegram sohbetinde <code>/panel</code> yazarak bu adrese her an ulaşabilirsiniz.</i>`;
 
   let sentToGroup = false;
