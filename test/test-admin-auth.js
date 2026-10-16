@@ -7,8 +7,10 @@ async function main() {
   let time = 1_000_000;
   const sent = [];
   let groupAdmins = ['12345678', '87654321'];
+  let refreshCalls = 0;
   const telegram = {
     getGroupAdminIds: async () => groupAdmins,
+    refreshGroupAdminIds: async () => { refreshCalls++; return groupAdmins; },
     sendPrivate: async (id, text) => { sent.push({ id, text }); return true; },
   };
   const auth = createAdminAuth({
@@ -57,6 +59,7 @@ async function main() {
   const refreshed = await auth.refreshAdminList('12345678');
   assert.strictEqual(refreshed.ok, true, 'current group admin can refresh the list');
   assert.strictEqual(refreshed.adminCount, 1, 'refresh reports the current live admin count');
+  assert.strictEqual(refreshCalls, 1, 'explicit refresh must call Telegram cache-clearing refresh method');
   const deniedRefresh = await auth.refreshAdminList('11111111');
   assert.strictEqual(deniedRefresh.ok, false, 'non-admin cannot refresh the list');
 
