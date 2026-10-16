@@ -1,0 +1,7 @@
+{
+  "name": "Scalp Sinyal Motoru",
+  "description": "Binance USDT-M Futures scalp ve sinyal motoru: RSI, seviye kırılımları, Fibonacci/Ichimoku grafikleri, Telegram kuyruk koruması ve canlı web paneli",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

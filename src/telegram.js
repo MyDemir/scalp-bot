@@ -121,18 +121,66 @@ async function sendWithPhoto(body, photo) {
 
 // ── Gönderim kuyruğu ───────────────────────────────────────────────────────
 
+const MAX_QUEUE_LEN = Number(process.env.TELEGRAM_MAX_QUEUE_LEN || 250);
+const MAX_ALERT_TTL_MS = Number(process.env.TELEGRAM_ALERT_TTL_MS || 20 * 60_000);   // 20 dk eski sinyal piyasa için geçersiz
+const MAX_CARD_TTL_MS  = Number(process.env.TELEGRAM_CARD_TTL_MS || 30 * 60_000);    // 30 dk eski kart gönderilmez
+const LATE_MS          = 2 * 60_000;
+
 const queue = [];   // { kind: 'alert'|'reply'|'card', chatId, text, attempts, keyboard?, silent?, createdAt }
+const recentDispatches = []; // Web paneli ve tanı için son 50 bildirim
+const MAX_RECENT_DISPATCHES = 50;
+
 let pumping = false;
 let lastSentAt = 0;
-const stats = { sent: 0, failed: 0, retried429: 0, merged: 0 };
+const stats = {
+  sent: 0,
+  failed: 0,
+  retried429: 0,
+  merged: 0,
+  droppedOverflow: 0,
+  droppedExpired: 0,
+  maxWaitMs: 0,
+};
 
-function enqueue(kind, chatId, text, extra = {}) {
-  queue.push({ kind, chatId, text, attempts: 0, createdAt: Date.now(), ...extra });
-  pump();
+function recordDispatch(item, status, note = '') {
+  recentDispatches.unshift({
+    kind: item.kind,
+    text: item.text?.slice(0, 300) || '',
+    chatId: item.chatId,
+    t: Date.now(),
+    status,
+    note,
+  });
+  if (recentDispatches.length > MAX_RECENT_DISPATCHES) recentDispatches.pop();
 }
 
-// Kuyrukta bu kadar bekleyen kartın başına "gecikmeli" etiketi eklenir (hiçbir kart atılmaz)
-const LATE_MS = 2 * 60_000;
+function enqueue(kind, chatId, text, extra = {}) {
+  const item = { kind, chatId, text, attempts: 0, createdAt: Date.now(), ...extra };
+
+  // Önceliklendirme: Kullanıcı komut yanıtları (reply) kuyruğun en önüne alınır
+  if (kind === 'reply') {
+    // Varsa mevcut bekleyen reply'ların hemen sonrasına, genel sinyallerin ise önüne koy
+    let insertIdx = 0;
+    while (insertIdx < queue.length && queue[insertIdx].kind === 'reply') insertIdx++;
+    queue.splice(insertIdx, 0, item);
+  } else {
+    // Genel bildirim / sinyal / kart
+    // Kuyruk kapasite kontrolü (bellek sızıntısı ve OOM koruması)
+    if (queue.length >= MAX_QUEUE_LEN) {
+      // En eski kartsız sinyali bul ve düşür
+      const dropIdx = queue.findIndex(q => q.kind !== 'reply');
+      if (dropIdx !== -1) {
+        const dropped = queue.splice(dropIdx, 1)[0];
+        stats.droppedOverflow++;
+        recordDispatch(dropped, 'dropped_overflow', 'Kuyruk dolu — bellek koruması');
+        console.warn(`[TELEGRAM] Kuyruk limiti (${MAX_QUEUE_LEN}) aşıldı — en eski sinyal düşürüldü (${dropped.kind})`);
+      }
+    }
+    queue.push(item);
+  }
+
+  pump();
+}
 
 async function pump() {
   if (pumping) return;
@@ -143,6 +191,20 @@ async function pump() {
       if (wait > 0) await sleep(wait);
 
       const item = queue.shift();
+      const waited = Date.now() - item.createdAt;
+      if (waited > stats.maxWaitMs) stats.maxWaitMs = waited;
+
+      // Bayat mesaj kontrolü (TTL): piyasa hızla değiştiği için uzun süre bekleyen sinyaller geçersizleşir
+      if (item.kind !== 'reply') {
+        const ttl = item.kind === 'alert' ? MAX_ALERT_TTL_MS : MAX_CARD_TTL_MS;
+        if (waited > ttl) {
+          stats.droppedExpired++;
+          recordDispatch(item, 'dropped_expired', `${Math.round(waited / 60000)} dk gecikme`);
+          console.warn(`[TELEGRAM] Zaman aşımı (${Math.round(waited / 60000)} dk) — bayat sinyal atlandı: ${item.text.slice(0, 40).replace(/\n/g, ' ')}`);
+          continue;
+        }
+      }
+
       // Birikmiş sinyalleri tek mesajda topla (grup limitine takılmadan hepsi hızlıca ulaşsın)
       if (item.kind === 'alert') {
         while (queue.length && queue[0].kind === 'alert' && queue[0].chatId === item.chatId &&
@@ -156,7 +218,6 @@ async function pump() {
         const body = { chat_id: item.chatId, text: item.text, parse_mode: 'HTML', disable_web_page_preview: true };
         if (item.thread) body.message_thread_id = item.thread;       // konulu (forum) grupta hedef konu
         if (item.kind === 'card') {
-          const waited = Date.now() - item.createdAt;
           if (waited > LATE_MS) {
             body.text = `⏳ <i>gecikmeli (${Math.round(waited / 60000)} dk kuyrukta bekledi)</i>\n` + item.text;
           }
@@ -167,9 +228,12 @@ async function pump() {
         }
         if (item.silent) body.disable_notification = true;
         if (item.replyTo) body.reply_parameters = { message_id: item.replyTo, allow_sending_without_reply: true };
+
         if (item.photo) await sendWithPhoto(body, item.photo);
         else await api('sendMessage', body);
+
         stats.sent++;
+        recordDispatch(item, 'sent');
         lastSentAt = Date.now();
       } catch (err) {
         lastSentAt = Date.now();
@@ -197,6 +261,7 @@ async function pump() {
         }
         if (err.code >= 400 && err.code < 500) {
           stats.failed++;
+          recordDispatch(item, 'failed', `${err.code}: ${err.message}`);
           console.error(`[TELEGRAM] Mesaj gönderilemedi (${err.code}: ${err.message}) — kalıcı hata, atlandı`);
           continue;
         }
@@ -207,6 +272,7 @@ async function pump() {
           await sleep(5000 * item.attempts);
         } else {
           stats.failed++;
+          recordDispatch(item, 'failed', `3 deneme aşıldı: ${err.message}`);
           console.error(`[TELEGRAM] Mesaj 3 denemede gönderilemedi: ${err.message}`);
         }
       }
@@ -247,10 +313,15 @@ function flush(timeoutMs = 60_000) {
   });
 }
 
-/** Heartbeat için */
+/** Heartbeat ve tanı için kuyruk istatistikleri */
 function takeStats() {
-  const s = { ...stats, queued: queue.length };
-  stats.sent = stats.failed = stats.retried429 = stats.merged = 0;
+  const s = {
+    ...stats,
+    queued: queue.length,
+    pendingReplies: queue.filter(q => q.kind === 'reply').length,
+  };
+  stats.sent = stats.failed = stats.retried429 = stats.merged = stats.droppedOverflow = stats.droppedExpired = 0;
+  stats.maxWaitMs = 0;
   return s;
 }
 
@@ -473,10 +544,23 @@ async function pollLoop() {
  * Ortam değişkenlerini doğrular, bot kimliğini kontrol eder ve komut dinlemeyi başlatır.
  * Eksik/yanlış yapılandırmada açık hata fırlatır (bot sessizce çalışmaya devam etmesin).
  */
-async function start() {
+async function start({ optional = false } = {}) {
+  const isOpt = optional || process.env.TELEGRAM_OPTIONAL === '1' || process.env.NODE_ENV !== 'production';
   const missing = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID'].filter(k => !process.env[k]);
-  if (missing.length) throw new Error(`Eksik ortam değişkeni: ${missing.join(', ')} (fly secrets set ... ile tanımla)`);
-  if (!/^-?\d+$/.test(String(CHAT_ID))) throw new Error(`TELEGRAM_CHAT_ID sayı olmalı (grup için -100... ile başlar), gelen: "${CHAT_ID}"`);
+  if (missing.length) {
+    if (isOpt) {
+      console.warn(`[TELEGRAM] Eksik ortam değişkeni: ${missing.join(', ')} — Telegram botu atlandı (Web paneli üzerinden izlenebilir)`);
+      return false;
+    }
+    throw new Error(`Eksik ortam değişkeni: ${missing.join(', ')} (fly secrets set ... ile tanımla)`);
+  }
+  if (!/^-?\d+$/.test(String(CHAT_ID))) {
+    if (isOpt) {
+      console.warn(`[TELEGRAM] TELEGRAM_CHAT_ID sayı olmalı (grup için -100... ile başlar), gelen: "${CHAT_ID}" — Telegram botu atlandı (Web paneli üzerinden izlenebilir)`);
+      return false;
+    }
+    throw new Error(`TELEGRAM_CHAT_ID sayı olmalı (grup için -100... ile başlar), gelen: "${CHAT_ID}"`);
+  }
 
   try {
     const me = await api('getMe', {});
@@ -490,6 +574,7 @@ async function start() {
   startedAt = Date.now();
   polling = true;
   pollLoop();
+  return true;
 }
 
 function stop() {
@@ -499,5 +584,7 @@ function stop() {
 module.exports = {
   start, stop, sendText, sendCard, flush, takeStats, queueLength, esc,
   sendPrivate, sendDocument, sendDocumentPrivate, onPrivateStart, isMember, getBotUsername: () => botUsername, setCommands, publishCommands, onCallback, isAdmin, editMessage,
+  getRecentDispatches: () => [...recentDispatches],
+  isPolling: () => polling,
   _internal: { handleUpdate, get commands() { return commands; }, queue },
 };

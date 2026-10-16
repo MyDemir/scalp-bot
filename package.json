@@ -4,8 +4,10 @@
   "description": "Binance USDT-M Futures bilgi/sınıflandırma botu (RSI + seviye + hacim sayacı) — Telegram kartları",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch src/index.js",
+    "start": "node src/server.js",
+    "dev": "node src/server.js",
+    "bot": "node src/index.js",
+    "build": "node -e \"console.log('Applet build successful')\"",
     "backtest": "node src/infoBacktest.js",
     "test": "node test/run.js"
   },
@@ -17,6 +19,7 @@
     "better-sqlite3": "^11.1.2",
     "binance": "^2.9.1",
     "dotenv": "^16.4.5",
+    "express": "^5.3.0",
     "node-fetch": "^3.3.2",
     "technicalindicators": "^3.1.0",
     "ws": "^7.5.10"

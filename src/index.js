@@ -21,24 +21,27 @@ function main() {
 
 // ── Graceful shutdown ──────────────────────────────────────────────────────
 
-function shutdown(sig) {
-  console.log(`\n[BOT] ${sig} alındı, kapatılıyor...`);
-  binance.stopWebSocket();
-  telegram.stop();
-  process.exit(0);
+function shutdown(sig, code = 0) {
+  console.log(`\n[BOT] ${sig} alındı, kontrollü kapatılıyor (çıkış kodu: ${code})...`);
+  try { binance.stopWebSocket(); } catch (err) { console.error('[SHUTDOWN] WebSocket durdurulamadı:', err.message); }
+  try { telegram.stop(); } catch (err) { console.error('[SHUTDOWN] Telegram durdurulamadı:', err.message); }
+  // Bekleyen G/Ç ve logların boşalması için kısa bekleme, ardından kesin çıkış
+  setTimeout(() => process.exit(code), 500).unref();
 }
-process.on('SIGINT',  () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));   // Fly deploy/restart SIGTERM gönderir
+process.on('SIGINT',  () => shutdown('SIGINT', 0));
+process.on('SIGTERM', () => shutdown('SIGTERM', 0));   // Fly deploy/restart SIGTERM gönderir
 
 process.on('uncaughtException', (err) => {
-  console.error('[UNCAUGHT]', err);
+  console.error('[UNCAUGHT FATAL]', err);
+  shutdown('uncaughtException', 1);
 });
 
 process.on('unhandledRejection', (reason) => {
-  console.error('[REJECTION]', reason);
+  console.error('[UNHANDLED REJECTION FATAL]', reason);
+  shutdown('unhandledRejection', 1);
 });
 
 main().catch(err => {
   console.error('[FATAL]', err?.message || err);
-  process.exit(1);
+  shutdown('mainError', 1);
 });

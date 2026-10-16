@@ -9,7 +9,7 @@ const path = require('path');
 const fs = require('fs');
 
 const ALL = ['info-unit', 'neg', 'breakout', 'move', 'counter', 'daily-levels', 'fib1h', 'fib', 'chart', 'chart1h', 'chart-touch',
-  'touch', 'drops', 'peak', 'weekly', 'info-e2e', 'info-bt'];
+  'touch', 'drops', 'peak', 'weekly', 'info-e2e', 'info-bt', 'gap-dedup'];
 const want = process.argv.slice(2);
 const list = want.length ? ALL.filter(n => want.some(w => n.includes(w))) : ALL;
 const logDir = path.join(__dirname, '.tmp', 'logs');

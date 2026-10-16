@@ -200,6 +200,10 @@ function processCandle(sr, c, live) {
 }
 
 function processCandle0(sr, c, live) {
+  const lastT = sr.lastT('1m');
+  // Tekrar / eski mum kontrolü: bu mum zaten seride varsa veya daha eskiyse işlem yapma (kopukluk tamamlama ve çift sinyal koruması)
+  if (lastT != null && c.t <= lastT) return;
+
   stats.closes++;
   const closed = sr.apply1m(c);
   store?.onCandle(sr.symbol, c);
@@ -333,9 +337,14 @@ async function backfillGap(symbols, downSince) {
     busy.add(sym);
     pending.set(sym, pending.get(sym) || []);
     try {
-      const raw = await binance.fetchKlines(sym, '1m', Math.min(gapMin + 1, KEEP['1m'] + 1));
+      const lastT = sr.lastT('1m') || downSince;
+      const raw = await binance.fetchKlines(sym, '1m', Math.min(gapMin + 2, KEEP['1m'] + 1));
       const now = Date.now();
-      for (const c of (raw || []).map(k => normKline(k, now)).filter(c => c.closed)) processCandle(sr, c, false);
+      const candles = (raw || [])
+        .map(k => normKline(k, now))
+        .filter(c => c.closed && (lastT == null || c.t > lastT))
+        .sort((a, b) => a.t - b.t);
+      for (const c of candles) processCandle(sr, c, false);
     } catch (err) {
       console.error(`[BOŞLUK] ${sym}: ${err?.message || err}`);
     } finally {
