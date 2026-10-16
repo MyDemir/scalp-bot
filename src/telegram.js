@@ -313,13 +313,18 @@ function flush(timeoutMs = 60_000) {
   });
 }
 
-/** Heartbeat ve tanı için kuyruk istatistikleri */
-function takeStats() {
-  const s = {
+/** Anlık, sayaçları sıfırlamayan kuyruk istatistikleri (dashboard polling için). */
+function getStats() {
+  return {
     ...stats,
     queued: queue.length,
     pendingReplies: queue.filter(q => q.kind === 'reply').length,
   };
+}
+
+/** Heartbeat için: sayaçları döndürür ve sıfırlar. */
+function takeStats() {
+  const s = getStats();
   stats.sent = stats.failed = stats.retried429 = stats.merged = stats.droppedOverflow = stats.droppedExpired = 0;
   stats.maxWaitMs = 0;
   return s;
@@ -605,7 +610,7 @@ function stop() {
 }
 
 module.exports = {
-  start, stop, sendText, sendCard, flush, takeStats, queueLength, esc,
+  start, stop, sendText, sendCard, flush, getStats, takeStats, queueLength, esc,
   sendPrivate, sendDocument, sendDocumentPrivate, onPrivateStart, isMember, getBotUsername: () => botUsername, setCommands, publishCommands, onCallback, isAdmin, getChatAdminIds, editMessage,
   getRecentDispatches: () => [...recentDispatches],
   isPolling: () => polling,
