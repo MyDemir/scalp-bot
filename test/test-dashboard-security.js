@@ -26,9 +26,9 @@ for (const token of [
   'escapeHtml(l.tag)',
   'escapeHtml(t.symbol)',
   'escapeHtml(t.name)',
-  'data-delete-bot="\' + escapeHtml(b.id) + '"',
+  `data-delete-bot="' + escapeHtml(b.id) + '"`,
 ]) {
   assert(source.includes(token), `dashboard must escape untrusted field: ${token}`);
 }
-assert(!source.includes('onclick="deleteBot(\\\' + b.id'), 'external bot IDs must not be injected into inline JavaScript');
+assert(!source.includes('onclick="deleteBot('), 'external bot IDs must not be injected into inline JavaScript');
 console.log('PASS: dashboard HTML escaping and safe external-bot delete binding');
