@@ -12,7 +12,7 @@ async function main() {
     sendPrivate: async (id, text) => { sent.push({ id, text }); return true; },
   };
   const auth = createAdminAuth({
-    env: { TELEGRAM_ADMIN_IDS: '99999999', NODE_ENV: 'test' },
+    env: { NODE_ENV: 'test' },
     now: () => time,
     randomInt: () => 42,
     telegram,
@@ -20,47 +20,48 @@ async function main() {
 
   assert.deepStrictEqual(parseCookies('a=1; scalp_admin_session=hello%20world'), { a: '1', scalp_admin_session: 'hello world' });
 
-  // A configured allowlist is authoritative: listed IDs work, other live group admins do not.
-  assert.deepStrictEqual(await auth.requestCode('12345678'), { ok: true }, 'response must not disclose allowlist');
-  assert.strictEqual(sent.length, 0, 'ID outside configured allowlist must not receive a code');
-  assert.deepStrictEqual(await auth.requestCode('99999999'), { ok: true });
+  // Live Telegram group admins are discovered automatically; no TELEGRAM_ADMIN_IDS secret is required.
+  assert.deepStrictEqual(await auth.requestCode('12345678'), { ok: true });
   assert.strictEqual(sent.length, 1);
-  assert.strictEqual(sent[0].id, '99999999', 'OTP must go to configured Telegram admin');
+  assert.strictEqual(sent[0].id, '12345678', 'OTP must go to a live group admin');
   assert(sent[0].text.includes('000042'));
-  assert.deepStrictEqual(await auth.requestCode('99999999'), { ok: true }, 'cooldown prevents repeat OTP sends');
+  assert.deepStrictEqual(await auth.requestCode('12345678'), { ok: true }, 'cooldown prevents repeat OTP sends');
   assert.strictEqual(sent.length, 1);
+  assert.deepStrictEqual(await auth.requestCode('99999999'), { ok: true });
+  assert.strictEqual(sent.length, 1, 'non-admin must not receive a code');
 
-  assert.strictEqual(await auth.verifyCode('99999999', '111111'), null);
-  assert.strictEqual(await auth.verifyCode('99999999', '222222'), null, 'wrong code must not allow login');
+  assert.strictEqual(await auth.verifyCode('12345678', '111111'), null);
+  assert.strictEqual(await auth.verifyCode('12345678', '222222'), null, 'wrong code must not allow login');
   time += 60_001;
-  await auth.requestCode('99999999');
-  const verified = await auth.verifyCode('99999999', '000042');
+  await auth.requestCode('12345678');
+  const verified = await auth.verifyCode('12345678', '000042');
   assert(verified && verified.token, 'valid OTP should create session');
-  assert.strictEqual(verified.userId, '99999999');
+  assert.strictEqual(verified.userId, '12345678');
   const session = auth._internal.sessions.get(verified.token);
   assert(session.expiresAt > time);
-  assert.strictEqual(await auth.verifyCode('99999999', '000042'), null, 'OTP is single-use');
+  assert.strictEqual(await auth.verifyCode('12345678', '000042'), null, 'OTP is single-use');
 
-  // Without an explicit allowlist, fall back to the live Telegram group-admin list.
-  const fallback = createAdminAuth({
+  // Current group-admin membership is rechecked when the OTP is verified.
+  const membershipCheck = createAdminAuth({
     env: { NODE_ENV: 'test' },
     now: () => time,
     randomInt: () => 42,
     telegram,
   });
-  assert.deepStrictEqual(await fallback.requestCode('87654321'), { ok: true });
+  groupAdmins = ['87654321'];
+  await membershipCheck.requestCode('87654321');
   groupAdmins = ['12345678'];
-  assert.strictEqual(await fallback.verifyCode('87654321', '000042'), null, 'removed group admin must not complete login');
+  assert.strictEqual(await membershipCheck.verifyCode('87654321', '000042'), null, 'removed group admin must not complete login');
 
-  const limited = createAdminAuth({
-    env: { TELEGRAM_ADMIN_IDS: '12345678' }, now: () => time,
-    telegram: { getGroupAdminIds: async () => [], sendPrivate: async () => false },
+  const sendFailure = createAdminAuth({
+    env: { NODE_ENV: 'test' }, now: () => time,
+    telegram: { getGroupAdminIds: async () => ['12345678'], sendPrivate: async () => false },
   });
-  assert.deepStrictEqual(await limited.requestCode('12345678'), { ok: false, error: 'Telegram mesajı gönderilemedi. Botla özel sohbeti başlatıp tekrar deneyin.' });
+  assert.deepStrictEqual(await sendFailure.requestCode('12345678'), { ok: false, error: 'Telegram mesajı gönderilemedi. Botla özel sohbeti başlatıp tekrar deneyin.' });
 
   time += 8 * 60 * 60 * 1000 + 1;
   assert.strictEqual(auth.getSession({ headers: { cookie: 'scalp_admin_session=' + verified.token } }), null, 'expired sessions must be rejected');
-  console.log('PASS: configured Telegram allowlist, live-admin fallback, OTP cooldown, single-use code, session expiry');
+  console.log('PASS: automatic live group-admin discovery, OTP cooldown, membership recheck, single-use code, session expiry');
 }
 
 main().catch(err => { console.error(err); process.exitCode = 1; });
