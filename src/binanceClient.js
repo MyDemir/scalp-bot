@@ -207,6 +207,10 @@ function stopWebSocket() {
   stream = null;
 }
 
+function getWsStats() {
+  return stream ? stream.getStats() : null;
+}
+
 function takeWsStats() {
   return stream ? stream.takeStats() : null;
 }
@@ -228,5 +232,6 @@ module.exports = {
   startWebSocket,
   setWsSymbols,
   stopWebSocket,
+  getWsStats,
   takeWsStats,
 };
