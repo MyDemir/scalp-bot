@@ -15,6 +15,35 @@ const HOST = '0.0.0.0';
 
 app.use(express.json());
 
+const { createAdminAuth } = require('./adminAuth');
+const adminAuth = createAdminAuth({ telegram });
+app.post('/api/auth/request-code', async (req, res) => {
+  try {
+    const result = await adminAuth.requestCode(String(req.body?.userId || ''));
+    res.status(result.ok ? 202 : 503).json(result);
+  } catch (err) {
+    console.error('[AUTH] Telegram doğrulama kodu gönderilemedi:', err.message);
+    res.status(503).json({ ok: false, error: 'Telegram üzerinden kod gönderilemedi. Yapılandırmayı kontrol edin.' });
+  }
+});
+app.post('/api/auth/verify', (req, res) => {
+  const result = adminAuth.verifyCode(String(req.body?.userId || ''), String(req.body?.code || ''));
+  if (!result) return res.status(401).json({ ok: false, error: 'Kod geçersiz, süresi dolmuş veya kullanım sınırına ulaşmış.' });
+  adminAuth.setCookie(res, result.token);
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ ok: true, userId: result.userId, expiresAt: result.expiresAt });
+});
+app.post('/api/auth/logout', (req, res) => {
+  adminAuth.logout(req, res);
+  res.json({ ok: true });
+});
+app.get('/api/auth/session', (req, res) => {
+  const session = adminAuth.getSession(req);
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ ok: Boolean(session), userId: session?.userId || null, expiresAt: session?.expiresAt || null });
+});
+app.use(adminAuth.middleware);
+
 const startedAt = Date.now();
 let botStarted = false;
 let botError = null;
