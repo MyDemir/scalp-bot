@@ -1410,12 +1410,12 @@ module.exports = app;
       const spinner = document.getElementById('test-spinner');
       modal.classList.remove('hidden');
       spinner.classList.remove('hidden');
-      out.textContent = '18 test yürütülüyor (test/run.js)... Lütfen bekleyin...\\n';
+      out.textContent = 'Test paketi yürütülüyor (test/run.js)... Lütfen bekleyin...\\n';
 
       try {
         const res = await fetch('/api/run-tests', { method: 'POST' }).then(r => r.json());
         spinner.classList.add('hidden');
-        out.textContent = res.output || (res.ok ? 'Tüm 18 test başarıyla geçti!' : 'Testler başarısız oldu.');
+        out.textContent = res.output || (res.ok ? 'Tüm testler başarıyla geçti!' : 'Testler başarısız oldu.');
       } catch (err) {
         spinner.classList.add('hidden');
         out.textContent = 'Hata: ' + err.message;
