@@ -39,7 +39,7 @@ function getDeployPlatformInfo() {
 }
 
 /**
- * Deploy / Başlatma sonrası web paneli adresini Telegram grubuna ve TELEGRAM_ADMIN_IDS yöneticilerine iletir.
+ * Panel adresini yöneticilere özelden iletir; gruba/kanala yalnızca broadcastToGroup=true ile açıkça talep edilirse gönderir.
  *
  * @param {object} telegram - telegram modülü
  * @param {object} [options]
