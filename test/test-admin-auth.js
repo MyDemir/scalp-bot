@@ -53,9 +53,10 @@ async function main() {
   groupAdmins = ['12345678'];
   assert.strictEqual(await membershipCheck.verifyCode('87654321', '000042'), null, 'removed group admin must not complete login');
 
+  // Refresh must report the current live list, not a previously observed count.
   const refreshed = await auth.refreshAdminList('12345678');
   assert.strictEqual(refreshed.ok, true, 'current group admin can refresh the list');
-  assert.strictEqual(refreshed.adminCount, 2, 'refresh reports the current live admin count');
+  assert.strictEqual(refreshed.adminCount, 1, 'refresh reports the current live admin count');
   const deniedRefresh = await auth.refreshAdminList('11111111');
   assert.strictEqual(deniedRefresh.ok, false, 'non-admin cannot refresh the list');
 
