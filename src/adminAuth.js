@@ -49,11 +49,21 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
   const sessions = new Map();
   const cooldowns = new Map();
   const sessionCookieSecure = env.NODE_ENV === 'production';
-  const adminIds = () => [...new Set(String(env.TELEGRAM_ADMIN_IDS || '').split(',').map(x => x.trim()).filter(x => /^\d{5,20}$/.test(x)))];
+  // Always authorize against the live Telegram group/channel admin list.
+  // If Telegram cannot confirm the list, fail closed rather than trusting a static env allowlist.
+  async function adminIds() {
+    if (typeof telegram?.getChatAdminIds !== 'function') return [];
+    try {
+      const ids = await telegram.getChatAdminIds();
+      return [...new Set((Array.isArray(ids) ? ids : []).map(String).filter(x => /^\d{5,20}$/.test(x)))];
+    } catch {
+      return [];
+    }
+  }
   const hashCode = (userId, code, salt) => crypto.createHash('sha256').update(userId + ':' + code + ':' + salt).digest('hex');
 
   async function requestCode(userId) {
-    if (!/^\d{5,20}$/.test(String(userId || '')) || !adminIds().includes(String(userId))) return { ok: true };
+    if (!/^\d{5,20}$/.test(String(userId || '')) || !(await adminIds()).includes(String(userId))) return { ok: true };
     const id = String(userId);
     const last = cooldowns.get(id) || 0;
     if (now() - last < OTP_COOLDOWN_MS) return { ok: true };
@@ -69,10 +79,11 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
     return { ok: true };
   }
 
-  function verifyCode(userId, code) {
+  async function verifyCode(userId, code) {
     const id = String(userId || '');
     const entry = otps.get(id);
-    if (!adminIds().includes(id) || !entry || entry.expiresAt < now() || entry.attempts >= MAX_OTP_ATTEMPTS) {
+    // Re-check current group/channel admin membership at verification time too.
+    if (!(await adminIds()).includes(id) || !entry || entry.expiresAt < now() || entry.attempts >= MAX_OTP_ATTEMPTS) {
       otps.delete(id);
       return null;
     }
