@@ -27,11 +27,12 @@ primary_region = "fra"
 
 [[vm]]
   size   = "shared-cpu-1x"
-  memory = "1024mb"
+  memory = "512mb"
 
 # Web Paneli için HTTP servisi — Fly.io otomatik https://<app>.fly.dev alan adına yönlendirir
 [http_service]
   internal_port = 3000
+  processes = ["app"]
   force_https = true
   auto_stop_machines = false
   auto_start_machines = true
