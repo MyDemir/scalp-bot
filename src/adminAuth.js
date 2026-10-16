@@ -52,18 +52,32 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
   // Always resolve authorization from the live administrators of TELEGRAM_CHAT_ID.
   // TELEGRAM_ADMIN_IDS is intentionally not required for web-panel access.
   async function adminIds() {
-    if (typeof telegram?.getGroupAdminIds !== 'function') return [];
+    if (typeof telegram?.getGroupAdminIds !== 'function') {
+      console.error('[AUTH] Telegram yönetici listesi alınamıyor: getGroupAdminIds fonksiyonu mevcut değil');
+      return null;
+    }
     try {
       const ids = await telegram.getGroupAdminIds();
-      return [...new Set((Array.isArray(ids) ? ids : []).map(String).filter(x => /^\d{5,20}$/.test(x)))];
-    } catch {
-      return [];
+      if (!Array.isArray(ids)) {
+        console.error('[AUTH] Telegram yönetici listesi beklenmeyen formatta döndü');
+        return null;
+      }
+      return [...new Set(ids.map(String).filter(x => /^\\d{5,20}$/.test(x)))];
+    } catch (err) {
+      // Never log the bot token; api errors contain only Telegram's description.
+      console.error('[AUTH] Telegram grup yöneticileri alınamadı:', err.message);
+      return null;
     }
   }
   const hashCode = (userId, code, salt) => crypto.createHash('sha256').update(userId + ':' + code + ':' + salt).digest('hex');
 
   async function requestCode(userId) {
-    if (!/^\d{5,20}$/.test(String(userId || '')) || !(await adminIds()).includes(String(userId))) return { ok: true };
+    if (!/^\\d{5,20}$/.test(String(userId || ''))) return { ok: true };
+    const admins = await adminIds();
+    if (admins === null) {
+      return { ok: false, error: 'Telegram grup yöneticileri okunamadı. TELEGRAM_CHAT_ID değerini ve botun gruptaki yönetici yetkisini kontrol edin.' };
+    }
+    if (!admins.includes(String(userId))) return { ok: true };
     const id = String(userId);
     const last = cooldowns.get(id) || 0;
     if (now() - last < OTP_COOLDOWN_MS) return { ok: true };
@@ -83,7 +97,9 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
     const id = String(userId || '');
     const entry = otps.get(id);
     // Re-check current group/channel admin membership at verification time too.
-    if (!(await adminIds()).includes(id) || !entry || entry.expiresAt < now() || entry.attempts >= MAX_OTP_ATTEMPTS) {
+    const admins = await adminIds();
+    if (admins === null) return null;
+    if (!admins.includes(id) || !entry || entry.expiresAt < now() || entry.attempts >= MAX_OTP_ATTEMPTS) {
       otps.delete(id);
       return null;
     }
