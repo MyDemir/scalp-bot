@@ -620,5 +620,5 @@ module.exports = {
   sendPrivate, sendDocument, sendDocumentPrivate, onPrivateStart, isMember, getBotUsername: () => botUsername, setCommands, publishCommands, onCallback, isAdmin, getChatAdminIds, editMessage,
   getRecentDispatches: () => [...recentDispatches],
   isPolling: () => polling,
-  _internal: { handleUpdate, get commands() { return commands; }, queue },
+  _internal: { handleUpdate, enqueue, get commands() { return commands; }, queue },
 };
