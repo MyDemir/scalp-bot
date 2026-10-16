@@ -32,6 +32,7 @@ primary_region = "fra"
 # Web Paneli için HTTP servisi — Fly.io otomatik https://<app>.fly.dev alan adına yönlendirir
 [http_service]
   internal_port = 3000
+  processes = ["app"]
   force_https = true
   auto_stop_machines = false
   auto_start_machines = true
