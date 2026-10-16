@@ -386,7 +386,7 @@ async function isAdmin(userId) {
 async function getGroupAdminIds() {
   // Telegram group/channel IDs are negative; a positive number is usually a user's private-chat ID.
   // Fail with an actionable error rather than silently making every admin login appear to fail.
-  if (!/^-\\d+$/.test(String(CHAT_ID || ''))) {
+  if (!/^-\d+$/.test(String(CHAT_ID || ''))) {
     throw new TelegramError('TELEGRAM_CHAT_ID grup/kanal ID\'si olmalı (negatif sayı, genellikle -100 ile başlar); kullanıcı ID\'si kullanmayın.', 400);
   }
   const ids = new Set();
