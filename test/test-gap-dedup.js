@@ -41,8 +41,15 @@ console.log('--- Gap Tamamlama, Tekrar Mum ve Telegram Kuyruk Testleri ---');
 
 // 2. Test: Telegram kuyruk sınırları, metrikleri ve son iletimler
 (() => {
+  const snapshotA = telegram.getStats();
+  const snapshotB = telegram.getStats();
+  assert.deepStrictEqual(snapshotB, snapshotA, 'getStats aynı sayaçları okurken sıfırlamamalı');
+
   const stats = telegram.takeStats();
   assert(typeof stats.queued === 'number', 'takeStats kuyruk sayısını içermeli');
+  const afterTake = telegram.getStats();
+  assert.strictEqual(afterTake.sent, 0, 'takeStats sonrası dönemsel sent sayacı sıfırlanmalı');
+  assert.strictEqual(afterTake.failed, 0, 'takeStats sonrası dönemsel failed sayacı sıfırlanmalı');
   assert(typeof stats.droppedOverflow === 'number', 'droppedOverflow metriği bulunmalı');
   assert(typeof stats.droppedExpired === 'number', 'droppedExpired metriği bulunmalı');
   assert(typeof stats.pendingReplies === 'number', 'pendingReplies metriği bulunmalı');
