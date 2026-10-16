@@ -208,8 +208,8 @@ app.post('/api/logs/clear', (req, res) => {
 
 app.get('/api/status', (req, res) => {
   const internal = infoBot._internal || {};
-  const tgStats = telegram.takeStats();
-  const wsStats = binance.takeWsStats();
+  const tgStats = telegram.getStats();
+  const wsStats = binance.getWsStats();
   const seriesMap = internal.series;
   const readyCount = seriesMap ? [...seriesMap.values()].filter(s => s.ready()).length : 0;
   const totalCount = seriesMap ? seriesMap.size : 0;
