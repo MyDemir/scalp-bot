@@ -51,13 +51,14 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
   const sessionCookieSecure = env.NODE_ENV === 'production';
   // Always resolve authorization from the live administrators of TELEGRAM_CHAT_ID.
   // TELEGRAM_ADMIN_IDS is intentionally not required for web-panel access.
-  async function adminIds() {
+  async function adminIds({ refresh = false } = {}) {
     if (typeof telegram?.getGroupAdminIds !== 'function') {
       console.error('[AUTH] Telegram yönetici listesi alınamıyor: getGroupAdminIds fonksiyonu mevcut değil');
       return null;
     }
     try {
-      const ids = await telegram.getGroupAdminIds();
+      const lookup = refresh && typeof telegram?.refreshGroupAdminIds === 'function' ? telegram.refreshGroupAdminIds.bind(telegram) : telegram.getGroupAdminIds.bind(telegram);
+      const ids = await lookup();
       if (!Array.isArray(ids)) {
         console.error('[AUTH] Telegram yönetici listesi beklenmeyen formatta döndü');
         return null;
@@ -95,7 +96,7 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
 
   async function refreshAdminList(userId) {
     const id = String(userId || '');
-    const ids = await adminIds();
+    const ids = await adminIds({ refresh: true });
     if (ids === null) {
       return { ok: false, status: 503, error: 'Telegram yönetici listesi alınamadı. TELEGRAM_CHAT_ID ve botun grup erişimini kontrol edin.' };
     }
