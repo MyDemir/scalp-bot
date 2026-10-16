@@ -394,6 +394,13 @@ async function getGroupAdminIds() {
   return [...ids];
 }
 
+/** Yöneticileri Telegram'dan yeniden alır ve botun eski yetki önbelleğini temizler. */
+async function refreshGroupAdminIds() {
+  const ids = await getGroupAdminIds();
+  adminCache.clear();
+  return ids;
+}
+
 /** Bildirim hedefleri: grup yöneticileri ve mevcut TELEGRAM_ADMIN_IDS yapılandırması. */
 async function getChatAdminIds() {
   const ids = new Set();
@@ -637,7 +644,7 @@ function stop() {
 
 module.exports = {
   start, stop, sendText, sendCard, flush, getStats, takeStats, queueLength, esc,
-  sendPrivate, sendDocument, sendDocumentPrivate, onPrivateStart, isMember, getBotUsername: () => botUsername, setCommands, publishCommands, onCallback, isAdmin, getChatAdminIds, getGroupAdminIds, editMessage,
+  sendPrivate, sendDocument, sendDocumentPrivate, onPrivateStart, isMember, getBotUsername: () => botUsername, setCommands, publishCommands, onCallback, isAdmin, getChatAdminIds, getGroupAdminIds, refreshGroupAdminIds, editMessage,
   getRecentDispatches: () => [...recentDispatches],
   isPolling: () => polling,
   _internal: { handleUpdate, enqueue, get commands() { return commands; }, queue },
