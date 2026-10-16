@@ -62,7 +62,7 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
         console.error('[AUTH] Telegram yönetici listesi beklenmeyen formatta döndü');
         return null;
       }
-      return [...new Set(ids.map(String).filter(x => /^\\d{5,20}$/.test(x)))];
+      return [...new Set(ids.map(String).filter(x => /^\d{5,20}$/.test(x)))];
     } catch (err) {
       // Never log the bot token; api errors contain only Telegram's description.
       console.error('[AUTH] Telegram grup yöneticileri alınamadı:', err.message);
@@ -72,7 +72,7 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
   const hashCode = (userId, code, salt) => crypto.createHash('sha256').update(userId + ':' + code + ':' + salt).digest('hex');
 
   async function requestCode(userId) {
-    if (!/^\\d{5,20}$/.test(String(userId || ''))) return { ok: true };
+    if (!/^\d{5,20}$/.test(String(userId || ''))) return { ok: true };
     const admins = await adminIds();
     if (admins === null) {
       return { ok: false, error: 'Telegram grup yöneticileri okunamadı. TELEGRAM_CHAT_ID değerini ve botun gruptaki yönetici yetkisini kontrol edin.' };
