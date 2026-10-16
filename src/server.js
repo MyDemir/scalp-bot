@@ -238,6 +238,7 @@ app.get('/api/status', (req, res) => {
       recentDispatches: telegram.getRecentDispatches(),
     },
     websocket: wsStats,
+    gapRecovery: internal.gapMetrics || {},
     memory: {
       rssMb: Math.round(mem.rss / 1024 / 1024),
       heapUsedMb: Math.round(mem.heapUsed / 1024 / 1024),
