@@ -6,6 +6,7 @@ const path = require('path');
 const vm = require('vm');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'server.js'), 'utf8');
+assert.doesNotThrow(() => new vm.Script(source), 'server.js must parse before dashboard security checks');
 const helper = source.match(/function escapeHtml\(str\) \{[\s\S]*?\n    \}/);
 assert(helper, 'dashboard must define an HTML escaping helper');
 
