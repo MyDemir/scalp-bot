@@ -41,13 +41,34 @@ console.log('--- Gap Tamamlama, Tekrar Mum ve Telegram Kuyruk Testleri ---');
 
 // 2. Test: Telegram kuyruk sınırları, metrikleri ve son iletimler
 (() => {
+  const snapshotA = telegram.getStats();
+  const snapshotB = telegram.getStats();
+  assert.deepStrictEqual(snapshotB, snapshotA, 'getStats aynı sayaçları okurken sıfırlamamalı');
+
   const stats = telegram.takeStats();
   assert(typeof stats.queued === 'number', 'takeStats kuyruk sayısını içermeli');
+  const afterTake = telegram.getStats();
+  assert.strictEqual(afterTake.sent, 0, 'takeStats sonrası dönemsel sent sayacı sıfırlanmalı');
+  assert.strictEqual(afterTake.failed, 0, 'takeStats sonrası dönemsel failed sayacı sıfırlanmalı');
   assert(typeof stats.droppedOverflow === 'number', 'droppedOverflow metriği bulunmalı');
   assert(typeof stats.droppedExpired === 'number', 'droppedExpired metriği bulunmalı');
   assert(typeof stats.pendingReplies === 'number', 'pendingReplies metriği bulunmalı');
 
   assert(Array.isArray(telegram.getRecentDispatches()), 'getRecentDispatches bir dizi dönmeli');
+  // Kuyruk limiti reply mesajlarıyla doluyken de katı olmalı; yeni sinyal kuyruğu büyütmemeli.
+  const queue = telegram._internal.queue;
+  queue.length = 0;
+  const queueLimit = Math.max(1, Math.floor(Number(process.env.TELEGRAM_MAX_QUEUE_LEN) || 250));
+  for (let i = 0; i < queueLimit; i++) {
+    queue.push({ kind: 'reply', chatId: 'test', text: 'reply-' + i, createdAt: Date.now() });
+  }
+  const beforeOverflow = telegram.getStats().droppedOverflow;
+  const accepted = telegram._internal.enqueue('alert', 'test', 'overflow-alert');
+  assert.strictEqual(accepted, false, 'reply-only full queue must reject a lower-priority alert');
+  assert.strictEqual(queue.length, queueLimit, 'queue length must never exceed configured cap');
+  assert.strictEqual(telegram.getStats().droppedOverflow, beforeOverflow + 1, 'dropped alert must be counted');
+  queue.length = 0;
+
 
   console.log('✅ Telegram: Kuyruk öncelik, sınır ve metrik yapısı doğrulandı');
 })();

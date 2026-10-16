@@ -121,7 +121,7 @@ async function sendWithPhoto(body, photo) {
 
 // ── Gönderim kuyruğu ───────────────────────────────────────────────────────
 
-const MAX_QUEUE_LEN = Number(process.env.TELEGRAM_MAX_QUEUE_LEN || 250);
+const MAX_QUEUE_LEN = Math.max(1, Math.floor(Number(process.env.TELEGRAM_MAX_QUEUE_LEN) || 250));
 const MAX_ALERT_TTL_MS = Number(process.env.TELEGRAM_ALERT_TTL_MS || 20 * 60_000);   // 20 dk eski sinyal piyasa için geçersiz
 const MAX_CARD_TTL_MS  = Number(process.env.TELEGRAM_CARD_TTL_MS || 30 * 60_000);    // 30 dk eski kart gönderilmez
 const LATE_MS          = 2 * 60_000;
@@ -157,29 +157,35 @@ function recordDispatch(item, status, note = '') {
 function enqueue(kind, chatId, text, extra = {}) {
   const item = { kind, chatId, text, attempts: 0, createdAt: Date.now(), ...extra };
 
-  // Önceliklendirme: Kullanıcı komut yanıtları (reply) kuyruğun en önüne alınır
+  // Kapasite tüm mesaj türleri için katıdır; yanıtlar yalnızca önceliklidir.
+  if (queue.length >= MAX_QUEUE_LEN) {
+    let dropIdx = queue.findIndex(q => q.kind !== 'reply');
+    if (dropIdx === -1 && kind === 'reply') dropIdx = 0;
+
+    if (dropIdx === -1) {
+      stats.droppedOverflow++;
+      recordDispatch(item, 'dropped_overflow', 'Kuyruk dolu — yeni bildirim atlandı');
+      console.warn(`[TELEGRAM] Kuyruk limiti (${MAX_QUEUE_LEN}) dolu — yeni ${kind} atlandı`);
+      return false;
+    }
+
+    const dropped = queue.splice(dropIdx, 1)[0];
+    stats.droppedOverflow++;
+    recordDispatch(dropped, 'dropped_overflow', 'Kuyruk dolu — bellek koruması');
+    console.warn(`[TELEGRAM] Kuyruk limiti (${MAX_QUEUE_LEN}) dolu — ${dropped.kind} düşürüldü`);
+  }
+
+  // Yönetici/komut yanıtları bekleyen yanıtların arkasına, genel bildirimlerin önüne alınır.
   if (kind === 'reply') {
-    // Varsa mevcut bekleyen reply'ların hemen sonrasına, genel sinyallerin ise önüne koy
     let insertIdx = 0;
     while (insertIdx < queue.length && queue[insertIdx].kind === 'reply') insertIdx++;
     queue.splice(insertIdx, 0, item);
   } else {
-    // Genel bildirim / sinyal / kart
-    // Kuyruk kapasite kontrolü (bellek sızıntısı ve OOM koruması)
-    if (queue.length >= MAX_QUEUE_LEN) {
-      // En eski kartsız sinyali bul ve düşür
-      const dropIdx = queue.findIndex(q => q.kind !== 'reply');
-      if (dropIdx !== -1) {
-        const dropped = queue.splice(dropIdx, 1)[0];
-        stats.droppedOverflow++;
-        recordDispatch(dropped, 'dropped_overflow', 'Kuyruk dolu — bellek koruması');
-        console.warn(`[TELEGRAM] Kuyruk limiti (${MAX_QUEUE_LEN}) aşıldı — en eski sinyal düşürüldü (${dropped.kind})`);
-      }
-    }
     queue.push(item);
   }
 
   pump();
+  return true;
 }
 
 async function pump() {
@@ -313,13 +319,18 @@ function flush(timeoutMs = 60_000) {
   });
 }
 
-/** Heartbeat ve tanı için kuyruk istatistikleri */
-function takeStats() {
-  const s = {
+/** Anlık, sayaçları sıfırlamayan kuyruk istatistikleri (dashboard polling için). */
+function getStats() {
+  return {
     ...stats,
     queued: queue.length,
     pendingReplies: queue.filter(q => q.kind === 'reply').length,
   };
+}
+
+/** Heartbeat için: sayaçları döndürür ve sıfırlar. */
+function takeStats() {
+  const s = getStats();
   stats.sent = stats.failed = stats.retried429 = stats.merged = stats.droppedOverflow = stats.droppedExpired = 0;
   stats.maxWaitMs = 0;
   return s;
@@ -371,21 +382,25 @@ async function isAdmin(userId) {
   return ok;
 }
 
-/** Grubun tüm yönetici ID'lerini getirir (botlar hariç) — TELEGRAM_ADMIN_IDS + Telegram getChatAdministrators */
+/** Grubun/kanalın gerçek yöneticilerini Telegram API'den getirir (botlar hariç). */
+async function getGroupAdminIds() {
+  const ids = new Set();
+  const list = await api('getChatAdministrators', { chat_id: CHAT_ID });
+  if (Array.isArray(list)) {
+    for (const m of list) {
+      if (m.user && !m.user.is_bot && m.user.id) ids.add(String(m.user.id));
+    }
+  }
+  return [...ids];
+}
+
+/** Bildirim hedefleri: grup yöneticileri ve mevcut TELEGRAM_ADMIN_IDS yapılandırması. */
 async function getChatAdminIds() {
   const ids = new Set();
   const envAdmins = String(process.env.TELEGRAM_ADMIN_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
   for (const id of envAdmins) ids.add(String(id));
-
   try {
-    const list = await api('getChatAdministrators', { chat_id: CHAT_ID });
-    if (Array.isArray(list)) {
-      for (const m of list) {
-        if (m.user && !m.user.is_bot && m.user.id) {
-          ids.add(String(m.user.id));
-        }
-      }
-    }
+    for (const id of await getGroupAdminIds()) ids.add(id);
   } catch (err) {
     // getChatAdministrators yetkisi olmayabilir veya mock ortamı
   }
@@ -605,9 +620,9 @@ function stop() {
 }
 
 module.exports = {
-  start, stop, sendText, sendCard, flush, takeStats, queueLength, esc,
-  sendPrivate, sendDocument, sendDocumentPrivate, onPrivateStart, isMember, getBotUsername: () => botUsername, setCommands, publishCommands, onCallback, isAdmin, getChatAdminIds, editMessage,
+  start, stop, sendText, sendCard, flush, getStats, takeStats, queueLength, esc,
+  sendPrivate, sendDocument, sendDocumentPrivate, onPrivateStart, isMember, getBotUsername: () => botUsername, setCommands, publishCommands, onCallback, isAdmin, getChatAdminIds, getGroupAdminIds, editMessage,
   getRecentDispatches: () => [...recentDispatches],
   isPolling: () => polling,
-  _internal: { handleUpdate, get commands() { return commands; }, queue },
+  _internal: { handleUpdate, enqueue, get commands() { return commands; }, queue },
 };

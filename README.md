@@ -484,3 +484,12 @@ fly deploy
 ```
 
 Deploy tamamlandığında Telegram botunuz gruba ve adminlere doğrudan canlı panel bağlantısını butonlu mesaj olarak gönderecektir!
+
+
+## Web Yönetici Paneli Güvenliği
+
+Web paneli bağlantısı Telegram'daki `/panel` komutuyla ve dağıtım bildirimi içindeki **🌐 Web Panelini Aç** butonuyla açılır. Panel/API erişimi tek kullanımlık Telegram doğrulama kodu ile açılan oturumla korunur.
+
+Panel girişinde izin listesi elle tutmanız gerekmez: sunucu, `TELEGRAM_CHAT_ID` ile yapılandırılmış grup/kanalın yöneticilerini Telegram Bot API `getChatAdministrators` üzerinden güncel olarak alır. Kod yalnızca bu listedeki yöneticiye botun özel mesajı olarak gönderilir ve kod doğrulanırken yöneticilik tekrar kontrol edilir. Telegram yöneticileri önce botla özel sohbeti açıp `/start` göndermelidir; aksi durumda bot özel mesaj gönderemez. Bot, ilgili grup/kanalda yönetici olmalı ve `TELEGRAM_BOT_TOKEN` ile `TELEGRAM_CHAT_ID` doğru tanımlanmalıdır.
+
+Kod 5 dakika geçerlidir, en fazla 5 doğrulama denemesi yapılabilir ve yeniden kod gönderimi yönetici başına 60 saniyede bir sınırlandırılır. Oturum çerezi HttpOnly, SameSite=Strict ve production ortamında Secure bayraklarıyla ayarlanır; oturum 8 saat sonra sona erer. Grup/kanal yöneticiliği Telegram üzerinden doğrulanamazsa giriş reddedilir.

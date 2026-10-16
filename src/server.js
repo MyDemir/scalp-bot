@@ -15,6 +15,35 @@ const HOST = '0.0.0.0';
 
 app.use(express.json());
 
+const { createAdminAuth } = require('./adminAuth');
+const adminAuth = createAdminAuth({ telegram });
+app.post('/api/auth/request-code', async (req, res) => {
+  try {
+    const result = await adminAuth.requestCode(String(req.body?.userId || ''));
+    res.status(result.ok ? 202 : 503).json(result);
+  } catch (err) {
+    console.error('[AUTH] Telegram doğrulama kodu gönderilemedi:', err.message);
+    res.status(503).json({ ok: false, error: 'Telegram üzerinden kod gönderilemedi. Yapılandırmayı kontrol edin.' });
+  }
+});
+app.post('/api/auth/verify', async (req, res) => {
+  const result = await adminAuth.verifyCode(String(req.body?.userId || ''), String(req.body?.code || ''));
+  if (!result) return res.status(401).json({ ok: false, error: 'Kod geçersiz, süresi dolmuş veya kullanım sınırına ulaşmış.' });
+  adminAuth.setCookie(res, result.token);
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ ok: true, userId: result.userId, expiresAt: result.expiresAt });
+});
+app.post('/api/auth/logout', (req, res) => {
+  adminAuth.logout(req, res);
+  res.json({ ok: true });
+});
+app.get('/api/auth/session', (req, res) => {
+  const session = adminAuth.getSession(req);
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ ok: Boolean(session), userId: session?.userId || null, expiresAt: session?.expiresAt || null });
+});
+app.use(adminAuth.middleware);
+
 const startedAt = Date.now();
 let botStarted = false;
 let botError = null;
@@ -208,8 +237,8 @@ app.post('/api/logs/clear', (req, res) => {
 
 app.get('/api/status', (req, res) => {
   const internal = infoBot._internal || {};
-  const tgStats = telegram.takeStats();
-  const wsStats = binance.takeWsStats();
+  const tgStats = telegram.getStats();
+  const wsStats = binance.getWsStats();
   const seriesMap = internal.series;
   const readyCount = seriesMap ? [...seriesMap.values()].filter(s => s.ready()).length : 0;
   const totalCount = seriesMap ? seriesMap.size : 0;
@@ -238,6 +267,7 @@ app.get('/api/status', (req, res) => {
       recentDispatches: telegram.getRecentDispatches(),
     },
     websocket: wsStats,
+    gapRecovery: internal.gapMetrics || {},
     memory: {
       rssMb: Math.round(mem.rss / 1024 / 1024),
       heapUsedMb: Math.round(mem.heapUsed / 1024 / 1024),
@@ -324,7 +354,7 @@ app.post('/api/run-tests', (req, res) => {
     if (code !== 0) {
       console.error(`[TEST] Test paketi başarısız oldu (Çıkış kodu: ${code})`);
     } else {
-      console.log('[TEST] Tüm testler başarıyla geçti (18/18)');
+      console.log('[TEST] Tüm testler başarıyla geçti');
     }
     res.json({
       ok: code === 0,
@@ -1007,7 +1037,7 @@ def report_status(error_msg=None):
         return '<div class="py-1 px-2 rounded hover:bg-slate-900/60 transition flex items-start gap-2.5 leading-relaxed font-mono text-[11px] border border-transparent hover:border-slate-800">' +
           '<span class="text-slate-600 shrink-0 select-none">' + timeStr + '</span>' +
           '<span class="text-[10px] px-1.5 py-0.2 rounded border shrink-0 font-bold ' + levelColor + '">' + levelLabel + '</span>' +
-          '<span class="text-sky-400 font-semibold shrink-0">[' + l.tag + ']</span>' +
+          '<span class="text-sky-400 font-semibold shrink-0">[' + escapeHtml(l.tag) + ']</span>' +
           '<span class="text-slate-200 break-all">' + escapeHtml(l.message) + '</span>' +
         '</div>';
       }).join('');
@@ -1042,7 +1072,7 @@ def report_status(error_msg=None):
     }
 
     function escapeHtml(str) {
-      return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return String(str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     function renderBots(bots) {
@@ -1054,30 +1084,33 @@ def report_status(error_msg=None):
           : '<span class="text-[11px] font-mono text-rose-400 flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> Çevrimdışı</span>';
 
         const lastSeenText = b.lastSeen === 0 ? 'Bağlantı bekleniyor' : (b.lastSeenSecondsAgo < 60 ? b.lastSeenSecondsAgo + ' sn önce' : Math.floor(b.lastSeenSecondsAgo / 60) + ' dk önce');
-        const metricsHtml = Object.entries(b.metrics || {}).map(([k, v]) => '<div class="text-[11px] flex justify-between py-0.5"><span class="text-slate-400">' + k + ':</span> <span class="font-mono text-slate-200">' + v + '</span></div>').join('');
+        const metricsHtml = Object.entries(b.metrics || {}).map(([k, v]) => '<div class="text-[11px] flex justify-between py-0.5"><span class="text-slate-400">' + escapeHtml(k) + ':</span> <span class="font-mono text-slate-200">' + escapeHtml(v) + '</span></div>').join('');
 
         return '<div class="glass-panel rounded-lg p-5 space-y-4 hover:border-slate-600 transition">' +
           '<div class="flex items-start justify-between">' +
             '<div>' +
-              '<h3 class="font-bold text-white text-sm tracking-tight flex items-center gap-2">' + b.name +
+              '<h3 class="font-bold text-white text-sm tracking-tight flex items-center gap-2">' + escapeHtml(b.name) +
                 (b.type === 'local' ? '<span class="text-[10px] text-amber-400 font-mono">[Yerel]</span>' : '') +
               '</h3>' +
-              '<div class="text-xs text-sky-400 font-mono mt-0.5">' + (b.telegram || '—') + '</div>' +
+              '<div class="text-xs text-sky-400 font-mono mt-0.5">' + escapeHtml(b.telegram || '—') + '</div>' +
             '</div>' +
             statusBadge +
           '</div>' +
           '<div class="bg-obsidian-950 p-3 rounded border hairline-border text-xs space-y-1">' +
             '<div class="text-slate-500 text-[10px] uppercase font-mono tracking-wider font-semibold">Son Sinyal / Durum</div>' +
-            '<div class="text-slate-200 font-mono truncate">' + (b.lastSignal || '—') + '</div>' +
+            '<div class="text-slate-200 font-mono truncate">' + escapeHtml(b.lastSignal || '—') + '</div>' +
           '</div>' +
           (b.lastError ? '<div class="text-[11px] text-rose-400 bg-rose-500/10 p-2 rounded border border-rose-500/20 font-mono">Hata: ' + escapeHtml(b.lastError) + '</div>' : '') +
           (metricsHtml ? '<div class="space-y-0.5 pt-2 border-t hairline-border">' + metricsHtml + '</div>' : '') +
           '<div class="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t hairline-border font-mono">' +
             '<span>Son nabız: ' + lastSeenText + '</span>' +
-            (b.type !== 'local' ? '<button onclick="deleteBot(\\'' + b.id + '\\')" class="text-rose-400 hover:text-rose-300">Kaldır</button>' : '<span class="text-slate-600">Sistem Servisi</span>') +
+            (b.type !== 'local' ? '<button type="button" data-delete-bot="' + escapeHtml(b.id) + '" class="text-rose-400 hover:text-rose-300">Kaldır</button>' : '<span class="text-slate-600">Sistem Servisi</span>') +
           '</div>' +
         '</div>';
       }).join('');
+      container.querySelectorAll('[data-delete-bot]').forEach(button => {
+        button.addEventListener('click', () => deleteBot(button.dataset.deleteBot));
+      });
     }
 
     function renderCards(cards) {
@@ -1091,26 +1124,26 @@ def report_status(error_msg=None):
         const d = c.data ? (typeof c.data === 'string' ? JSON.parse(c.data || '{}') : c.data) : c;
         const sym = c.symbol || d.symbol || 'PARİTE';
         const price = c.price || d.price || '—';
-        const grade = d.grade || 1;
+        const grade = Math.max(1, Math.min(4, Number(d.grade) || 1));
         const timeStr = c.t ? new Date(c.t).toLocaleTimeString('tr-TR') : '';
         const isBuy = d.burst?.dir === 'buy';
 
         return '<div class="glass-panel rounded-lg p-4 hover:border-slate-600 transition space-y-3">' +
           '<div class="flex items-center justify-between">' +
             '<div class="flex items-center gap-3">' +
-              '<span class="font-bold text-white text-base font-mono">' + sym + '</span>' +
+              '<span class="font-bold text-white text-base font-mono">' + escapeHtml(sym) + '</span>' +
               '<span class="text-xs font-mono ' + (isBuy ? 'text-emerald-400' : 'text-amber-400') + '">' + (isBuy ? '● ALIM PATLAMASI' : '● SATIŞ / DİRENÇ') + '</span>' +
               '<span class="text-xs text-slate-500 font-mono tracking-widest">' + '●'.repeat(grade) + '</span>' +
             '</div>' +
             '<div class="text-right">' +
-              '<div class="font-mono text-sm text-white font-bold tabular">$' + price + '</div>' +
+              '<div class="font-mono text-sm text-white font-bold tabular">
               '<div class="text-[10px] text-slate-500 font-mono">' + timeStr + '</div>' +
             '</div>' +
           '</div>' +
           '<div class="grid grid-cols-3 gap-3 text-xs font-mono bg-obsidian-950 p-2.5 rounded border hairline-border">' +
-            '<div><span class="text-slate-500">RSI:</span> <span class="text-amber-400 font-semibold">' + (d.rsi?.val || d.rsi15 || '—') + '</span></div>' +
-            '<div><span class="text-slate-500">Direnç:</span> <span class="text-sky-400 font-semibold truncate">' + (d.level?.name || 'Tespit Edildi') + '</span></div>' +
-            '<div><span class="text-slate-500">EMA Gap:</span> <span class="text-slate-200">' + (d.emaGap != null ? '%' + d.emaGap : '—') + '</span></div>' +
+            '<div><span class="text-slate-500">RSI:</span> <span class="text-amber-400 font-semibold">' + escapeHtml(d.rsi?.val || d.rsi15 || '—') + '</span></div>' +
+            '<div><span class="text-slate-500">Direnç:</span> <span class="text-sky-400 font-semibold truncate">' + escapeHtml(d.level?.name || 'Tespit Edildi') + '</span></div>' +
+            '<div><span class="text-slate-500">EMA Gap:</span> <span class="text-slate-200">' + escapeHtml(d.emaGap != null ? '%' + d.emaGap : '—') + '</span></div>' +
           '</div>' +
         '</div>';
       }).join('');
@@ -1137,8 +1170,8 @@ def report_status(error_msg=None):
           : '<span class="text-rose-400 font-semibold">KIRILDI</span>';
 
         return '<tr class="hover:bg-slate-900/50 transition">' +
-          '<td class="py-2.5 px-3 font-bold text-white">' + t.symbol + '</td>' +
-          '<td class="py-2.5 px-3 text-slate-300">' + t.name + '</td>' +
+          '<td class="py-2.5 px-3 font-bold text-white">' + escapeHtml(t.symbol) + '</td>' +
+          '<td class="py-2.5 px-3 text-slate-300">' + escapeHtml(t.name) + '</td>' +
           '<td class="py-2.5 px-3 tabular text-slate-400">$' + (t.value ? t.value.toFixed(4) : '—') + '</td>' +
           '<td class="py-2.5 px-3 tabular text-slate-400">' + (t.hits || 1) + '</td>' +
           '<td class="py-2.5 px-3 text-right tabular text-slate-300">%' + (t.pb ? t.pb.toFixed(2) : '0.00') + '</td>' +
@@ -1204,12 +1237,12 @@ def report_status(error_msg=None):
       const spinner = document.getElementById('test-spinner');
       modal.classList.remove('hidden');
       spinner.classList.remove('hidden');
-      out.textContent = '18 test yürütülüyor (test/run.js)... Lütfen bekleyin...\\n';
+      out.textContent = 'Test paketi yürütülüyor (test/run.js)... Lütfen bekleyin...\\n';
 
       try {
         const res = await fetch('/api/run-tests', { method: 'POST' }).then(r => r.json());
         spinner.classList.add('hidden');
-        out.textContent = res.output || (res.ok ? 'Tüm 18 test başarıyla geçti!' : 'Testler başarısız oldu.');
+        out.textContent = res.output || (res.ok ? 'Tüm testler başarıyla geçti!' : 'Testler başarısız oldu.');
       } catch (err) {
         spinner.classList.add('hidden');
         out.textContent = 'Hata: ' + err.message;

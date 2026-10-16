@@ -9,7 +9,7 @@ const path = require('path');
 const fs = require('fs');
 
 const ALL = ['info-unit', 'neg', 'breakout', 'move', 'counter', 'daily-levels', 'fib1h', 'fib', 'chart', 'chart1h', 'chart-touch',
-  'touch', 'drops', 'peak', 'weekly', 'info-e2e', 'info-bt', 'gap-dedup', 'web-url'];
+  'touch', 'drops', 'peak', 'weekly', 'info-e2e', 'info-bt', 'gap-dedup', 'backfill-recovery', 'admin-auth', 'dashboard-security', 'web-url'];
 const want = process.argv.slice(2);
 const list = want.length ? ALL.filter(n => want.some(w => n.includes(w))) : ALL;
 const logDir = path.join(__dirname, '.tmp', 'logs');
@@ -24,7 +24,11 @@ for (const n of list) {
   const ok = r.status === 0;
   if (!ok) fail++;
   console.log(`${ok ? '✅' : '❌'} ${n.padEnd(14)} ${((Date.now() - t0) / 1000).toFixed(1)} sn`);
-  if (!ok) console.log(out.split('\n').slice(-15).map(l => '   ' + l).join('\n'));
+  if (!ok) {
+    const failures = out.split('\n').filter(l => /❌ BAŞARISIZ|AssertionError|SyntaxError|Error:|zaman aşımı:|at main/.test(l)).slice(-8);
+    if (failures.length) console.log(failures.map(l => '   ' + l).join('\n'));
+    console.log(out.split('\n').slice(-8).map(l => '   ' + l).join('\n'));
+  }
 }
 console.log(`\n${list.length - fail}/${list.length} geçti · ayrıntı: test/.tmp/logs/`);
 process.exit(fail ? 1 : 0);
