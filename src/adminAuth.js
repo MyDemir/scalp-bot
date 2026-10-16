@@ -52,9 +52,9 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
   // Always authorize against the live Telegram group/channel admin list.
   // If Telegram cannot confirm the list, fail closed rather than trusting a static env allowlist.
   async function adminIds() {
-    if (typeof telegram?.getChatAdminIds !== 'function') return [];
+    if (typeof telegram?.getGroupAdminIds !== 'function') return [];
     try {
-      const ids = await telegram.getChatAdminIds();
+      const ids = await telegram.getGroupAdminIds();
       return [...new Set((Array.isArray(ids) ? ids : []).map(String).filter(x => /^\d{5,20}$/.test(x)))];
     } catch {
       return [];
