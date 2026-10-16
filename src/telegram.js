@@ -384,9 +384,8 @@ async function isAdmin(userId) {
 
 /** Grubun tüm yönetici ID'lerini getirir (botlar hariç) — TELEGRAM_ADMIN_IDS + Telegram getChatAdministrators */
 async function getChatAdminIds() {
+  // Use Telegram's current group/channel admin list; no static user-ID allowlist.
   const ids = new Set();
-  const envAdmins = String(process.env.TELEGRAM_ADMIN_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
-  for (const id of envAdmins) ids.add(String(id));
 
   try {
     const list = await api('getChatAdministrators', { chat_id: CHAT_ID });
