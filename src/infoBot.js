@@ -28,6 +28,7 @@ const PREMIUM_EVERY_MS  = 5 * 60_000;
 const UNIVERSE_EVERY_MS = 60 * 60_000;
 const OI_CACHE_MS       = 2 * 60_000;
 const GAP_FILL_MAX_MIN  = 200;
+const GAP_FILL_CONCURRENCY = Math.max(1, Math.min(4, Math.floor(Number(process.env.GAP_FILL_CONCURRENCY) || 4)));
 const KEEP_BELOW_RATIO  = 0.8;
 
 const settings = createSettings();
@@ -49,6 +50,7 @@ const oiCache = new Map();
 let vols24    = new Map();
 
 const stats = { closes: 0, cards: 0, cardsToday: 0, day: null, seeded: 0, seedErrors: 0, gapFills: 0, peakAlerts: 0 };
+const gapMetrics = { runs: 0, lastDurationMs: 0, lastSymbols: 0, lastRecoveredCandles: 0, lastFetchMs: 0, lastProcessMs: 0, lastFailures: 0, lastSkippedBusy: 0, lastPeakConcurrency: 0 };
 let startedAt = 0;
 let seedingAll = false;
 
@@ -327,31 +329,82 @@ async function seedMany(list, label) {
 // ── Kopukluk sonrası doldurma ─────────────────────────────────────────────
 
 async function backfillGap(symbols, downSince) {
+  const started = Date.now();
   const gapMin = Math.ceil((Date.now() - downSince) / MIN) + 2;
-  console.log(`[WS] ${gapMin} dk kopukluk — ${symbols.length} coin dolduruluyor`);
+  const metrics = { fetchMs: 0, processMs: 0, recoveredCandles: 0, failures: 0, skippedBusy: 0, active: 0, peakConcurrency: 0 };
+  gapMetrics.runs++;
+  gapMetrics.lastSymbols = symbols.length;
+  console.log(`[WS] ${gapMin} dk kopukluk — ${symbols.length} coin dolduruluyor (eşzamanlılık ${GAP_FILL_CONCURRENCY})`);
   stats.gapFills++;
-  for (const sym of symbols) {
-    const sr = series.get(sym);
-    if (!sr || busy.has(sym)) continue;
-    if (gapMin > GAP_FILL_MAX_MIN || !sr.ready()) { await seedSymbol(sym); continue; }
-    busy.add(sym);
-    pending.set(sym, pending.get(sym) || []);
-    try {
-      const lastT = sr.lastT('1m') || downSince;
-      const raw = await binance.fetchKlines(sym, '1m', Math.min(gapMin + 2, KEEP['1m'] + 1));
-      const now = Date.now();
-      const candles = (raw || [])
-        .map(k => normKline(k, now))
-        .filter(c => c.closed && (lastT == null || c.t > lastT))
-        .sort((a, b) => a.t - b.t);
-      for (const c of candles) processCandle(sr, c, false);
-    } catch (err) {
-      console.error(`[BOŞLUK] ${sym}: ${err?.message || err}`);
-    } finally {
-      flushPending(sym);
+
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < symbols.length) {
+      const sym = symbols[nextIndex++];
+      const sr = series.get(sym);
+      if (!sr) continue;
+      if (busy.has(sym)) { metrics.skippedBusy++; continue; }
+
+      // Uzun boşluk veya hazır olmayan seri için tam seed gerekir; yine aynı worker
+      // havuzunda çalıştırılır, böylece REST istekleri sınırsız paralelleşmez.
+      if (gapMin > GAP_FILL_MAX_MIN || !sr.ready()) {
+        try {
+          const seeded = await seedSymbol(sym);
+          if (!seeded) metrics.failures++;
+        } catch (err) {
+          metrics.failures++;
+          console.error(`[BOŞLUK] ${sym} seed: ${err?.message || err}`);
+        }
+        continue;
+      }
+
+      busy.add(sym);
+      pending.set(sym, pending.get(sym) || []);
+      try {
+        const lastT = sr.lastT('1m') ?? downSince;
+        metrics.active++;
+        metrics.peakConcurrency = Math.max(metrics.peakConcurrency, metrics.active);
+        const fetchStarted = Date.now();
+        let raw;
+        try {
+          raw = await binance.fetchKlines(sym, '1m', Math.min(gapMin + 2, KEEP['1m'] + 1));
+        } finally {
+          metrics.fetchMs += Date.now() - fetchStarted;
+          metrics.active--;
+        }
+
+        const now = Date.now();
+        const candles = (raw || [])
+          .map(k => normKline(k, now))
+          .filter(c => c.closed && (lastT == null || c.t > lastT))
+          .sort((a, b) => a.t - b.t);
+        const processStarted = Date.now();
+        for (const c of candles) {
+          const before = sr.lastT('1m');
+          processCandle(sr, c, false);
+          if (sr.lastT('1m') !== before) metrics.recoveredCandles++;
+        }
+        metrics.processMs += Date.now() - processStarted;
+      } catch (err) {
+        metrics.failures++;
+        console.error(`[BOŞLUK] ${sym}: ${err?.message || err}`);
+      } finally {
+        flushPending(sym);
+      }
     }
   }
-  console.log('[WS] Boşluk doldurma tamamlandı');
+
+  const workerCount = Math.min(GAP_FILL_CONCURRENCY, symbols.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  gapMetrics.lastDurationMs = Date.now() - started;
+  gapMetrics.lastRecoveredCandles = metrics.recoveredCandles;
+  gapMetrics.lastFetchMs = metrics.fetchMs;
+  gapMetrics.lastProcessMs = metrics.processMs;
+  gapMetrics.lastFailures = metrics.failures;
+  gapMetrics.lastSkippedBusy = metrics.skippedBusy;
+  gapMetrics.lastPeakConcurrency = metrics.peakConcurrency;
+  console.log(`[WS] Boşluk doldurma tamamlandı: ${metrics.recoveredCandles} mum, ${metrics.failures} hata, ${metrics.skippedBusy} meşgul coin atlandı, ${metrics.peakConcurrency} max paralellik, ${Math.round(metrics.fetchMs)} ms REST / ${Math.round(metrics.processMs)} ms işleme / ${gapMetrics.lastDurationMs} ms toplam`);
 }
 
 // ── Evren ─────────────────────────────────────────────────────────────────
@@ -527,4 +580,4 @@ async function main() {
   console.log('\n✅ Bilgi botu çalışıyor.\n');
 }
 
-module.exports = { main, _internal: { onPeakCandidate, series, settings, tracker, touches, drops, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, statusText, stats, busy, pending, details, getStore: () => store, getWeekly: () => weekly } };
+module.exports = { main, _internal: { onPeakCandidate, series, settings, tracker, touches, drops, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, gapMetrics, statusText, stats, busy, pending, details, getStore: () => store, getWeekly: () => weekly } };
