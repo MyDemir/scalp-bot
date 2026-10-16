@@ -11,7 +11,7 @@ async function main() {
     env: { TELEGRAM_ADMIN_IDS: '99999999', NODE_ENV: 'test' },
     now: () => time,
     randomInt: () => 42,
-    telegram: { getChatAdminIds: async () => groupAdmins, sendPrivate: async (id, text) => { sent.push({ id, text }); return true; } },
+    telegram: { getGroupAdminIds: async () => groupAdmins, sendPrivate: async (id, text) => { sent.push({ id, text }); return true; } },
   });
 
   assert.deepStrictEqual(parseCookies('a=1; scalp_admin_session=hello%20world'), { a: '1', scalp_admin_session: 'hello world' });
@@ -44,7 +44,7 @@ async function main() {
 
   const limited = createAdminAuth({
     env: { TELEGRAM_ADMIN_IDS: '12345678' }, now: () => time,
-    telegram: { getChatAdminIds: async () => ['12345678'], sendPrivate: async () => false },
+    telegram: { getGroupAdminIds: async () => ['12345678'], sendPrivate: async () => false },
   });
   assert.deepStrictEqual(await limited.requestCode('12345678'), { ok: false, error: 'Telegram mesajı gönderilemedi. Botla özel sohbeti başlatıp tekrar deneyin.' });
 
