@@ -100,7 +100,7 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
       return { ok: false, status: 503, error: 'Telegram yönetici listesi alınamadı. TELEGRAM_CHAT_ID ve botun grup erişimini kontrol edin.' };
     }
     // A refresh is permitted only when the requesting signed-in user is still a live group admin.
-    if (!/^\\d{5,20}$/.test(id) || !ids.includes(id)) {
+    if (!/^\d{5,20}$/.test(id) || !ids.includes(id)) {
       return { ok: false, status: 403, error: 'Telegram grubundaki güncel yöneticiliğiniz doğrulanamadı. Yeniden giriş yapın.' };
     }
     return { ok: true, adminCount: ids.length, refreshedAt: now() };
