@@ -173,7 +173,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
       }
       const { notifyWebPanelToAdmins } = require('./webUrl');
       const sender = cq.from?.username ? `@${cq.from.username}` : (uid || 'Yönetici');
-      notifyWebPanelToAdmins(telegram, { note: 'Telegram Butonu ile Gönderildi', triggeredBy: sender })
+      notifyWebPanelToAdmins(telegram, { note: 'Telegram Butonu ile Gönderildi', triggeredBy: sender, broadcastToGroup: true })
         .catch(err => console.warn('[PANEL-YAYIN]', err.message));
       return { text: '✅ Web paneli linki gruba ve yöneticilere başarıyla iletildi!', alert: true };
     }
@@ -414,34 +414,34 @@ ${mv.join('\n')}` : ''}`.slice(0, 4000);
 
     durum: () => status(),
 
-    panel: async (args, msg) => {
+    panel: adminOnly(async (args, msg) => {
       const { getWebPanelUrl, notifyWebPanelToAdmins } = require('./webUrl');
       const url = getWebPanelUrl();
       const sub = String(args || '').trim().toLowerCase();
       if (['bildir', 'gonder', 'duyur', 'admin'].includes(sub)) {
-        if (msg?.from?.id && !(await telegram.isAdmin(msg.from.id))) {
-          return 'Bu komut için grup yöneticisi olmalısın.';
-        }
         const sender = msg?.from?.username ? `@${msg.from.username}` : (msg?.from?.id || 'Yönetici');
-        notifyWebPanelToAdmins(telegram, { note: 'Yönetici Talebiyle Gönderildi', triggeredBy: sender })
-          .catch(err => console.warn('[PANEL-BILDIR]', err.message));
-        return `📢 Web paneli bağlantısı gruba ve yöneticilere özel mesajla iletiliyor:\n<a href="${url}">${url}</a>`;
+        notifyWebPanelToAdmins(telegram, {
+          note: 'Yönetici Talebiyle Gönderildi',
+          triggeredBy: sender,
+          broadcastToGroup: true
+        }).catch(err => console.warn('[PANEL-BILDIR]', err.message));
+        return '📢 Panel bildirimi, yönetici talebinle gruba ve yöneticilere özel mesajla gönderiliyor.';
       }
-      return {
-        text: `⚡ <b>Scalp Terminal & Web Paneli</b>\n\n` +
-          `🌐 <b>Canlı Web Paneli:</b> <a href="${url}">${url}</a>\n\n` +
-          `• Canlı Sinyal Akışı & Kartlar\n` +
-          `• Bot Merkezi (Multi-Bot Hub)\n` +
-          `• Hata & Sistem Teşhis Günlüğü\n` +
-          `• Anlık Motor Ayarları & Testler\n\n` +
-          `<i>Tarayıcınızdan yukarıdaki linke tıklayarak veya aşağıdaki butondan doğrudan panele ulaşabilirsiniz.\n` +
-          `Yöneticiler için linki herkese duyurmak: <code>/panel gonder</code></i>`,
-        keyboard: [
-          [{ text: '🌐 Web Panelini Aç', url }],
-          [{ text: '📲 Linki Gruba & Adminlere İlet', callback_data: 'cmd:panelyay' }]
-        ]
-      };
-    },
+      const text = `⚡ <b>Scalp Terminal & Web Paneli</b>\n\n` +
+        `🌐 <b>Canlı Web Paneli:</b> <a href="${url}">${url}</a>\n\n` +
+        `• Canlı Sinyal Akışı & Kartlar\n` +
+        `• Bot Merkezi (Multi-Bot Hub)\n` +
+        `• Hata & Sistem Teşhis Günlüğü\n` +
+        `• Anlık Motor Ayarları & Testler\n\n` +
+        `<i>Bu bağlantı yalnızca sana özel mesajla gönderilir. Gruba açıkça duyurmak için /panel gonder yaz.</i>`;
+      const keyboard = [
+        [{ text: '🌐 Web Panelini Aç', url }],
+        [{ text: '📲 Linki Gruba & Adminlere İlet', callback_data: 'cmd:panelyay' }]
+      ];
+      const sent = await telegram.sendPrivate(msg.from.id, text, keyboard);
+      if (!sent) return 'Panel bağlantısını özelden gönderemedim. Önce bota özelden /start yazıp tekrar dene.';
+      return '🌐 Panel bağlantısını Telegram özel mesajına gönderdim.';
+    }),
 
     panelligonder: async (args, msg) => commands.panel('gonder', msg),
     panelbildir: async (args, msg) => commands.panel('gonder', msg),

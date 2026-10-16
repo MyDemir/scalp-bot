@@ -39,16 +39,17 @@ function getDeployPlatformInfo() {
 }
 
 /**
- * Deploy / Başlatma sonrası web paneli adresini Telegram grubuna ve TELEGRAM_ADMIN_IDS yöneticilerine iletir.
+ * Panel adresini yöneticilere özelden iletir; gruba/kanala yalnızca broadcastToGroup=true ile açıkça talep edilirse gönderir.
  *
  * @param {object} telegram - telegram modülü
  * @param {object} [options]
  * @param {string} [options.note] - Durum / sürüm notu (varsayılan: 'Dağıtım Başarılı & Hazır')
  * @param {string} [options.triggeredBy] - Tetikleyen kaynak ('Sistem Başlatıcı', 'Web Paneli', 'Yönetici Komutu')
  * @param {string} [options.thread] - Hedef konu ID'si (opsiyonel)
+ * @param {boolean} [options.broadcastToGroup=false] - Gruba/kanala panel bağlantısını yalnızca açık yönetici talebiyle gönder
  * @returns {Promise<{ ok: boolean, url: string, sentToGroup: boolean, adminCount: number, dmSuccessCount: number }>}
  */
-async function notifyWebPanelToAdmins(telegram, { note = 'Dağıtım Başarılı & Hazır', triggeredBy = 'Deploy / Sistem Başlatıcı', thread = null } = {}) {
+async function notifyWebPanelToAdmins(telegram, { note = 'Dağıtım Başarılı & Hazır', triggeredBy = 'Deploy / Sistem Başlatıcı', thread = null, broadcastToGroup = false } = {}) {
   const url = getWebPanelUrl();
   const platform = getDeployPlatformInfo();
   const now = new Date().toLocaleTimeString('tr-TR', { timeZone: 'Europe/Istanbul', hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -74,12 +75,14 @@ async function notifyWebPanelToAdmins(telegram, { note = 'Dağıtım Başarılı
     `<i>💡 İpucu: Telegram sohbetinde <code>/panel</code> yazarak bu adrese her an ulaşabilirsiniz.</i>`;
 
   let sentToGroup = false;
-  try {
-    telegram.sendCard({ text: groupText, keyboard, thread });
-    sentToGroup = true;
-    console.log(`[WEB-URL] Web paneli bildirimi Telegram grubuna gönderildi: ${url}`);
-  } catch (err) {
-    console.warn('[WEB-URL] Gruba panel bildirimi gönderilemedi:', err?.message || err);
+  if (broadcastToGroup) {
+    try {
+      telegram.sendCard({ text: groupText, keyboard, thread });
+      sentToGroup = true;
+      console.log('[WEB-URL] Yönetici talebiyle web paneli bildirimi Telegram grubuna gönderildi.');
+    } catch (err) {
+      console.warn('[WEB-URL] Gruba panel bildirimi gönderilemedi:', err?.message || err);
+    }
   }
 
   // 2. Yöneticilere özelden DM ilet
