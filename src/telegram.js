@@ -520,14 +520,30 @@ async function handleUpdate(u) {
   const msg = u.message;
   if (!msg?.text || !msg.text.startsWith('/')) return;
 
-  // Özel sohbet: yalnızca /start <parametre> (📋 Detay) — başka komut çalışmaz
+  // Özel sohbet: /start (📋 Detay) ve yalnızca kimlik öğrenmek için /benkimim.
+  // Diğer komutlar özelden çalıştırılmaz; grup komut/yetki davranışı değişmez.
   if (msg.chat?.type === 'private') {
-    const pm = msg.text.match(/^\/start(?:@\w+)?(?:\s+(\S+))?/i);
-    if (!pm || !privateStartHandler) return;
-    let reply = null;
-    try { reply = await privateStartHandler(pm[1] || '', msg); }
-    catch (err) { console.error('[TELEGRAM] özel /start hatası:', err.message); reply = 'Hata oluştu.'; }
-    if (reply) await sendPrivate(msg.chat.id, reply);
+    const pm = msg.text.match(/^\/([a-zçğıöşü]+)(?:@(\w+))?(?:\s+([\s\S]*))?$/i);
+    if (!pm) return;
+    const [, rawCmd, target, rest] = pm;
+    const cmd = rawCmd.toLowerCase();
+    if (target && botUsername && target.toLowerCase() !== botUsername.toLowerCase()) return;
+
+    if (cmd === 'start') {
+      if (!privateStartHandler) return;
+      let reply = null;
+      try { reply = await privateStartHandler((rest || '').trim().split(/\s+/)[0] || '', msg); }
+      catch (err) { console.error('[TELEGRAM] özel /start hatası:', err.message); reply = 'Hata oluştu.'; }
+      if (reply) await sendPrivate(msg.chat.id, reply);
+      return;
+    }
+
+    if (cmd === 'benkimim' && typeof commands.benkimim === 'function') {
+      let reply = null;
+      try { reply = await commands.benkimim((rest || '').trim(), msg); }
+      catch (err) { console.error('[TELEGRAM] özel /benkimim hatası:', err.message); reply = 'Komut çalıştırılırken hata oluştu.'; }
+      if (reply != null) await sendPrivate(msg.chat.id, typeof reply === 'object' ? (reply.text || '') : String(reply));
+    }
     return;
   }
 
