@@ -6,9 +6,9 @@
 # ÖNEMLİ: primary_region mutlaka fra veya ams olmalı — Binance Futures API
 # ABD IP'lerini (iad, ord, sea, dfw vb.) 451 hatasıyla engelliyor.
 #
-# Bu bot bir arka plan worker'ı (WebSocket + REST polling + Telegram bot
-# polling) — HTTP servisi açmıyor, bu yüzden [http_service] bloğu YOK.
-# O blok olursa Fly makineyi "trafik yok" diye uyutmaya çalışır.
+# Web paneli port 3000 üzerinden yayınlanır.
+# auto_stop_machines = false ayarı sayesinde arka plan WebSocket ve Telegram
+# bağlantıları web trafiği olmasa dahi ASLA uyutulmaz, kesintisiz çalışır.
 
 app = "scalp-bot-vip"
 primary_region = "fra"
@@ -17,6 +17,7 @@ primary_region = "fra"
 
 [env]
   NODE_ENV = "production"
+  PORT = "3000"
 
 # Kalıcı disk — SQLite veritabanı burada yaşıyor.
 # Bu olmadan her deploy/restart'ta sinyal geçmişi silinir.
@@ -28,5 +29,13 @@ primary_region = "fra"
   size   = "shared-cpu-1x"
   memory = "1024mb"
 
+# Web Paneli için HTTP servisi — Fly.io otomatik https://<app>.fly.dev alan adına yönlendirir
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
 [processes]
-  app = "node src/index.js"
+  app = "node src/server.js"

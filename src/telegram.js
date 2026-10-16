@@ -371,6 +371,27 @@ async function isAdmin(userId) {
   return ok;
 }
 
+/** Grubun tüm yönetici ID'lerini getirir (botlar hariç) — TELEGRAM_ADMIN_IDS + Telegram getChatAdministrators */
+async function getChatAdminIds() {
+  const ids = new Set();
+  const envAdmins = String(process.env.TELEGRAM_ADMIN_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+  for (const id of envAdmins) ids.add(String(id));
+
+  try {
+    const list = await api('getChatAdministrators', { chat_id: CHAT_ID });
+    if (Array.isArray(list)) {
+      for (const m of list) {
+        if (m.user && !m.user.is_bot && m.user.id) {
+          ids.add(String(m.user.id));
+        }
+      }
+    }
+  } catch (err) {
+    // getChatAdministrators yetkisi olmayabilir veya mock ortamı
+  }
+  return [...ids];
+}
+
 /** Mesaj düzenleme (ayar menüsü gibi kullanıcı tetiklemeli, nadir işlemler — kuyruğa girmez) */
 async function editMessage(chatId, messageId, text, keyboard) {
   const body = { chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML', disable_web_page_preview: true };
@@ -416,9 +437,11 @@ async function isMember(userId) {
  * Kullanıcıya ÖZEL mesaj (bot ile özel sohbet). Kullanıcı botu hiç başlatmadıysa Telegram izin vermez (403) → false.
  * Kuyruğa girmez: özel sohbet grup hız sınırından bağımsızdır ve sonucun hemen bilinmesi gerekir.
  */
-async function sendPrivate(userId, text) {
+async function sendPrivate(userId, text, keyboard = null) {
   try {
-    await api('sendMessage', { chat_id: userId, text, parse_mode: 'HTML', disable_web_page_preview: true });
+    const body = { chat_id: userId, text, parse_mode: 'HTML', disable_web_page_preview: true };
+    if (keyboard) body.reply_markup = { inline_keyboard: keyboard };
+    await api('sendMessage', body);
     return true;
   } catch (err) {
     if (err.code !== 403 && err.code !== 400) console.warn(`[TELEGRAM] özel mesaj gönderilemedi (${err.code}: ${err.message})`);
@@ -583,7 +606,7 @@ function stop() {
 
 module.exports = {
   start, stop, sendText, sendCard, flush, takeStats, queueLength, esc,
-  sendPrivate, sendDocument, sendDocumentPrivate, onPrivateStart, isMember, getBotUsername: () => botUsername, setCommands, publishCommands, onCallback, isAdmin, editMessage,
+  sendPrivate, sendDocument, sendDocumentPrivate, onPrivateStart, isMember, getBotUsername: () => botUsername, setCommands, publishCommands, onCallback, isAdmin, getChatAdminIds, editMessage,
   getRecentDispatches: () => [...recentDispatches],
   isPolling: () => polling,
   _internal: { handleUpdate, get commands() { return commands; }, queue },

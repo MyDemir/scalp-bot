@@ -35,11 +35,11 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/src ./src
 COPY package.json ./
 
-# SQLite dosyası burada saklanacak — fly.toml'daki [mounts] ile
-# kalıcı bir volume'a bağlanıyor, yoksa her deploy'da veri sıfırlanır
 RUN mkdir -p /data
 ENV DB_PATH=/data/signals.db
 ENV NODE_ENV=production
+ENV PORT=3000
+EXPOSE 3000
 
-# Bot bir arka plan worker'ı — HTTP servisi açmıyor
-CMD ["node", "src/index.js"]
+# Web Paneli ve Scalp Motorunu birlikte başlatan sunucu
+CMD ["node", "src/server.js"]

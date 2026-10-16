@@ -517,10 +517,13 @@ async function main() {
   });
 
   const s2 = settings.get();
+  const { notifyWebPanelToAdmins } = require('./webUrl');
   telegram.sendText(`🟢 <b>Bilgi botu hazır</b> — ${readyCount()}/${series.size} coin izleniyor (24s hacim ≥ ${s2.minVolumeM}M $)` +
     ` · kart şartı RSI ≥ ${s2.rsiMin} (${s2.minTFs}/3)` +
     (s2.moveAlertPct > 0 ? ` · 1 dk ≥ %${s2.moveAlertPct} hareket RSI kartına eklenir` : '') +
-    `. Komutlar: /yardim · Ayarlar: /ayarlar`, null, settings.topic('sistem'));
+    `. Komutlar: /yardim · Ayarlar: /ayarlar · Web Paneli: /panel`, null, settings.topic('sistem'));
+
+  notifyWebPanelToAdmins(telegram, { note: 'Dağıtım Başarılı & Motor Hazır', thread: settings.topic('sistem') }).catch(err => console.warn('[PANEL-BILDIRIM]', err?.message || err));
   console.log('\n✅ Bilgi botu çalışıyor.\n');
 }
 

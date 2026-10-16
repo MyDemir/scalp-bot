@@ -16,6 +16,15 @@ function main() {
     setInterval(() => console.log('[BOT] duraklatıldı (BOT_PAUSED=1)'), 60 * 60 * 1000);
     return Promise.resolve();
   }
+  // Web sunucusunu ve botu birlikte başlat (DISABLE_WEB=1 ile yalnız konsol botu çalıştırılabilir)
+  if (process.env.DISABLE_WEB !== '1') {
+    try {
+      require('./server');
+      return Promise.resolve();
+    } catch (err) {
+      console.warn('[BOOT] Web sunucusu yüklenemedi, salt bilgi botu modunda devam ediliyor:', err.message);
+    }
+  }
   return require('./infoBot').main();
 }
 

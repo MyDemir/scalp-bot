@@ -377,51 +377,110 @@ cp .env.example .env   # düzenle
 npm start
 ```
 
-## Fly.io'ya Deploy
+## Canlı Web Paneli & Multi-Bot Hub (Port 3000)
 
-Bot bir arka plan worker'ı (WebSocket + REST + Telegram) — HTTP
-servisi açmadığı için `fly.toml`'da `[http_service]` bloğu yok.
-
-**Önkoşul:** Binance Futures API ABD IP'lerini (`iad`, `ord`, `sea`, `dfw`
-vb.) 451 hatasıyla engeller. `primary_region` mutlaka `fra` (Frankfurt)
-veya `ams` (Amsterdam) olmalı — `fly.toml`'da zaten öyle ayarlı.
+Scalp botu, hem kendi sinyallerini canlı izleyebileceğiniz hem de **farklı repolardaki diğer Telegram botlarınızı** tek çatı altında toplayabileceğiniz Bloomberg/Linear tarzı kurumsal bir web terminali içerir (`src/server.js`).
 
 ```bash
-# 1. flyctl kur (bir kere)
+# Paneli başlat (veya npm run dev)
+npm start
+```
+Tarayıcınızdan `http://localhost:3000` adresine giderek:
+* **Bot Merkezi (Multi-Bot Hub):** Tüm Telegram botlarınızın durumunu, son nabızlarını ve sinyallerini canlı izleyin.
+* **Sinyal Akışı:** Canlı RSI değerleri, EMA21 ayrışması ve seviye kartları.
+* **Direnç & Temas Kayıtları:** SQLite veritabanındaki seviye tepkileri tablosu.
+* **Canlı Ayarlar:** RSI eşiği ve hacim çarpanlarını anında düzenleme.
+* **Hata & Olay Günlüğü:** Sistem hataları, WebSocket kopuklukları ve Telegram hız sınırlarını anlık log akışından filtreleme.
+
+---
+
+## Deploy Sonrası Web Panelini Telegram'dan Adminlere Gönderme
+
+Bot deploy edildikten veya yeniden başlatıldıktan sonra web panelinin adresini Telegram grubuna ve tüm yöneticilere otomatik olarak iletir:
+
+1. **Otomatik Deploy Bildirimi (Deploy-time Notification):**
+   * Bot açılışında çalıştığı platformu ve URL'yi otomatik tespit eder:
+     * **Fly.io:** `FLY_APP_NAME` üzerinden `https://<app>.fly.dev` adresini otomatik çözer.
+     * **Özel Alan Adı:** `WEB_PANEL_URL` veya `APP_URL` tanımlıysa doğrudan onu kullanır.
+     * **Render / Railway / Diğer:** İlgili platform ortam değişkenlerini destekler.
+   * Gruba butonlu **"🚀 Scalp Terminal & Web Paneli Devrede!"** duyurusu iletilir.
+   * Gruptaki tüm yetkili yöneticiler Telegram API (`getChatAdministrators`) ile otomatik bulunur; ayrıca `TELEGRAM_ADMIN_IDS` ile tanımlanan kullanıcılara özel mesajla (DM) doğrudan butonlu bildirim iletilir.
+
+2. **Telegram Komutları (`/panel` ve `/panel gonder`):**
+   * `/panel` veya `/web`: Bot anlık olarak panel adresini ve **"🌐 Web Panelini Aç"** butonunu döner.
+   * `/panel gonder` (veya `/panelligonder`): Yöneticiler bu komutu yazdığında panel linki gruba ve tüm adminlere anında yeniden duyurulur.
+
+3. **Web Panelinden Tek Tıkla Gönderim:**
+   * Web arayüzünün sağ üstündeki **"Telegram'a İlet"** butonuyla dilediğiniz zaman tek tıkla grubunuza ve adminlerinize güncel linki gönderebilirsiniz (`POST /api/notify-panel`).
+
+4. **Fly.io 7/24 Kesintisiz Çalışma Yapılandırması:**
+   * `fly.toml` dosyasında `[http_service]` aktif edilmiştir.
+   * `auto_stop_machines = false` yapılandırması sayesinde web trafiği olmasa dahi makine uyutulmaz; Binance WebSocket ve Telegram botu kesintisiz 7/24 çalışmaya devam eder.
+
+---
+
+## Harici Telegram Botlarınızı Bu Panele Bağlama
+
+Diğer GitHub depolarınızda veya bağımsız sunucularda çalışan botlarınıza küçük bir heartbeat (nabız) ekleyerek bu panelde görünmelerini sağlayabilirsiniz:
+
+```python
+# Python Botu Örneği
+import requests
+
+def report_to_hub(error_msg=None):
+    requests.post("https://<PANEL_ADRESI>/api/external-bots/heartbeat", json={
+        "id": "trend-bot-1",
+        "name": "BTC Trend Botu",
+        "telegram": "@BtcTrendBot",
+        "status": "error" if error_msg else "online",
+        "error": error_msg,
+        "lastSignal": "BTC LONG @ 64,200",
+        "metrics": { "Açık Pozisyon": "2", "Kâr": "+%4.2" }
+    }, timeout=5)
+```
+
+---
+
+## Güvenilirlik & Dayanıklılık İyileştirmeleri (v2.5)
+
+* **Kontrollü Kapanış:** `uncaughtException` veya `unhandledRejection` durumunda bağlantılar güvenle kapatılır ve süreç `exit(1)` ile yeniden başlatılır.
+* **Telegram Kuyruk Koruması:** `TELEGRAM_MAX_QUEUE_LEN` (250) sınırı ve 20-30 dk üzeri bayat scalp sinyalleri için TTL temizliği (`droppedExpired`) ile OOM bellek patlamaları önlenir. Kullanıcı komut yanıtları önceliklidir (`kind: 'reply'`).
+* **Mükerrer Mum Koruması:** WebSocket kopması sonrasında REST tamamlama (`backfillGap`) sırasında son işlenen mum zaman damgası (`lastT`) kontrol edilerek çift sinyal üretimi kesin olarak engellenir.
+* **Deterministik Docker Derlemesi:** `package-lock.json` ile `COPY package*.json ./` ve `npm ci` kullanılır.
+* **Otomatik Test Paketi:** 18 adet kapsamlı test (`npm test`) ve GitHub Actions CI iş akışı (`.github/workflows/test.yml`).
+
+---
+
+## Fly.io'ya Deploy
+
+Fly.io'da hem arka plan scalp motoru hem de web paneli tek makinede çalıştırılabilir:
+
+```bash
+# 1. flyctl kur
 curl -L https://fly.io/install.sh | sh
 
 # 2. Giriş yap
 fly auth login
 
-# 3. fly.toml'daki app adını değiştir (global olarak benzersiz olmalı)
-#    "scalp-bot-CHANGEME" → "scalp-bot-senin-adin"
+# 3. fly.toml'daki app adını değiştir
+#    "scalp-bot-vip" → "scalp-bot-senin-adin"
 
-# 4. Uygulamayı oluştur (henüz deploy etme)
+# 4. Uygulamayı oluştur
 fly apps create scalp-bot-senin-adin
 
-# 5. Kalıcı disk oluştur — ayarlar (info-settings.json) burada yaşar
+# 5. Kalıcı disk oluştur
 fly volumes create scalp_data --region fra --size 1
 
-# 6. Secrets tanımla (API anahtarları imaja gömülmez, .env kullanılmaz)
+# 6. Secrets tanımla
 fly secrets set \
   BINANCE_API_KEY=xxx \
   BINANCE_API_SECRET=xxx \
   TELEGRAM_BOT_TOKEN=xxx \
-  TELEGRAM_CHAT_ID=xxx
+  TELEGRAM_CHAT_ID=xxx \
+  TELEGRAM_ADMIN_IDS=123456789
 
 # 7. Deploy et
 fly deploy
-
-# 8. Logları izle
-fly logs
-
-# 9. Bağlan / durumu kontrol et
-fly status
-fly ssh console
 ```
 
-**Güncelleme:** kod değiştikçe `git push` sonrası tekrar `fly deploy`
-çalıştırman yeterli — volume ve secrets kalıcı, sıfırlanmaz.
-
-**Maliyet:** `shared-cpu-1x` + 512MB RAM + 1GB volume ≈ $3–4/ay
-(Fly.io'da artık ücretsiz katman yok, kullandığın kadar öde).
+Deploy tamamlandığında Telegram botunuz gruba ve adminlere doğrudan canlı panel bağlantısını butonlu mesaj olarak gönderecektir!
