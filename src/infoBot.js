@@ -54,7 +54,7 @@ const gapMetrics = { runs: 0, lastDurationMs: 0, lastSymbols: 0, lastRecoveredCa
 let startedAt = 0;
 let seedingAll = false;
 
-const newDiag = () => ({ from: Date.now(), n: 0, lagSum: 0, lagMax: 0, busyMs: 0 });
+const newDiag = () => ({ from: Date.now(), n: 0, lagSum: 0, lagMax: 0, busyMs: 0, queueWaitMs: 0, queueWaitN: 0 });
 let diag = newDiag(), lastDiag = null;
 const STALE_MS = 3 * 60_000;
 
@@ -72,7 +72,7 @@ function staleList(now = Date.now()) {
 function diagText(d, now = Date.now()) {
   if (!d || !d.n) return 'veri yok';
   const win = Math.max(1, (d.to ?? now) - d.from);
-  return `${d.n} mum · gecikme ort ${(d.lagSum / d.n / 1000).toFixed(1)} sn, en fazla ${(d.lagMax / 1000).toFixed(1)} sn · işlem yükü %${(d.busyMs / win * 100).toFixed(1)}`;
+  return `${d.n} mum · WS gecikme ort ${(d.lagSum / d.n / 1000).toFixed(1)} sn, en fazla ${(d.lagMax / 1000).toFixed(1)} sn · kuyruk ort ${(d.queueWaitN ? d.queueWaitMs / d.queueWaitN / 1000 : 0).toFixed(2)} sn · işlem yükü %${(d.busyMs / win * 100).toFixed(1)}`;
 }
 
 // ── Değerlendirme bağlamı ─────────────────────────────────────────────────
@@ -197,6 +197,7 @@ function toCandle(k) {
 }
 
 function processCandle(sr, c, live) {
+  if (c._receivedAt) { diag.queueWaitMs += Math.max(0, Date.now() - c._receivedAt); diag.queueWaitN++; }
   const t0 = process.hrtime.bigint();
   try { processCandle0(sr, c, live); } finally { diag.busyMs += Number(process.hrtime.bigint() - t0) / 1e6; }
 }
@@ -264,6 +265,7 @@ function chartOf(sr, s, level, levels, subtitle, candles = null) {
 function onKline(symbol, tf, k, isFinal) {
   if (!isFinal || tf !== '1m') return;
   const c = toCandle(k);
+  c._receivedAt = Date.now();
   const sr = series.get(symbol);
   if (!sr) return;
   const lag = Math.max(0, Date.now() - (c.t + 60_000));
