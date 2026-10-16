@@ -44,6 +44,22 @@ app.get('/api/auth/session', (req, res) => {
 });
 app.use(adminAuth.middleware);
 
+app.post('/api/auth/refresh-admins', async (req, res) => {
+  // /api/auth/* routes are exempted from the generic middleware so OTP can work;
+  // explicitly require a valid session here and then re-check live Telegram admin status.
+  const session = adminAuth.getSession(req);
+  if (!session) return res.status(401).json({ ok: false, error: 'Yönetici girişi gerekli.' });
+  try {
+    const result = await adminAuth.refreshAdminList(session.userId);
+    const status = result.ok ? 200 : (result.status || 503);
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(status).json(result);
+  } catch (err) {
+    console.error('[AUTH] Yönetici listesi yenilenemedi:', err.message);
+    return res.status(503).json({ ok: false, error: 'Telegram yönetici listesi yenilenemedi.' });
+  }
+});
+
 const startedAt = Date.now();
 let botStarted = false;
 let botError = null;
@@ -489,6 +505,7 @@ app.get('/', (req, res) => {
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
           <span id="btn-notify-tg-text">Telegram'a İlet</span>
         </button>
+        <button onclick="refreshTelegramAdmins()" id="btn-refresh-admins" class="text-xs font-semibold px-3 py-2 rounded bg-emerald-700 hover:bg-emerald-600 text-white font-mono tracking-tight transition whitespace-nowrap shrink-0 border border-emerald-500/30" title="Telegram grubunun güncel yönetici listesini yeniden kontrol et">Yönetici listesini yenile</button>
         <button onclick="runTests()" class="text-xs font-semibold px-3.5 py-2 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono tracking-tight transition flex items-center gap-1.5 shadow-sm whitespace-nowrap shrink-0">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path></svg>
           Testleri Çalıştır
@@ -1278,6 +1295,30 @@ def report_status(error_msg=None):
       } finally {
         btn.disabled = false;
         txt.textContent = origText;
+      }
+    }
+
+    async function refreshTelegramAdmins() {
+      const btn = document.getElementById('btn-refresh-admins');
+      const oldText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Kontrol ediliyor…';
+      try {
+        const response = await fetch('/api/auth/refresh-admins', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}'
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.ok) throw new Error(result.error || 'Yönetici listesi yenilenemedi.');
+        btn.textContent = 'Liste güncel ✓';
+        alert('Telegram yönetici listesi başarıyla yenilendi. Güncel yönetici sayısı: ' + result.adminCount);
+      } catch (err) {
+        alert('Yönetici listesi yenilenemedi: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        if (btn.textContent !== 'Liste güncel ✓') btn.textContent = oldText;
       }
     }
 
