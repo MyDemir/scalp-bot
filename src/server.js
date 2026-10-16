@@ -26,7 +26,7 @@ app.post('/api/auth/request-code', async (req, res) => {
     res.status(503).json({ ok: false, error: 'Telegram üzerinden kod gönderilemedi. Yapılandırmayı kontrol edin.' });
   }
 });
-app.post('/api/auth/verify', (req, res) => {
+app.post('/api/auth/verify', async (req, res) => {
   const result = await adminAuth.verifyCode(String(req.body?.userId || ''), String(req.body?.code || ''));
   if (!result) return res.status(401).json({ ok: false, error: 'Kod geçersiz, süresi dolmuş veya kullanım sınırına ulaşmış.' });
   adminAuth.setCookie(res, result.token);
