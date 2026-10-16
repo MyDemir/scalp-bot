@@ -1,0 +1,42 @@
+name: Fly Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fly-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Ensure public IP and deploy
+    runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      FLY_APP: scalp-bot-vip
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Ensure shared public IPv4 exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          if flyctl ips list --app "$FLY_APP" | grep -Fq 'public ingress (shared)'; then
+            echo "Shared public IPv4 already exists; skipping allocation."
+          else
+            echo "No shared public IPv4 found; allocating one..."
+            flyctl ips allocate-v4 --shared --app "$FLY_APP"
+          fi
+
+      - name: Deploy to Fly.io
+        run: flyctl deploy --app "$FLY_APP" --remote-only

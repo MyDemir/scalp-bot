@@ -25,6 +25,8 @@ primary_region = "fra"
   source      = "scalp_data"
   destination = "/data"
 
+# 512 MB: 256 MB'den biraz pahalıdır ancak Node.js botu + web paneli için
+# bellek tükenmesi (OOM) riskini azaltan en düşük pratik seçimdir.
 [[vm]]
   size   = "shared-cpu-1x"
   memory = "512mb"
