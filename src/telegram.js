@@ -382,20 +382,25 @@ async function isAdmin(userId) {
   return ok;
 }
 
-/** Grubun tüm yönetici ID'lerini getirir (botlar hariç) — TELEGRAM_ADMIN_IDS + Telegram getChatAdministrators */
-async function getChatAdminIds() {
-  // Use Telegram's current group/channel admin list; no static user-ID allowlist.
+/** Grubun/kanalın gerçek yöneticilerini Telegram API'den getirir (botlar hariç). */
+async function getGroupAdminIds() {
   const ids = new Set();
-
-  try {
-    const list = await api('getChatAdministrators', { chat_id: CHAT_ID });
-    if (Array.isArray(list)) {
-      for (const m of list) {
-        if (m.user && !m.user.is_bot && m.user.id) {
-          ids.add(String(m.user.id));
-        }
-      }
+  const list = await api('getChatAdministrators', { chat_id: CHAT_ID });
+  if (Array.isArray(list)) {
+    for (const m of list) {
+      if (m.user && !m.user.is_bot && m.user.id) ids.add(String(m.user.id));
     }
+  }
+  return [...ids];
+}
+
+/** Bildirim hedefleri: grup yöneticileri ve mevcut TELEGRAM_ADMIN_IDS yapılandırması. */
+async function getChatAdminIds() {
+  const ids = new Set();
+  const envAdmins = String(process.env.TELEGRAM_ADMIN_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+  for (const id of envAdmins) ids.add(String(id));
+  try {
+    for (const id of await getGroupAdminIds()) ids.add(id);
   } catch (err) {
     // getChatAdministrators yetkisi olmayabilir veya mock ortamı
   }
@@ -616,7 +621,7 @@ function stop() {
 
 module.exports = {
   start, stop, sendText, sendCard, flush, getStats, takeStats, queueLength, esc,
-  sendPrivate, sendDocument, sendDocumentPrivate, onPrivateStart, isMember, getBotUsername: () => botUsername, setCommands, publishCommands, onCallback, isAdmin, getChatAdminIds, editMessage,
+  sendPrivate, sendDocument, sendDocumentPrivate, onPrivateStart, isMember, getBotUsername: () => botUsername, setCommands, publishCommands, onCallback, isAdmin, getChatAdminIds, getGroupAdminIds, editMessage,
   getRecentDispatches: () => [...recentDispatches],
   isPolling: () => polling,
   _internal: { handleUpdate, enqueue, get commands() { return commands; }, queue },
