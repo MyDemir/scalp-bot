@@ -488,12 +488,8 @@ Deploy tamamlandığında Telegram botunuz gruba ve adminlere doğrudan canlı p
 
 ## Web Yönetici Paneli Güvenliği
 
-Paneldeki tüm API uçları, Telegram üzerinden tek kullanımlık doğrulama kodu ile açılan yönetici oturumunun arkasındadır. Giriş kodu yalnızca `TELEGRAM_ADMIN_IDS` değişkeninde listelenen Telegram kullanıcı ID'lerine, `TELEGRAM_BOT_TOKEN` ile yapılandırılan ana botun özel mesajı olarak gönderilir. Her yönetici önce bu botla özel sohbeti açıp `/start` göndermelidir.
+Web paneli bağlantısı Telegram'daki `/panel` komutuyla ve dağıtım bildirimi içindeki **🌐 Web Panelini Aç** butonuyla açılır. Panel/API erişimi tek kullanımlık Telegram doğrulama kodu ile açılan oturumla korunur.
 
-Canlı ortamda aşağıdaki Fly.io secret'ını tanımlayın (birden fazla yönetici virgülle ayrılır):
+Panel girişinde izin listesi elle tutmanız gerekmez: sunucu, `TELEGRAM_CHAT_ID` ile yapılandırılmış grup/kanalın yöneticilerini Telegram Bot API `getChatAdministrators` üzerinden güncel olarak alır. Kod yalnızca bu listedeki yöneticiye botun özel mesajı olarak gönderilir ve kod doğrulanırken yöneticilik tekrar kontrol edilir. Telegram yöneticileri önce botla özel sohbeti açıp `/start` göndermelidir; aksi durumda bot özel mesaj gönderemez. Bot, ilgili grup/kanalda yönetici olmalı ve `TELEGRAM_BOT_TOKEN` ile `TELEGRAM_CHAT_ID` doğru tanımlanmalıdır.
 
-```sh
-fly secrets set TELEGRAM_ADMIN_IDS="123456789,987654321"
-```
-
-`TELEGRAM_BOT_TOKEN` ve `TELEGRAM_CHAT_ID` zaten yapılandırılmış olmalıdır. Kod 5 dakika geçerlidir, en fazla 5 doğrulama denemesi yapılabilir ve yeniden kod gönderimi yönetici başına 60 saniyede bir sınırlandırılır. Oturum çerezi HttpOnly, SameSite=Strict ve production ortamında Secure bayraklarıyla ayarlanır; oturum 8 saat sonra sona erer. `TELEGRAM_ADMIN_IDS` boşsa hiçbir kullanıcı panel oturumu açamaz.
+Kod 5 dakika geçerlidir, en fazla 5 doğrulama denemesi yapılabilir ve yeniden kod gönderimi yönetici başına 60 saniyede bir sınırlandırılır. Oturum çerezi HttpOnly, SameSite=Strict ve production ortamında Secure bayraklarıyla ayarlanır; oturum 8 saat sonra sona erer. Grup/kanal yöneticiliği Telegram üzerinden doğrulanamazsa giriş reddedilir.
