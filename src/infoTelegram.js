@@ -156,6 +156,20 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
     }
     if (kind === 'g') { await show(cq, a === 'main' ? menu() : sectionMenu(a)); return null; }
     if (kind === 'e') { await show(cq, editMenu(a)); return null; }
+    if (kind === 'cmd' && a === 'panelyay') {
+      try {
+        const admins = await telegram.getGroupAdminIds();
+        if (!admins.map(String).includes(String(uid || ''))) return denied;
+      } catch (err) {
+        console.error('[PANEL-YAYIN] Canlı Telegram yöneticileri doğrulanamadı:', err.message);
+        return { text: 'Telegram yönetici listesi alınamadı. /adminyenile komutunu dene.', alert: true };
+      }
+      const { notifyWebPanelToAdmins } = require('./webUrl');
+      const sender = cq.from?.username ? `@${cq.from.username}` : (uid || 'Yönetici');
+      notifyWebPanelToAdmins(telegram, { note: 'Telegram Butonu ile Gönderildi', triggeredBy: sender, broadcastToGroup: true })
+        .catch(err => console.warn('[PANEL-YAYIN]', err.message));
+      return { text: '✅ Web paneli linki gruba ve yöneticilere başarıyla iletiliyor!', alert: true };
+    }
     if (!(await telegram.isAdmin(uid))) return denied;
 
     if (kind === 'm') {
@@ -166,16 +180,6 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
     if (kind === 'f') {
       const on = settings.toggleFollow(a);
       return { text: on ? `⭐ ${a} takipte — kartları her zaman sesli gelir.` : `☆ ${a} takipten çıkarıldı.` };
-    }
-    if (kind === 'cmd' && a === 'panelyay') {
-      if (!(await telegram.isAdmin(uid))) {
-        return { text: 'Bu işlem için grup yöneticisi olmalısın.', alert: true };
-      }
-      const { notifyWebPanelToAdmins } = require('./webUrl');
-      const sender = cq.from?.username ? `@${cq.from.username}` : (uid || 'Yönetici');
-      notifyWebPanelToAdmins(telegram, { note: 'Telegram Butonu ile Gönderildi', triggeredBy: sender, broadcastToGroup: true })
-        .catch(err => console.warn('[PANEL-YAYIN]', err.message));
-      return { text: '✅ Web paneli linki gruba ve yöneticilere başarıyla iletildi!', alert: true };
     }
     if (kind === 's' || kind === 't' || kind === 'd' || kind === 'v') {
       const r = kind === 's' ? settings.bump(a, Number(b))
@@ -218,6 +222,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
 /konu [ad] — konulu grupta yönlendirme (konunun içinde yaz: /konu kart · /konu sistem · /konu kart3 · /konu backtest · /konu rapor)
 /durum — bot durumu
 /benkimim — Telegram kullanıcı ID'n
+/adminyenile — Telegram grubunun yönetici listesini canlı yenile ve doğrula
 
 <b>Derece daireleri</b>
 Kart: kurulum kontrol listesi skoru (9 madde: günlük/haftalık direnç, çakışan direnç, 3m/5m RSI ${settings.get().strongRsi}–${settings.get().rsiEntryMax}, 15m ≥ ${settings.get().strongRsi}, 5m+15m ≥ ${settings.get().strongRsi}, 1h/4h ≥ ${settings.get().confRsi}, kademeli EMA21 ayrışma, ≥2 negatif tepe, MACD 3m/5m sat kesişimi) — 🔴 &lt; ${settings.get().grade2Min} · 🔴🔴 ≥ ${settings.get().grade2Min} · 🔴🔴🔴 ≥ ${settings.get().grade3Min} · 🔴🔴🔴🔴 ≥ ${settings.get().grade4Min ?? 7} (sesli)
@@ -414,7 +419,27 @@ ${mv.join('\n')}` : ''}`.slice(0, 4000);
 
     durum: () => status(),
 
-    panel: adminOnly(async (args, msg) => {
+    adminyenile: async (args, msg) => {
+      const userId = String(msg.from?.id || '');
+      try {
+        const ids = await (telegram.refreshGroupAdminIds ? telegram.refreshGroupAdminIds() : telegram.getGroupAdminIds());
+        const currentIds = ids.map(String);
+        if (!currentIds.includes(userId)) return '⛔ Güncel Telegram yönetici listesinde görünmüyorsun. TELEGRAM_CHAT_ID değerini ve grup yöneticiliğini kontrol et.';
+        return `✅ Telegram yönetici listesi canlı olarak yenilendi. Güncel yönetici sayısı: <b>${currentIds.length}</b>. Bu kontrol için TELEGRAM_ADMIN_IDS gerekmez.`;
+      } catch (err) {
+        console.error('[ADMIN-YENILE] Telegram yönetici listesi alınamadı:', err.message);
+        return '❌ Telegram yönetici listesi alınamadı. TELEGRAM_CHAT_ID değerini, botun doğru grupta olduğunu ve gruptaki yönetici erişimini kontrol et.';
+      }
+    },
+
+    panel: async (args, msg) => {
+      try {
+        const admins = await telegram.getGroupAdminIds();
+        if (!admins.map(String).includes(String(msg.from?.id || ''))) return 'Bu komut için yapılandırılmış Telegram grubunun yöneticisi olmalısın.';
+      } catch (err) {
+        console.error('[PANEL] Canlı Telegram yöneticileri doğrulanamadı:', err.message);
+        return '❌ Telegram yöneticileri doğrulanamadı. /adminyenile komutunu dene ve TELEGRAM_CHAT_ID ile botun grup erişimini kontrol et.';
+      }
       const { getWebPanelUrl, notifyWebPanelToAdmins } = require('./webUrl');
       const url = getWebPanelUrl();
       const sub = String(args || '').trim().toLowerCase();
@@ -463,6 +488,7 @@ ${mv.join('\n')}` : ''}`.slice(0, 4000);
   const MENU = [
     ['ayarlar', 'Ayar menüsü (bölümler → ayar → −/+)'],
     ['panel', '🌐 Canlı Web Paneli bağlantısı ve durum'],
+    ['adminyenile', 'Telegram grubunun güncel yöneticilerini yenile ve doğrula'],
     ['coin', 'Coinin anlık durumu + grafik · örn. /coin ETH'],
     ['yardim', 'Komutlar ve derece dairelerinin anlamı'],
     ['durum', 'Bot durumu: izlenen coin, bağlantı, kart sayısı'],
