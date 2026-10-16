@@ -62,13 +62,18 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
       const lookup = refresh && typeof telegram?.refreshGroupAdminIds === 'function' ? telegram.refreshGroupAdminIds.bind(telegram) : telegram.getGroupAdminIds.bind(telegram);
       const ids = await lookup();
       if (!Array.isArray(ids)) {
+        lastAdminLookupError = 'Telegram yönetici listesi beklenmeyen formatta döndü.';
         console.error('[AUTH] Telegram yönetici listesi beklenmeyen formatta döndü');
         return null;
       }
+      lastAdminLookupError = null;
       return [...new Set(ids.map(String).filter(x => /^\d{5,20}$/.test(x)))];
     } catch (err) {
-      // Never log the bot token; api errors contain only Telegram's description.
-      console.error('[AUTH] Telegram grup yöneticileri alınamadı:', err.message);
+      // Telegram errors are descriptions, not request URLs; redact token-shaped text defensively.
+      lastAdminLookupError = String(err?.message || 'Bilinmeyen Telegram hatası')
+        .replace(/bot\d+:[A-Za-z0-9_-]+/gi, '[token gizlendi]')
+        .slice(0, 240);
+      console.error('[AUTH] Telegram grup yöneticileri alınamadı:', lastAdminLookupError);
       return null;
     }
   }
