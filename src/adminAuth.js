@@ -93,6 +93,19 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
     return { ok: true };
   }
 
+  async function refreshAdminList(userId) {
+    const id = String(userId || '');
+    const ids = await adminIds();
+    if (ids === null) {
+      return { ok: false, status: 503, error: 'Telegram yönetici listesi alınamadı. TELEGRAM_CHAT_ID ve botun grup erişimini kontrol edin.' };
+    }
+    // A refresh is permitted only when the requesting signed-in user is still a live group admin.
+    if (!/^\\d{5,20}$/.test(id) || !ids.includes(id)) {
+      return { ok: false, status: 403, error: 'Telegram grubundaki güncel yöneticiliğiniz doğrulanamadı. Yeniden giriş yapın.' };
+    }
+    return { ok: true, adminCount: ids.length, refreshedAt: now() };
+  }
+
   async function verifyCode(userId, code) {
     const id = String(userId || '');
     const entry = otps.get(id);
@@ -154,7 +167,7 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
     clearCookie(res);
   }
 
-  return { requestCode, verifyCode, getSession, setCookie, clearCookie, middleware, logout, _internal: { otps, sessions, cooldowns, adminIds } };
+  return { requestCode, verifyCode, refreshAdminList, getSession, setCookie, clearCookie, middleware, logout, _internal: { otps, sessions, cooldowns, adminIds } };
 }
 
 module.exports = { createAdminAuth, loginPage, parseCookies };
