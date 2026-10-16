@@ -121,7 +121,7 @@ async function sendWithPhoto(body, photo) {
 
 // ── Gönderim kuyruğu ───────────────────────────────────────────────────────
 
-const MAX_QUEUE_LEN = Number(process.env.TELEGRAM_MAX_QUEUE_LEN || 250);
+const MAX_QUEUE_LEN = Math.max(1, Math.floor(Number(process.env.TELEGRAM_MAX_QUEUE_LEN) || 250));
 const MAX_ALERT_TTL_MS = Number(process.env.TELEGRAM_ALERT_TTL_MS || 20 * 60_000);   // 20 dk eski sinyal piyasa için geçersiz
 const MAX_CARD_TTL_MS  = Number(process.env.TELEGRAM_CARD_TTL_MS || 30 * 60_000);    // 30 dk eski kart gönderilmez
 const LATE_MS          = 2 * 60_000;
@@ -157,29 +157,35 @@ function recordDispatch(item, status, note = '') {
 function enqueue(kind, chatId, text, extra = {}) {
   const item = { kind, chatId, text, attempts: 0, createdAt: Date.now(), ...extra };
 
-  // Önceliklendirme: Kullanıcı komut yanıtları (reply) kuyruğun en önüne alınır
+  // Kapasite tüm mesaj türleri için katıdır; yanıtlar yalnızca önceliklidir.
+  if (queue.length >= MAX_QUEUE_LEN) {
+    let dropIdx = queue.findIndex(q => q.kind !== 'reply');
+    if (dropIdx === -1 && kind === 'reply') dropIdx = 0;
+
+    if (dropIdx === -1) {
+      stats.droppedOverflow++;
+      recordDispatch(item, 'dropped_overflow', 'Kuyruk dolu — yeni bildirim atlandı');
+      console.warn(`[TELEGRAM] Kuyruk limiti (${MAX_QUEUE_LEN}) dolu — yeni ${kind} atlandı`);
+      return false;
+    }
+
+    const dropped = queue.splice(dropIdx, 1)[0];
+    stats.droppedOverflow++;
+    recordDispatch(dropped, 'dropped_overflow', 'Kuyruk dolu — bellek koruması');
+    console.warn(`[TELEGRAM] Kuyruk limiti (${MAX_QUEUE_LEN}) dolu — ${dropped.kind} düşürüldü`);
+  }
+
+  // Yönetici/komut yanıtları bekleyen yanıtların arkasına, genel bildirimlerin önüne alınır.
   if (kind === 'reply') {
-    // Varsa mevcut bekleyen reply'ların hemen sonrasına, genel sinyallerin ise önüne koy
     let insertIdx = 0;
     while (insertIdx < queue.length && queue[insertIdx].kind === 'reply') insertIdx++;
     queue.splice(insertIdx, 0, item);
   } else {
-    // Genel bildirim / sinyal / kart
-    // Kuyruk kapasite kontrolü (bellek sızıntısı ve OOM koruması)
-    if (queue.length >= MAX_QUEUE_LEN) {
-      // En eski kartsız sinyali bul ve düşür
-      const dropIdx = queue.findIndex(q => q.kind !== 'reply');
-      if (dropIdx !== -1) {
-        const dropped = queue.splice(dropIdx, 1)[0];
-        stats.droppedOverflow++;
-        recordDispatch(dropped, 'dropped_overflow', 'Kuyruk dolu — bellek koruması');
-        console.warn(`[TELEGRAM] Kuyruk limiti (${MAX_QUEUE_LEN}) aşıldı — en eski sinyal düşürüldü (${dropped.kind})`);
-      }
-    }
     queue.push(item);
   }
 
   pump();
+  return true;
 }
 
 async function pump() {
