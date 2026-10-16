@@ -6,11 +6,12 @@ const { createAdminAuth, parseCookies } = require('../src/adminAuth');
 async function main() {
   let time = 1_000_000;
   const sent = [];
+  let groupAdmins = ['12345678', '87654321'];
   const auth = createAdminAuth({
     env: { TELEGRAM_ADMIN_IDS: '99999999', NODE_ENV: 'test' },
     now: () => time,
     randomInt: () => 42,
-    telegram: { getChatAdminIds: async () => ['12345678', '87654321'], sendPrivate: async (id, text) => { sent.push({ id, text }); return true; } },
+    telegram: { getChatAdminIds: async () => groupAdmins, sendPrivate: async (id, text) => { sent.push({ id, text }); return true; } },
   });
 
   assert.deepStrictEqual(parseCookies('a=1; scalp_admin_session=hello%20world'), { a: '1', scalp_admin_session: 'hello world' });
@@ -35,6 +36,11 @@ async function main() {
   const session = auth._internal.sessions.get(verified.token);
   assert(session.expiresAt > time);
   assert.strictEqual(await auth.verifyCode('12345678', '000042'), null, 'OTP is single-use');
+
+  // Removing a user from the live Telegram admin list revokes an in-progress login.
+  await auth.requestCode('87654321');
+  groupAdmins = ['12345678'];
+  assert.strictEqual(await auth.verifyCode('87654321', '000042'), null, 'removed group admin must not complete login');
 
   const limited = createAdminAuth({
     env: { TELEGRAM_ADMIN_IDS: '12345678' }, now: () => time,
