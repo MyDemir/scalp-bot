@@ -264,9 +264,9 @@ function createStreamClient({ symbols, timeframes, onKline, onGap = () => {}, op
       }
     },
 
-    /** Heartbeat için: sayaçları döndürür ve sıfırlar */
-    takeStats() {
-      const s = {
+    /** Anlık, sayaçları değiştirmeyen metrik görüntüsü (dashboard polling için). */
+    getStats() {
+      return {
         connections: conns.length,
         open:        conns.filter(c => c.state === 'open').length,
         streams:     streams.length,
@@ -276,6 +276,11 @@ function createStreamClient({ symbols, timeframes, onKline, onGap = () => {}, op
         reconnects:  conns.reduce((n, c) => n + c.reconnects, 0),
         parseErrors: counters.parseErrors,
       };
+    },
+
+    /** Heartbeat için: sayaçları döndürür ve sıfırlar */
+    takeStats() {
+      const s = this.getStats();
       counters.messages = 0;
       counters.skipped = 0;
       counters.finals = {};
