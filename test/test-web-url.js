@@ -48,10 +48,8 @@ async function testWebUrl() {
     });
 
     assert.strictEqual(res.ok, true);
-    assert.strictEqual(res.sentToGroup, true);
-    assert.strictEqual(cardsSent.length, 1);
-    assert.ok(cardsSent[0].text.includes('https://panel.example.com'));
-    assert.ok(cardsSent[0].text.includes('Test Dağıtımı'));
+    assert.strictEqual(res.sentToGroup, false);
+    assert.strictEqual(cardsSent.length, 0);
 
     assert.strictEqual(res.adminCount, 2);
     assert.strictEqual(res.dmSuccessCount, 2);
@@ -60,6 +58,16 @@ async function testWebUrl() {
     assert.strictEqual(privatesSent[1].userId, '1002');
     assert.ok(privatesSent[0].text.includes('https://panel.example.com'));
     assert.ok(privatesSent[0].keyboard[0][0].url.includes('https://panel.example.com'));
+
+    const broadcast = await notifyWebPanelToAdmins(mockTelegram, {
+      note: 'Yönetici Talebi',
+      triggeredBy: 'Test Yönetici',
+      broadcastToGroup: true
+    });
+    assert.strictEqual(broadcast.sentToGroup, true);
+    assert.strictEqual(cardsSent.length, 1);
+    assert.ok(cardsSent[0].text.includes('https://panel.example.com'));
+    assert.ok(cardsSent[0].text.includes('Yönetici Talebi'));
 
     console.log('✅ test-web-url tüm testleri başarıyla geçti.');
   } finally {
