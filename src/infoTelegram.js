@@ -466,7 +466,7 @@ ${mv.join('\n')}` : ''}`.slice(0, 4000);
       const sent = await telegram.sendPrivate(msg.from.id, text, keyboard);
       if (!sent) return 'Panel bağlantısını özelden gönderemedim. Önce bota özelden /start yazıp tekrar dene.';
       return '🌐 Panel bağlantısını Telegram özel mesajına gönderdim.';
-    }),
+    },
 
     panelligonder: async (args, msg) => commands.panel('gonder', msg),
     panelbildir: async (args, msg) => commands.panel('gonder', msg),
