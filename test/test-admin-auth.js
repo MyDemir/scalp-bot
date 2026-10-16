@@ -59,6 +59,24 @@ async function main() {
   });
   assert.deepStrictEqual(await sendFailure.requestCode('12345678'), { ok: false, error: 'Telegram mesajı gönderilemedi. Botla özel sohbeti başlatıp tekrar deneyin.' });
 
+  // A Telegram API failure must be reported instead of pretending an OTP was sent.
+  const originalConsoleError = console.error;
+  try {
+    console.error = () => {};
+    const listFailure = createAdminAuth({
+      env: { NODE_ENV: 'test' }, now: () => time,
+      telegram: {
+        getGroupAdminIds: async () => { throw new Error('Bad Request: chat not found'); },
+        sendPrivate: async () => { throw new Error('must not send OTP when admin lookup fails'); },
+      },
+    });
+    const failure = await listFailure.requestCode('12345678');
+    assert.strictEqual(failure.ok, false);
+    assert.match(failure.error, /Telegram grup yöneticileri okunamadı/);
+  } finally {
+    console.error = originalConsoleError;
+  }
+
   time += 8 * 60 * 60 * 1000 + 1;
   assert.strictEqual(auth.getSession({ headers: { cookie: 'scalp_admin_session=' + verified.token } }), null, 'expired sessions must be rejected');
   console.log('PASS: automatic live group-admin discovery, OTP cooldown, membership recheck, single-use code, session expiry');
