@@ -48,12 +48,14 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
   const otps = new Map();
   const sessions = new Map();
   const cooldowns = new Map();
+  let lastAdminLookupError = null;
   const sessionCookieSecure = env.NODE_ENV === 'production';
   // Always resolve authorization from the live administrators of TELEGRAM_CHAT_ID.
   // TELEGRAM_ADMIN_IDS is intentionally not required for web-panel access.
   async function adminIds({ refresh = false } = {}) {
     if (typeof telegram?.getGroupAdminIds !== 'function') {
-      console.error('[AUTH] Telegram yönetici listesi alınamıyor: getGroupAdminIds fonksiyonu mevcut değil');
+      lastAdminLookupError = 'getGroupAdminIds fonksiyonu mevcut değil.';
+      console.error('[AUTH] Telegram yönetici listesi alınamıyor:', lastAdminLookupError);
       return null;
     }
     try {
@@ -76,7 +78,7 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
     if (!/^\d{5,20}$/.test(String(userId || ''))) return { ok: true };
     const admins = await adminIds();
     if (admins === null) {
-      return { ok: false, error: 'Telegram grup yöneticileri okunamadı. TELEGRAM_CHAT_ID değerini ve botun gruptaki yönetici yetkisini kontrol edin.' };
+      return { ok: false, error: 'Telegram grup yöneticileri okunamadı. ' + (lastAdminLookupError || 'TELEGRAM_CHAT_ID ve botun grup erişimini kontrol edin.') };
     }
     if (!admins.includes(String(userId))) return { ok: true };
     const id = String(userId);
@@ -98,7 +100,7 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
     const id = String(userId || '');
     const ids = await adminIds({ refresh: true });
     if (ids === null) {
-      return { ok: false, status: 503, error: 'Telegram yönetici listesi alınamadı. TELEGRAM_CHAT_ID ve botun grup erişimini kontrol edin.' };
+      return { ok: false, status: 503, error: 'Telegram yönetici listesi alınamadı. ' + (lastAdminLookupError || 'TELEGRAM_CHAT_ID ve botun grup erişimini kontrol edin.') };
     }
     // A refresh is permitted only when the requesting signed-in user is still a live group admin.
     if (!/^\d{5,20}$/.test(id) || !ids.includes(id)) {
