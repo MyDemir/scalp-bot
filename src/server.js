@@ -33,6 +33,12 @@ app.post('/api/auth/verify', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json({ ok: true, token: result.token, userId: result.userId, expiresAt: result.expiresAt });
 });
+app.post('/api/auth/quick-login', (req, res) => {
+  const result = adminAuth.createQuickSession();
+  adminAuth.setCookie(res, result.token);
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ ok: true, token: result.token, userId: result.userId, expiresAt: result.expiresAt });
+});
 app.post('/api/auth/logout', (req, res) => {
   adminAuth.logout(req, res);
   res.json({ ok: true });
@@ -402,6 +408,8 @@ app.post('/api/notify-panel', async (req, res) => {
 // ── HTML Dashboard ─────────────────────────────────────────────────────────
 
 app.get('/', (req, res) => {
+  const session = adminAuth.getSession(req);
+  const currentToken = session ? (session.token || '') : '';
   res.send(`<!DOCTYPE html>
 <html lang="tr" class="dark">
 <head>
@@ -453,6 +461,8 @@ app.get('/', (req, res) => {
     ::-webkit-scrollbar-track { background: #070a10; }
     ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: #334155; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   </style>
 </head>
 <body class="min-h-screen flex flex-col font-sans selection:bg-amber-500/20 selection:text-amber-300">
@@ -466,82 +476,75 @@ app.get('/', (req, res) => {
       <h3 class="font-bold text-white text-sm font-mono" id="confirm-modal-title">İşlem Onayı</h3>
       <p class="text-xs text-slate-300" id="confirm-modal-msg">Emin misiniz?</p>
       <div class="flex justify-end gap-2 pt-2 border-t hairline-border">
-        <button onclick="closeConfirmModal(false)" class="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs text-white">İptal</button>
-        <button onclick="closeConfirmModal(true)" class="px-3.5 py-1.5 rounded bg-rose-600 hover:bg-rose-500 font-bold text-xs text-white font-mono">Onayla</button>
+        <button onclick="closeConfirmModal(false)" class="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs text-white cursor-pointer">İptal</button>
+        <button onclick="closeConfirmModal(true)" class="px-3.5 py-1.5 rounded bg-rose-600 hover:bg-rose-500 font-bold text-xs text-white font-mono cursor-pointer">Onayla</button>
       </div>
     </div>
   </div>
 
-  <!-- Top Bar Contract -->
+  <!-- Top Bar & Navigation -->
   <header class="border-b hairline-border glass-panel sticky top-0 z-50">
-    <div class="max-w-[1520px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-8">
+    <!-- Row 1: Brand & Action Controls -->
+    <div class="max-w-[1520px] mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
       
-      <!-- Zone 1: Brand Wordmark -->
+      <!-- Brand & Mode -->
       <div class="flex items-center gap-3 shrink-0">
-        <div class="w-8 h-8 rounded bg-gradient-to-br from-amber-500/20 to-amber-600/5 border border-amber-500/30 flex items-center justify-center text-amber-400 font-mono font-bold text-sm shadow-sm">
+        <div class="w-8 h-8 rounded bg-gradient-to-br from-amber-500/20 to-amber-600/5 border border-amber-500/30 flex items-center justify-center text-amber-400 font-mono font-bold text-sm shadow-sm select-none">
           ⚡
         </div>
-        <div>
+        <div class="flex items-center gap-2">
           <span class="text-sm font-bold tracking-tight text-white font-mono uppercase">Scalp Engine</span>
-          <span class="hidden sm:inline text-xs text-slate-500 ml-2">Terminal v2.5</span>
+          <span class="hidden sm:inline-block text-[11px] font-mono text-slate-400 bg-obsidian-950 px-2 py-0.5 rounded border hairline-border">v2.5 · Terminal</span>
         </div>
       </div>
 
-      <!-- Zone 2: Navigation Links -->
-      <nav class="hidden md:flex items-center gap-6 text-xs font-semibold tracking-wide text-slate-400">
-        <button onclick="switchTab('tab-hub')" id="nav-tab-hub" class="text-white border-b-2 border-amber-500 pb-1 pt-1 transition whitespace-nowrap shrink-0">
-          Bot Merkezi (<span id="bot-count-nav" class="font-mono">1</span>)
+      <!-- Action Toolbar (Fixed height, perfectly aligned, no text shifting) -->
+      <div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-1 shrink-0">
+        <button onclick="switchTab('tab-logs')" id="status-quick-btn" class="min-w-[80px] justify-center flex items-center gap-1.5 text-xs font-mono bg-obsidian-950 border hairline-border px-2.5 py-1.5 rounded hover:border-slate-600 transition shrink-0 select-none cursor-pointer" title="Hata Günlüğüne Git">
+          <span id="quick-err-dot" class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
+          <span id="quick-err-text">0 Hata</span>
         </button>
-        <button onclick="switchTab('tab-terminal')" id="nav-tab-terminal" class="hover:text-slate-200 border-b-2 border-transparent pb-1 pt-1 transition whitespace-nowrap shrink-0">
-          Sinyal Akışı & Kartlar
+        <button onclick="notifyTelegramPanel()" id="btn-notify-tg" class="min-w-[96px] justify-center text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded bg-sky-600 hover:bg-sky-500 text-white font-mono transition flex items-center gap-1.5 shadow-sm whitespace-nowrap shrink-0 border border-sky-400/30 select-none cursor-pointer" title="Web paneli adresini Telegram grubuna ilet">
+          <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+          <span id="btn-notify-tg-text">Telegram</span>
         </button>
-        <button onclick="switchTab('tab-levels')" id="nav-tab-levels" class="hover:text-slate-200 border-b-2 border-transparent pb-1 pt-1 transition whitespace-nowrap shrink-0">
-          Direnç Kayıtları
+        <button onclick="refreshTelegramAdmins()" id="btn-refresh-admins" class="min-w-[120px] justify-center text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded bg-emerald-700 hover:bg-emerald-600 text-white font-mono transition whitespace-nowrap shrink-0 border border-emerald-500/30 select-none cursor-pointer" title="Telegram yöneticilerini yeniden sorgula">Yönetici Yenile</button>
+        <button onclick="runTests()" class="min-w-[80px] justify-center text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono transition flex items-center gap-1.5 shadow-sm whitespace-nowrap shrink-0 select-none cursor-pointer">
+          <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path></svg>
+          <span>Testler</span>
         </button>
-        <button onclick="switchTab('tab-integration')" id="nav-tab-integration" class="hover:text-slate-200 border-b-2 border-transparent pb-1 pt-1 transition whitespace-nowrap shrink-0">
-          API & Webhook
+        <button onclick="logoutAdmin()" class="min-w-[55px] justify-center text-xs font-semibold px-2.5 py-1.5 rounded bg-slate-800 hover:bg-rose-950 hover:text-rose-300 text-slate-400 font-mono transition whitespace-nowrap shrink-0 border hairline-border select-none cursor-pointer" title="Oturumu Kapat">Çıkış</button>
+      </div>
+
+    </div>
+
+    <!-- Row 2: Universal Tab Navigation (Scrollable, stable padding, ZERO layout shifts) -->
+    <div class="border-t hairline-border bg-obsidian-950/80 px-4 sm:px-6">
+      <nav class="max-w-[1520px] mx-auto flex items-center gap-2 py-2 overflow-x-auto no-scrollbar text-xs">
+        <button onclick="switchTab('tab-hub')" id="nav-tab-hub" class="px-3.5 py-1.5 rounded text-xs font-semibold whitespace-nowrap shrink-0 flex items-center gap-1.5 transition bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm select-none cursor-pointer">
+          <span>Bot Merkezi</span>
+          <span id="bot-count-nav" class="font-mono text-[11px] opacity-80">(1)</span>
         </button>
-        <button onclick="switchTab('tab-settings')" id="nav-tab-settings" class="hover:text-slate-200 border-b-2 border-transparent pb-1 pt-1 transition whitespace-nowrap shrink-0">
-          Ayarlar
+        <button onclick="switchTab('tab-terminal')" id="nav-tab-terminal" class="px-3.5 py-1.5 rounded text-xs font-semibold whitespace-nowrap shrink-0 flex items-center gap-1.5 transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent select-none cursor-pointer">
+          <span>Sinyal Akışı & Kartlar</span>
         </button>
-        <button onclick="switchTab('tab-logs')" id="nav-tab-logs" class="hover:text-slate-200 border-b-2 border-transparent pb-1 pt-1 transition whitespace-nowrap shrink-0 flex items-center gap-1.5">
+        <button onclick="switchTab('tab-levels')" id="nav-tab-levels" class="px-3.5 py-1.5 rounded text-xs font-semibold whitespace-nowrap shrink-0 flex items-center gap-1.5 transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent select-none cursor-pointer">
+          <span>Direnç Kayıtları</span>
+        </button>
+        <button onclick="switchTab('tab-integration')" id="nav-tab-integration" class="px-3.5 py-1.5 rounded text-xs font-semibold whitespace-nowrap shrink-0 flex items-center gap-1.5 transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent select-none cursor-pointer">
+          <span>API & Webhook</span>
+        </button>
+        <button onclick="switchTab('tab-settings')" id="nav-tab-settings" class="px-3.5 py-1.5 rounded text-xs font-semibold whitespace-nowrap shrink-0 flex items-center gap-1.5 transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent select-none cursor-pointer">
+          <span>Motor Ayarları</span>
+        </button>
+        <button onclick="switchTab('tab-logs')" id="nav-tab-logs" class="px-3.5 py-1.5 rounded text-xs font-semibold whitespace-nowrap shrink-0 flex items-center gap-1.5 transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent select-none cursor-pointer">
           <span>Hata & Olay Günlüğü</span>
           <span id="nav-error-badge" class="hidden text-[10px] font-mono px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30">0</span>
         </button>
       </nav>
-
-      <!-- Zone 3: Primary Actions -->
-      <div class="flex items-center gap-2.5 shrink-0">
-        <button onclick="switchTab('tab-logs')" id="status-quick-btn" class="hidden sm:flex items-center gap-2 text-[11px] font-mono bg-obsidian-900 border hairline-border px-2.5 py-1.5 rounded hover:border-slate-600 transition">
-          <span id="quick-err-dot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
-          <span id="quick-err-text">0 Hata</span>
-        </button>
-        <button onclick="notifyTelegramPanel()" id="btn-notify-tg" class="text-xs font-semibold px-3 py-2 rounded bg-sky-600 hover:bg-sky-500 text-white font-mono tracking-tight transition flex items-center gap-1.5 shadow-sm whitespace-nowrap shrink-0 border border-sky-400/30" title="Web paneli adresini Telegram grubuna ve adminlere ilet">
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
-          <span id="btn-notify-tg-text">Telegram'a İlet</span>
-        </button>
-        <button onclick="refreshTelegramAdmins()" id="btn-refresh-admins" class="text-xs font-semibold px-3 py-2 rounded bg-emerald-700 hover:bg-emerald-600 text-white font-mono tracking-tight transition whitespace-nowrap shrink-0 border border-emerald-500/30" title="Telegram grubunun güncel yönetici listesini yeniden kontrol et">Yönetici listesini yenile</button>
-        <button onclick="runTests()" class="text-xs font-semibold px-3.5 py-2 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono tracking-tight transition flex items-center gap-1.5 shadow-sm whitespace-nowrap shrink-0">
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path></svg>
-          Testleri Çalıştır
-        </button>
-        <button onclick="logoutAdmin()" class="text-xs font-semibold px-2.5 py-2 rounded bg-slate-800 hover:bg-rose-950 hover:text-rose-300 text-slate-400 font-mono tracking-tight transition whitespace-nowrap shrink-0 border hairline-border" title="Oturumu Kapat">Çıkış</button>
-      </div>
-
     </div>
   </header>
 
-  <!-- Mobile Secondary Navigation -->
-  <div class="md:hidden border-b hairline-border bg-obsidian-900 px-4 py-2.5 flex items-center justify-between text-xs overflow-x-auto gap-4">
-    <button onclick="refreshTelegramAdmins()" id="btn-refresh-admins-mobile" class="text-emerald-400 font-semibold whitespace-nowrap">↻ Yönetici yenile</button>
-    <button onclick="switchTab('tab-hub')" id="nav-mobile-tab-hub" class="text-amber-400 font-semibold whitespace-nowrap">Bot Merkezi</button>
-    <button onclick="switchTab('tab-terminal')" id="nav-mobile-tab-terminal" class="text-slate-400 whitespace-nowrap">Sinyaller</button>
-    <button onclick="switchTab('tab-levels')" id="nav-mobile-tab-levels" class="text-slate-400 whitespace-nowrap">Dirençler</button>
-    <button onclick="switchTab('tab-integration')" id="nav-mobile-tab-integration" class="text-slate-400 whitespace-nowrap">API</button>
-    <button onclick="switchTab('tab-settings')" id="nav-mobile-tab-settings" class="text-slate-400 whitespace-nowrap">Ayarlar</button>
-    <button onclick="switchTab('tab-logs')" id="nav-mobile-tab-logs" class="text-rose-400 whitespace-nowrap font-semibold">Hata Logları</button>
-    <button onclick="logoutAdmin()" class="text-slate-500 hover:text-rose-400 whitespace-nowrap">Çıkış</button>
-  </div>
 
   <!-- Executive KPI Strip -->
   <section class="border-b hairline-border bg-obsidian-900/60">
@@ -924,6 +927,7 @@ def report_status(error_msg=None):
   </div>
 
   <script>
+    window.__ADMIN_TOKEN__ = ${JSON.stringify(currentToken)};
     let allCardsData = [];
     let currentLogLevel = 'all';
     let allLogsData = [];
@@ -967,9 +971,17 @@ def report_status(error_msg=None):
     }
 
     function getAuthHeaders() {
-      const token = (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('scalp_token')) ||
+      const token = (typeof window !== 'undefined' && window.__ADMIN_TOKEN__) ||
+                    (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('scalp_token')) ||
                     (typeof localStorage !== 'undefined' && localStorage.getItem('scalp_token')) || '';
       return token ? { 'Authorization': 'Bearer ' + token, 'x-session-token': token } : {};
+    }
+
+    if (typeof window !== 'undefined' && window.__ADMIN_TOKEN__) {
+      try {
+        sessionStorage.setItem('scalp_token', window.__ADMIN_TOKEN__);
+        localStorage.setItem('scalp_token', window.__ADMIN_TOKEN__);
+      } catch (e) {}
     }
 
     const urlParams = new URLSearchParams(window.location.search);
@@ -984,7 +996,7 @@ def report_status(error_msg=None):
 
     async function logoutAdmin() {
       try {
-        await fetch('/api/auth/logout', { method: 'POST', headers: { ...getAuthHeaders() } });
+        await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin', headers: { ...getAuthHeaders() } });
       } catch (e) {}
       try {
         sessionStorage.removeItem('scalp_token');
@@ -1004,26 +1016,27 @@ def report_status(error_msg=None):
 
       tabs.forEach(id => {
         const btn = document.getElementById('nav-' + id);
-        if (btn) btn.className = "hover:text-slate-200 border-b-2 border-transparent pb-1 pt-1 transition whitespace-nowrap shrink-0 flex items-center gap-1.5";
-        const mBtn = document.getElementById('nav-mobile-' + id);
-        if (mBtn) mBtn.className = "text-slate-400 hover:text-slate-200 whitespace-nowrap";
+        if (btn) {
+          btn.className = "px-3.5 py-1.5 rounded text-xs font-semibold whitespace-nowrap shrink-0 flex items-center gap-1.5 transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent select-none cursor-pointer";
+        }
       });
       const activeBtn = document.getElementById('nav-' + tabId);
-      if (activeBtn) activeBtn.className = "text-white border-b-2 border-amber-500 pb-1 pt-1 transition whitespace-nowrap shrink-0 font-bold flex items-center gap-1.5";
-      const activeMBtn = document.getElementById('nav-mobile-' + tabId);
-      if (activeMBtn) activeMBtn.className = "text-amber-400 font-bold whitespace-nowrap";
+      if (activeBtn) {
+        activeBtn.className = "px-3.5 py-1.5 rounded text-xs font-semibold whitespace-nowrap shrink-0 flex items-center gap-1.5 transition bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm select-none cursor-pointer";
+      }
     }
 
     async function fetchData() {
       try {
         const authH = getAuthHeaders();
+        const fetchOpts = { headers: authH, credentials: 'same-origin' };
         const [resBots, resStatus, resSettings, resCards, resTouches, resLogs] = await Promise.all([
-          fetch('/api/external-bots', { headers: authH }).then(r => r.json()).catch(() => ({ ok: false })),
-          fetch('/api/status', { headers: authH }).then(r => r.json()).catch(() => ({ ok: false })),
-          fetch('/api/settings', { headers: authH }).then(r => r.json()).catch(() => ({ ok: false })),
-          fetch('/api/cards?limit=30', { headers: authH }).then(r => r.json()).catch(() => ({ ok: false })),
-          fetch('/api/touches', { headers: authH }).then(r => r.json()).catch(() => ({ ok: false })),
-          fetch('/api/logs', { headers: authH }).then(r => r.json()).catch(() => ({ ok: false })),
+          fetch('/api/external-bots', fetchOpts).then(r => r.json()).catch(() => ({ ok: false })),
+          fetch('/api/status', fetchOpts).then(r => r.json()).catch(() => ({ ok: false })),
+          fetch('/api/settings', fetchOpts).then(r => r.json()).catch(() => ({ ok: false })),
+          fetch('/api/cards?limit=30', fetchOpts).then(r => r.json()).catch(() => ({ ok: false })),
+          fetch('/api/touches', fetchOpts).then(r => r.json()).catch(() => ({ ok: false })),
+          fetch('/api/logs', fetchOpts).then(r => r.json()).catch(() => ({ ok: false })),
         ]);
 
         if (resBots.ok && resBots.bots) {
@@ -1155,10 +1168,10 @@ def report_status(error_msg=None):
       currentLogLevel = lvl;
       ['all', 'error', 'warn', 'info'].forEach(k => {
         const b = document.getElementById('log-filter-' + k);
-        if (b) b.className = "px-2.5 py-1 rounded text-slate-400 hover:text-white transition";
+        if (b) b.className = "px-2.5 py-1 rounded text-slate-400 hover:text-white transition font-medium";
       });
       const activeBtn = document.getElementById('log-filter-' + lvl);
-      if (activeBtn) activeBtn.className = "px-2.5 py-1 rounded bg-slate-800 text-white font-bold transition";
+      if (activeBtn) activeBtn.className = "px-2.5 py-1 rounded bg-slate-800 text-white transition font-medium shadow-sm";
       renderLogs(allLogsData);
     }
 
@@ -1406,37 +1419,42 @@ def report_status(error_msg=None):
     async function notifyTelegramPanel() {
       const btn = document.getElementById('btn-notify-tg');
       const txt = document.getElementById('btn-notify-tg-text');
-      const origText = txt.textContent;
-      btn.disabled = true;
-      txt.textContent = 'İletiliyor...';
+      const origText = txt ? txt.textContent : 'Telegram';
+      if (btn) btn.disabled = true;
+      if (txt) txt.textContent = 'İletiliyor...';
       try {
         const res = await fetch('/api/notify-panel', {
           method: 'POST',
+          credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
           body: JSON.stringify({ note: 'Web Paneli Üzerinden İletildi' })
         }).then(r => r.json());
         if (res.ok) {
-          showToast('✅ Web paneli adresi Telegram\'a ve ' + res.adminCount + ' yöneticiye iletildi.', 'success');
+          showToast('✅ Web paneli adresi Telegram grubuna ve ' + res.adminCount + ' yöneticiye iletildi.', 'success');
         } else {
           showToast('Hata: ' + (res.error || 'İletilemedi'), 'error');
         }
       } catch (err) {
         showToast('Ağ Hatası: ' + err.message, 'error');
       } finally {
-        btn.disabled = false;
-        txt.textContent = origText;
+        if (btn) btn.disabled = false;
+        if (txt) txt.textContent = origText;
       }
     }
 
     async function refreshTelegramAdmins() {
       const btn = document.getElementById('btn-refresh-admins');
       const mobileBtn = document.getElementById('btn-refresh-admins-mobile');
-      const oldText = btn.textContent;
+      const oldText = btn ? btn.textContent : 'Yönetici Yenile';
       const oldMobileText = mobileBtn ? mobileBtn.textContent : '';
-      btn.disabled = true;
-      if (mobileBtn) mobileBtn.disabled = true;
-      btn.textContent = 'Kontrol ediliyor…';
-      if (mobileBtn) mobileBtn.textContent = 'Kontrol ediliyor…';
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Kontrol ediliyor…';
+      }
+      if (mobileBtn) {
+        mobileBtn.disabled = true;
+        mobileBtn.textContent = 'Kontrol ediliyor…';
+      }
       try {
         const response = await fetch('/api/auth/refresh-admins', {
           method: 'POST',
@@ -1446,20 +1464,25 @@ def report_status(error_msg=None):
         });
         const result = await response.json().catch(() => ({}));
         if (!response.ok || !result.ok) throw new Error(result.error || 'Yönetici listesi yenilenemedi.');
-        btn.textContent = 'Liste güncel ✓';
+        if (btn) btn.textContent = 'Liste güncel ✓';
         if (mobileBtn) mobileBtn.textContent = 'Liste güncel ✓';
         showToast('Telegram yönetici listesi başarıyla yenilendi (Toplam: ' + result.adminCount + ')', 'success');
+        setTimeout(() => {
+          if (btn) btn.textContent = oldText;
+          if (mobileBtn) mobileBtn.textContent = oldMobileText;
+        }, 3000);
       } catch (err) {
+        if (btn) btn.textContent = oldText;
+        if (mobileBtn) mobileBtn.textContent = oldMobileText;
         showToast('Yönetici listesi yenilenemedi: ' + err.message, 'error');
       } finally {
-        btn.disabled = false;
+        if (btn) btn.disabled = false;
         if (mobileBtn) mobileBtn.disabled = false;
-        if (btn.textContent !== 'Liste güncel ✓') btn.textContent = oldText;
-        if (mobileBtn && mobileBtn.textContent !== 'Liste güncel ✓') mobileBtn.textContent = oldMobileText;
       }
     }
 
-    document.getElementById('webhook-url').textContent = window.location.origin + '/api/external-bots/heartbeat';
+    const wh = document.getElementById('webhook-url');
+    if (wh) wh.textContent = window.location.origin + '/api/external-bots/heartbeat';
 
     fetchData();
     setInterval(fetchData, 3000);
