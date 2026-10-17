@@ -33,12 +33,6 @@ app.post('/api/auth/verify', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json({ ok: true, token: result.token, userId: result.userId, expiresAt: result.expiresAt });
 });
-app.post('/api/auth/quick-login', (req, res) => {
-  const result = adminAuth.createQuickSession();
-  adminAuth.setCookie(res, result.token);
-  res.setHeader('Cache-Control', 'no-store');
-  res.json({ ok: true, token: result.token, userId: result.userId, expiresAt: result.expiresAt });
-});
 app.post('/api/auth/logout', (req, res) => {
   adminAuth.logout(req, res);
   res.json({ ok: true });
@@ -498,22 +492,22 @@ app.get('/', (req, res) => {
         </div>
       </div>
 
-      <!-- Action Toolbar (Fixed height, perfectly aligned, no text shifting) -->
-      <div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-1 shrink-0">
-        <button onclick="switchTab('tab-logs')" id="status-quick-btn" class="min-w-[80px] justify-center flex items-center gap-1.5 text-xs font-mono bg-obsidian-950 border hairline-border px-2.5 py-1.5 rounded hover:border-slate-600 transition shrink-0 select-none cursor-pointer" title="Hata Günlüğüne Git">
+      <!-- Action Toolbar (Strictly dimensioned, zero layout shifts, smooth responsive scroll) -->
+      <div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-1 shrink min-w-0 max-w-full justify-end">
+        <button onclick="switchTab('tab-logs')" id="status-quick-btn" class="w-[84px] shrink-0 justify-center flex items-center gap-1.5 text-xs font-mono bg-obsidian-950 border hairline-border px-2 py-1.5 rounded hover:border-slate-600 transition select-none cursor-pointer" title="Hata Günlüğüne Git">
           <span id="quick-err-dot" class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
           <span id="quick-err-text">0 Hata</span>
         </button>
-        <button onclick="notifyTelegramPanel()" id="btn-notify-tg" class="min-w-[96px] justify-center text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded bg-sky-600 hover:bg-sky-500 text-white font-mono transition flex items-center gap-1.5 shadow-sm whitespace-nowrap shrink-0 border border-sky-400/30 select-none cursor-pointer" title="Web paneli adresini Telegram grubuna ilet">
+        <button onclick="notifyTelegramPanel()" id="btn-notify-tg" class="w-[102px] shrink-0 justify-center text-xs font-semibold px-2 py-1.5 rounded bg-sky-600 hover:bg-sky-500 text-white font-mono transition flex items-center gap-1.5 shadow-sm whitespace-nowrap border border-sky-400/30 select-none cursor-pointer" title="Web paneli adresini Telegram grubuna ilet">
           <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
           <span id="btn-notify-tg-text">Telegram</span>
         </button>
-        <button onclick="refreshTelegramAdmins()" id="btn-refresh-admins" class="min-w-[120px] justify-center text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded bg-emerald-700 hover:bg-emerald-600 text-white font-mono transition whitespace-nowrap shrink-0 border border-emerald-500/30 select-none cursor-pointer" title="Telegram yöneticilerini yeniden sorgula">Yönetici Yenile</button>
-        <button onclick="runTests()" class="min-w-[80px] justify-center text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono transition flex items-center gap-1.5 shadow-sm whitespace-nowrap shrink-0 select-none cursor-pointer">
+        <button onclick="refreshTelegramAdmins()" id="btn-refresh-admins" class="w-[136px] shrink-0 justify-center text-xs font-semibold px-2 py-1.5 rounded bg-emerald-700 hover:bg-emerald-600 text-white font-mono transition whitespace-nowrap border border-emerald-500/30 select-none cursor-pointer" title="Telegram yöneticilerini yeniden sorgula">Yönetici Yenile</button>
+        <button onclick="runTests()" class="w-[86px] shrink-0 justify-center text-xs font-semibold px-2.5 py-1.5 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono transition flex items-center gap-1.5 shadow-sm whitespace-nowrap select-none cursor-pointer">
           <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path></svg>
           <span>Testler</span>
         </button>
-        <button onclick="logoutAdmin()" class="min-w-[55px] justify-center text-xs font-semibold px-2.5 py-1.5 rounded bg-slate-800 hover:bg-rose-950 hover:text-rose-300 text-slate-400 font-mono transition whitespace-nowrap shrink-0 border hairline-border select-none cursor-pointer" title="Oturumu Kapat">Çıkış</button>
+        <button onclick="logoutAdmin()" class="w-[58px] shrink-0 justify-center text-xs font-semibold px-2.5 py-1.5 rounded bg-slate-800 hover:bg-rose-950 hover:text-rose-300 text-slate-400 font-mono transition whitespace-nowrap border hairline-border select-none cursor-pointer" title="Oturumu Kapat">Çıkış</button>
       </div>
 
     </div>
@@ -719,10 +713,10 @@ app.get('/', (req, res) => {
           <div class="flex flex-wrap items-center gap-2">
             <!-- Filter by level -->
             <div class="flex items-center bg-obsidian-950 p-1 rounded border hairline-border text-xs font-mono">
-              <button onclick="setLogLevel('all')" id="log-filter-all" class="px-2.5 py-1 rounded bg-slate-800 text-white font-bold transition">Tümü</button>
-              <button onclick="setLogLevel('error')" id="log-filter-error" class="px-2.5 py-1 rounded text-rose-400 hover:text-white transition">Hatalar</button>
-              <button onclick="setLogLevel('warn')" id="log-filter-warn" class="px-2.5 py-1 rounded text-amber-400 hover:text-white transition">Uyarılar</button>
-              <button onclick="setLogLevel('info')" id="log-filter-info" class="px-2.5 py-1 rounded text-slate-400 hover:text-white transition">Sistem</button>
+              <button onclick="setLogLevel('all')" id="log-filter-all" class="px-2.5 py-1 rounded bg-slate-800 text-white font-medium transition">Tümü</button>
+              <button onclick="setLogLevel('error')" id="log-filter-error" class="px-2.5 py-1 rounded text-slate-400 hover:text-white transition font-medium">Hatalar</button>
+              <button onclick="setLogLevel('warn')" id="log-filter-warn" class="px-2.5 py-1 rounded text-slate-400 hover:text-white transition font-medium">Uyarılar</button>
+              <button onclick="setLogLevel('info')" id="log-filter-info" class="px-2.5 py-1 rounded text-slate-400 hover:text-white transition font-medium">Sistem</button>
             </div>
 
             <!-- Search in logs -->
@@ -1041,7 +1035,7 @@ def report_status(error_msg=None):
 
         if (resBots.ok && resBots.bots) {
           renderBots(resBots.bots);
-          document.getElementById('bot-count-nav').textContent = resBots.bots.length;
+          document.getElementById('bot-count-nav').textContent = '(' + resBots.bots.length + ')';
         }
 
         if (resLogs.ok) {
