@@ -31,7 +31,7 @@ app.post('/api/auth/verify', async (req, res) => {
   if (!result) return res.status(401).json({ ok: false, error: 'Kod geçersiz, süresi dolmuş veya kullanım sınırına ulaşmış.' });
   adminAuth.setCookie(res, result.token);
   res.setHeader('Cache-Control', 'no-store');
-  res.json({ ok: true, userId: result.userId, expiresAt: result.expiresAt });
+  res.json({ ok: true, token: result.token, userId: result.userId, expiresAt: result.expiresAt });
 });
 app.post('/api/auth/logout', (req, res) => {
   adminAuth.logout(req, res);
@@ -457,6 +457,21 @@ app.get('/', (req, res) => {
 </head>
 <body class="min-h-screen flex flex-col font-sans selection:bg-amber-500/20 selection:text-amber-300">
 
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm pointer-events-none"></div>
+
+  <!-- Confirm Modal (safe window.confirm alternative for iframes) -->
+  <div id="confirm-modal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="glass-panel border hairline-border rounded-lg max-w-sm w-full p-5 space-y-4 shadow-2xl">
+      <h3 class="font-bold text-white text-sm font-mono" id="confirm-modal-title">İşlem Onayı</h3>
+      <p class="text-xs text-slate-300" id="confirm-modal-msg">Emin misiniz?</p>
+      <div class="flex justify-end gap-2 pt-2 border-t hairline-border">
+        <button onclick="closeConfirmModal(false)" class="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs text-white">İptal</button>
+        <button onclick="closeConfirmModal(true)" class="px-3.5 py-1.5 rounded bg-rose-600 hover:bg-rose-500 font-bold text-xs text-white font-mono">Onayla</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Top Bar Contract -->
   <header class="border-b hairline-border glass-panel sticky top-0 z-50">
     <div class="max-w-[1520px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-8">
@@ -510,6 +525,7 @@ app.get('/', (req, res) => {
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path></svg>
           Testleri Çalıştır
         </button>
+        <button onclick="logoutAdmin()" class="text-xs font-semibold px-2.5 py-2 rounded bg-slate-800 hover:bg-rose-950 hover:text-rose-300 text-slate-400 font-mono tracking-tight transition whitespace-nowrap shrink-0 border hairline-border" title="Oturumu Kapat">Çıkış</button>
       </div>
 
     </div>
@@ -518,12 +534,13 @@ app.get('/', (req, res) => {
   <!-- Mobile Secondary Navigation -->
   <div class="md:hidden border-b hairline-border bg-obsidian-900 px-4 py-2.5 flex items-center justify-between text-xs overflow-x-auto gap-4">
     <button onclick="refreshTelegramAdmins()" id="btn-refresh-admins-mobile" class="text-emerald-400 font-semibold whitespace-nowrap">↻ Yönetici yenile</button>
-    <button onclick="switchTab('tab-hub')" class="text-amber-400 font-semibold whitespace-nowrap">Bot Merkezi</button>
-    <button onclick="switchTab('tab-terminal')" class="text-slate-400 whitespace-nowrap">Sinyaller</button>
-    <button onclick="switchTab('tab-levels')" class="text-slate-400 whitespace-nowrap">Dirençler</button>
-    <button onclick="switchTab('tab-integration')" class="text-slate-400 whitespace-nowrap">API</button>
-    <button onclick="switchTab('tab-settings')" class="text-slate-400 whitespace-nowrap">Ayarlar</button>
-    <button onclick="switchTab('tab-logs')" class="text-rose-400 whitespace-nowrap font-semibold">Hata Logları</button>
+    <button onclick="switchTab('tab-hub')" id="nav-mobile-tab-hub" class="text-amber-400 font-semibold whitespace-nowrap">Bot Merkezi</button>
+    <button onclick="switchTab('tab-terminal')" id="nav-mobile-tab-terminal" class="text-slate-400 whitespace-nowrap">Sinyaller</button>
+    <button onclick="switchTab('tab-levels')" id="nav-mobile-tab-levels" class="text-slate-400 whitespace-nowrap">Dirençler</button>
+    <button onclick="switchTab('tab-integration')" id="nav-mobile-tab-integration" class="text-slate-400 whitespace-nowrap">API</button>
+    <button onclick="switchTab('tab-settings')" id="nav-mobile-tab-settings" class="text-slate-400 whitespace-nowrap">Ayarlar</button>
+    <button onclick="switchTab('tab-logs')" id="nav-mobile-tab-logs" class="text-rose-400 whitespace-nowrap font-semibold">Hata Logları</button>
+    <button onclick="logoutAdmin()" class="text-slate-500 hover:text-rose-400 whitespace-nowrap">Çıkış</button>
   </div>
 
   <!-- Executive KPI Strip -->
@@ -911,29 +928,102 @@ def report_status(error_msg=None):
     let currentLogLevel = 'all';
     let allLogsData = [];
 
-    function switchTab(tabId) {
-      ['tab-hub', 'tab-terminal', 'tab-logs', 'tab-levels', 'tab-settings', 'tab-integration'].forEach(id => {
-        document.getElementById(id).classList.add('hidden');
-      });
-      document.getElementById(tabId).classList.remove('hidden');
+    function showToast(msg, type = 'info') {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+      const toast = document.createElement('div');
+      const colors = {
+        success: 'bg-emerald-950/95 border-emerald-500/60 text-emerald-200',
+        error: 'bg-rose-950/95 border-rose-500/60 text-rose-200',
+        warn: 'bg-amber-950/95 border-amber-500/60 text-amber-200',
+        info: 'bg-slate-900/95 border-slate-700 text-slate-200',
+      };
+      toast.className = 'pointer-events-auto flex items-start gap-2.5 px-4 py-3 rounded-lg border shadow-xl text-xs backdrop-blur-md transition-all duration-300 ' + (colors[type] || colors.info);
+      toast.innerHTML = '<span class="flex-1 leading-relaxed font-mono">' + escapeHtml(msg) + '</span>';
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(-8px)';
+        setTimeout(() => toast.remove(), 300);
+      }, 4000);
+    }
+    window.alert = function(msg) { showToast(msg, 'info'); };
 
-      ['nav-tab-hub', 'nav-tab-terminal', 'nav-tab-logs', 'nav-tab-levels', 'nav-tab-settings', 'nav-tab-integration'].forEach(id => {
-        const btn = document.getElementById(id);
+    let confirmCallback = null;
+    function openConfirm(msg, onConfirm) {
+      const modal = document.getElementById('confirm-modal');
+      const text = document.getElementById('confirm-modal-msg');
+      if (text) text.textContent = msg;
+      confirmCallback = onConfirm;
+      if (modal) modal.classList.remove('hidden');
+    }
+    function closeConfirmModal(accepted) {
+      const modal = document.getElementById('confirm-modal');
+      if (modal) modal.classList.add('hidden');
+      if (accepted && typeof confirmCallback === 'function') {
+        confirmCallback();
+      }
+      confirmCallback = null;
+    }
+
+    function getAuthHeaders() {
+      const token = (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('scalp_token')) ||
+                    (typeof localStorage !== 'undefined' && localStorage.getItem('scalp_token')) || '';
+      return token ? { 'Authorization': 'Bearer ' + token, 'x-session-token': token } : {};
+    }
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const qToken = urlParams.get('token');
+    if (qToken) {
+      try {
+        sessionStorage.setItem('scalp_token', qToken);
+        localStorage.setItem('scalp_token', qToken);
+      } catch (e) {}
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    async function logoutAdmin() {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST', headers: { ...getAuthHeaders() } });
+      } catch (e) {}
+      try {
+        sessionStorage.removeItem('scalp_token');
+        localStorage.removeItem('scalp_token');
+      } catch (e) {}
+      location.reload();
+    }
+
+    function switchTab(tabId) {
+      const tabs = ['tab-hub', 'tab-terminal', 'tab-logs', 'tab-levels', 'tab-settings', 'tab-integration'];
+      tabs.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('hidden');
+      });
+      const target = document.getElementById(tabId);
+      if (target) target.classList.remove('hidden');
+
+      tabs.forEach(id => {
+        const btn = document.getElementById('nav-' + id);
         if (btn) btn.className = "hover:text-slate-200 border-b-2 border-transparent pb-1 pt-1 transition whitespace-nowrap shrink-0 flex items-center gap-1.5";
+        const mBtn = document.getElementById('nav-mobile-' + id);
+        if (mBtn) mBtn.className = "text-slate-400 hover:text-slate-200 whitespace-nowrap";
       });
       const activeBtn = document.getElementById('nav-' + tabId);
       if (activeBtn) activeBtn.className = "text-white border-b-2 border-amber-500 pb-1 pt-1 transition whitespace-nowrap shrink-0 font-bold flex items-center gap-1.5";
+      const activeMBtn = document.getElementById('nav-mobile-' + tabId);
+      if (activeMBtn) activeMBtn.className = "text-amber-400 font-bold whitespace-nowrap";
     }
 
     async function fetchData() {
       try {
+        const authH = getAuthHeaders();
         const [resBots, resStatus, resSettings, resCards, resTouches, resLogs] = await Promise.all([
-          fetch('/api/external-bots').then(r => r.json()).catch(() => ({ ok: false })),
-          fetch('/api/status').then(r => r.json()).catch(() => ({ ok: false })),
-          fetch('/api/settings').then(r => r.json()).catch(() => ({ ok: false })),
-          fetch('/api/cards?limit=30').then(r => r.json()).catch(() => ({ ok: false })),
-          fetch('/api/touches').then(r => r.json()).catch(() => ({ ok: false })),
-          fetch('/api/logs').then(r => r.json()).catch(() => ({ ok: false })),
+          fetch('/api/external-bots', { headers: authH }).then(r => r.json()).catch(() => ({ ok: false })),
+          fetch('/api/status', { headers: authH }).then(r => r.json()).catch(() => ({ ok: false })),
+          fetch('/api/settings', { headers: authH }).then(r => r.json()).catch(() => ({ ok: false })),
+          fetch('/api/cards?limit=30', { headers: authH }).then(r => r.json()).catch(() => ({ ok: false })),
+          fetch('/api/touches', { headers: authH }).then(r => r.json()).catch(() => ({ ok: false })),
+          fetch('/api/logs', { headers: authH }).then(r => r.json()).catch(() => ({ ok: false })),
         ]);
 
         if (resBots.ok && resBots.bots) {
@@ -1077,16 +1167,23 @@ def report_status(error_msg=None):
     }
 
     async function clearLogs() {
-      await fetch('/api/logs/clear', { method: 'POST' });
-      allLogsData = [];
-      renderLogs([]);
-      fetchData();
+      try {
+        await fetch('/api/logs/clear', { method: 'POST', headers: { ...getAuthHeaders() } });
+        allLogsData = [];
+        renderLogs([]);
+        showToast('Loglar temizlendi', 'info');
+        fetchData();
+      } catch (e) {
+        showToast('Loglar temizlenemedi: ' + e.message, 'error');
+      }
     }
 
     function copyAllLogs() {
       const text = allLogsData.map(l => '[' + new Date(l.t).toLocaleTimeString('tr-TR') + '] [' + l.level.toUpperCase() + '] [' + l.tag + '] ' + l.message).join('\\n');
-      navigator.clipboard.writeText(text);
-      alert('Tüm loglar panoya kopyalandı!');
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+      }
+      showToast('Tüm loglar panoya kopyalandı!', 'success');
     }
 
     function escapeHtml(str) {
@@ -1154,7 +1251,7 @@ def report_status(error_msg=None):
               '<span class="text-xs text-slate-500 font-mono tracking-widest">' + '●'.repeat(grade) + '</span>' +
             '</div>' +
             '<div class="text-right">' +
-              '<div class="font-mono text-sm text-white font-bold tabular">
+              '<div class="font-mono text-sm text-white font-bold tabular">' + escapeHtml(price != null ? '$' + price : '—') + '</div>' +
               '<div class="text-[10px] text-slate-500 font-mono">' + timeStr + '</div>' +
             '</div>' +
           '</div>' +
@@ -1209,19 +1306,22 @@ def report_status(error_msg=None):
       try {
         const res = await fetch('/api/settings', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
           body: JSON.stringify({ rsiMin: rsi, levelMaxPct: level, burstPct1: burst1, minVolumeM: vol })
         }).then(r => r.json());
 
         if (res.ok) {
           statusEl.textContent = '✓ Ayarlar başarıyla güncellendi';
+          showToast('Ayarlar başarıyla kaydedildi', 'success');
           setTimeout(() => { statusEl.textContent = ''; }, 3000);
           fetchData();
         } else {
           statusEl.textContent = 'Hata: ' + res.error;
+          showToast('Hata: ' + res.error, 'error');
         }
       } catch (err) {
         statusEl.textContent = 'İletişim hatası';
+        showToast('İletişim hatası: ' + err.message, 'error');
       }
     }
 
@@ -1232,21 +1332,43 @@ def report_status(error_msg=None):
       const id = document.getElementById('input-bot-id').value.trim();
       const name = document.getElementById('input-bot-name').value.trim();
       const tg = document.getElementById('input-bot-tg').value.trim();
-      if (!id || !name) return alert('Lütfen ID ve Ad giriniz');
+      if (!id || !name) return showToast('Lütfen ID ve Ad giriniz', 'warn');
 
-      await fetch('/api/external-bots/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, name, telegram: tg })
-      });
-      closeAddBotModal();
-      fetchData();
+      try {
+        const res = await fetch('/api/external-bots/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify({ id, name, telegram: tg })
+        }).then(r => r.json());
+        if (res.ok) {
+          closeAddBotModal();
+          showToast('Yeni bot başarıyla kaydedildi', 'success');
+          fetchData();
+        } else {
+          showToast('Hata: ' + (res.error || 'Eklenemedi'), 'error');
+        }
+      } catch (err) {
+        showToast('İletişim hatası: ' + err.message, 'error');
+      }
     }
 
     async function deleteBot(id) {
-      if (!confirm('Bu harici botu kaldırmak istediğinize emin misiniz?')) return;
-      await fetch('/api/external-bots/' + id, { method: 'DELETE' });
-      fetchData();
+      openConfirm('Bu harici botu kaldırmak istediğinize emin misiniz?', async () => {
+        try {
+          const res = await fetch('/api/external-bots/' + encodeURIComponent(id), {
+            method: 'DELETE',
+            headers: { ...getAuthHeaders() }
+          }).then(r => r.json());
+          if (res.ok) {
+            showToast('Harici bot kaldırıldı', 'success');
+            fetchData();
+          } else {
+            showToast('Kaldırılamadı: ' + (res.error || 'Hata'), 'error');
+          }
+        } catch (err) {
+          showToast('Silme hatası: ' + err.message, 'error');
+        }
+      });
     }
 
     async function runTests() {
@@ -1258,20 +1380,27 @@ def report_status(error_msg=None):
       out.textContent = 'Test paketi yürütülüyor (test/run.js)... Lütfen bekleyin...\\n';
 
       try {
-        const res = await fetch('/api/run-tests', { method: 'POST' }).then(r => r.json());
+        const res = await fetch('/api/run-tests', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() }
+        }).then(r => r.json());
         spinner.classList.add('hidden');
         out.textContent = res.output || (res.ok ? 'Tüm testler başarıyla geçti!' : 'Testler başarısız oldu.');
+        showToast(res.ok ? 'Tüm testler başarıyla geçti!' : 'Test paketi tamamlandı', res.ok ? 'success' : 'warn');
       } catch (err) {
         spinner.classList.add('hidden');
         out.textContent = 'Hata: ' + err.message;
+        showToast('Test yürütme hatası: ' + err.message, 'error');
       }
     }
     function closeTestModal() { document.getElementById('test-modal').classList.add('hidden'); }
 
     function copyCode(id) {
       const text = document.getElementById(id).textContent;
-      navigator.clipboard.writeText(text);
-      alert('Kod panoya kopyalandı!');
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+      }
+      showToast('Kod panoya kopyalandı!', 'success');
     }
 
     async function notifyTelegramPanel() {
@@ -1283,16 +1412,16 @@ def report_status(error_msg=None):
       try {
         const res = await fetch('/api/notify-panel', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
           body: JSON.stringify({ note: 'Web Paneli Üzerinden İletildi' })
         }).then(r => r.json());
         if (res.ok) {
-          alert('✅ Başarılı!\nWeb paneli adresi (' + res.url + ') Telegram grubuna ve ' + res.adminCount + ' yöneticiye iletildi.');
+          showToast('✅ Web paneli adresi Telegram\'a ve ' + res.adminCount + ' yöneticiye iletildi.', 'success');
         } else {
-          alert('Hata: ' + (res.error || 'İletilemedi'));
+          showToast('Hata: ' + (res.error || 'İletilemedi'), 'error');
         }
       } catch (err) {
-        alert('Ağ Hatası: ' + err.message);
+        showToast('Ağ Hatası: ' + err.message, 'error');
       } finally {
         btn.disabled = false;
         txt.textContent = origText;
@@ -1312,16 +1441,16 @@ def report_status(error_msg=None):
         const response = await fetch('/api/auth/refresh-admins', {
           method: 'POST',
           credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
           body: '{}'
         });
         const result = await response.json().catch(() => ({}));
         if (!response.ok || !result.ok) throw new Error(result.error || 'Yönetici listesi yenilenemedi.');
         btn.textContent = 'Liste güncel ✓';
         if (mobileBtn) mobileBtn.textContent = 'Liste güncel ✓';
-        alert('Telegram yönetici listesi başarıyla yenilendi. Güncel yönetici sayısı: ' + result.adminCount);
+        showToast('Telegram yönetici listesi başarıyla yenilendi (Toplam: ' + result.adminCount + ')', 'success');
       } catch (err) {
-        alert('Yönetici listesi yenilenemedi: ' + err.message);
+        showToast('Yönetici listesi yenilenemedi: ' + err.message, 'error');
       } finally {
         btn.disabled = false;
         if (mobileBtn) mobileBtn.disabled = false;

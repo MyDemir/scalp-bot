@@ -38,7 +38,7 @@ function loginPage() {
   const msg=document.getElementById('msg');let userId='';
   async function post(path,data){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(data)});const d=await r.json().catch(()=>({}));if(!r.ok||!d.ok)throw new Error(d.error||'İşlem tamamlanamadı.');return d;}
   async function requestCode(){const id=document.getElementById('tgid').value.trim();if(id.length<5||id.length>20||!Array.from(id).every(c=>c>='0'&&c<='9')){msg.textContent='Geçerli Telegram kullanıcı ID girin.';return;}const b=document.getElementById('send');b.disabled=true;msg.textContent='İstek gönderiliyor…';try{await post('/api/auth/request-code',{userId:id});userId=id;document.getElementById('step1').classList.remove('active');document.getElementById('step2').classList.add('active');msg.textContent='Hesap yetkiliyse kod Telegram özel mesajınıza gönderildi. Spam klasörünü de kontrol edin.';}catch(e){msg.textContent=e.message;}finally{b.disabled=false;}}
-  async function verifyCode(){const code=document.getElementById('otp').value.trim();const b=document.getElementById('verify');if(code.length!==6||!Array.from(code).every(c=>c>='0'&&c<='9')){msg.textContent='6 haneli kodu girin.';return;}b.disabled=true;msg.textContent='Kod doğrulanıyor…';try{await post('/api/auth/verify',{userId,code});location.reload();}catch(e){msg.textContent=e.message;}finally{b.disabled=false;}}
+  async function verifyCode(){const code=document.getElementById('otp').value.trim();const b=document.getElementById('verify');if(code.length!==6||!Array.from(code).every(c=>c>='0'&&c<='9')){msg.textContent='6 haneli kodu girin.';return;}b.disabled=true;msg.textContent='Kod doğrulanıyor…';try{const d=await post('/api/auth/verify',{userId,code});if(d.token){try{sessionStorage.setItem('scalp_token',d.token);localStorage.setItem('scalp_token',d.token);}catch(e){}location.href='/?token='+encodeURIComponent(d.token);}else{location.reload();}}catch(e){msg.textContent=e.message;}finally{b.disabled=false;}}
   function back(){document.getElementById('step2').classList.remove('active');document.getElementById('step1').classList.add('active');document.getElementById('otp').value='';msg.textContent='';}
   document.getElementById('tgid').addEventListener('keydown',e=>{if(e.key==='Enter')requestCode()});document.getElementById('otp').addEventListener('keydown',e=>{if(e.key==='Enter')verifyCode()});
   </script></body></html>`;
@@ -137,7 +137,12 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
   }
 
   function getSession(req) {
-    const token = parseCookies(req.headers.cookie)[COOKIE];
+    const authHeader = req.headers?.authorization;
+    const bearer = typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+    const headerToken = req.headers?.['x-session-token'];
+    const queryToken = req.query?.token || req.query?._token;
+    const cookieToken = parseCookies(req.headers?.cookie)[COOKIE];
+    const token = bearer || headerToken || queryToken || cookieToken;
     if (!token) return null;
     const session = sessions.get(token);
     if (!session) return null;
@@ -146,13 +151,13 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
   }
 
   function setCookie(res, token) {
-    const parts = [COOKIE + '=' + encodeURIComponent(token), 'Path=/', 'HttpOnly', 'SameSite=Strict', 'Max-Age=' + Math.floor(SESSION_TTL_MS / 1000)];
+    const parts = [COOKIE + '=' + encodeURIComponent(token), 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=' + Math.floor(SESSION_TTL_MS / 1000)];
     if (sessionCookieSecure) parts.push('Secure');
     res.setHeader('Set-Cookie', parts.join('; '));
   }
 
   function clearCookie(res) {
-    const parts = [COOKIE + '=', 'Path=/', 'HttpOnly', 'SameSite=Strict', 'Max-Age=0'];
+    const parts = [COOKIE + '=', 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0'];
     if (sessionCookieSecure) parts.push('Secure');
     res.setHeader('Set-Cookie', parts.join('; '));
   }
@@ -160,7 +165,13 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
   function middleware(req, res, next) {
     if (req.path.startsWith('/api/auth/')) return next();
     const session = getSession(req);
-    if (session) { req.adminSession = session; return next(); }
+    if (session) {
+      req.adminSession = session;
+      if (req.query?.token && req.query.token === session.token) {
+        setCookie(res, session.token);
+      }
+      return next();
+    }
     res.setHeader('Cache-Control', 'no-store');
     if (req.method === 'GET' && (req.path === '/' || req.path === '/login')) {
       return res.status(200).type('html').send(loginPage());
