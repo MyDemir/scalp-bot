@@ -517,6 +517,7 @@ app.get('/', (req, res) => {
 
   <!-- Mobile Secondary Navigation -->
   <div class="md:hidden border-b hairline-border bg-obsidian-900 px-4 py-2.5 flex items-center justify-between text-xs overflow-x-auto gap-4">
+    <button onclick="refreshTelegramAdmins()" id="btn-refresh-admins-mobile" class="text-emerald-400 font-semibold whitespace-nowrap">↻ Yönetici yenile</button>
     <button onclick="switchTab('tab-hub')" class="text-amber-400 font-semibold whitespace-nowrap">Bot Merkezi</button>
     <button onclick="switchTab('tab-terminal')" class="text-slate-400 whitespace-nowrap">Sinyaller</button>
     <button onclick="switchTab('tab-levels')" class="text-slate-400 whitespace-nowrap">Dirençler</button>
@@ -1300,9 +1301,13 @@ def report_status(error_msg=None):
 
     async function refreshTelegramAdmins() {
       const btn = document.getElementById('btn-refresh-admins');
+      const mobileBtn = document.getElementById('btn-refresh-admins-mobile');
       const oldText = btn.textContent;
+      const oldMobileText = mobileBtn ? mobileBtn.textContent : '';
       btn.disabled = true;
+      if (mobileBtn) mobileBtn.disabled = true;
       btn.textContent = 'Kontrol ediliyor…';
+      if (mobileBtn) mobileBtn.textContent = 'Kontrol ediliyor…';
       try {
         const response = await fetch('/api/auth/refresh-admins', {
           method: 'POST',
@@ -1313,12 +1318,15 @@ def report_status(error_msg=None):
         const result = await response.json().catch(() => ({}));
         if (!response.ok || !result.ok) throw new Error(result.error || 'Yönetici listesi yenilenemedi.');
         btn.textContent = 'Liste güncel ✓';
+        if (mobileBtn) mobileBtn.textContent = 'Liste güncel ✓';
         alert('Telegram yönetici listesi başarıyla yenilendi. Güncel yönetici sayısı: ' + result.adminCount);
       } catch (err) {
         alert('Yönetici listesi yenilenemedi: ' + err.message);
       } finally {
         btn.disabled = false;
+        if (mobileBtn) mobileBtn.disabled = false;
         if (btn.textContent !== 'Liste güncel ✓') btn.textContent = oldText;
+        if (mobileBtn && mobileBtn.textContent !== 'Liste güncel ✓') mobileBtn.textContent = oldMobileText;
       }
     }
 

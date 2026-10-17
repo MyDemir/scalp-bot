@@ -384,6 +384,11 @@ async function isAdmin(userId) {
 
 /** Grubun/kanalın gerçek yöneticilerini Telegram API'den getirir (botlar hariç). */
 async function getGroupAdminIds() {
+  // Telegram group/channel IDs are negative; a positive number is usually a user's private-chat ID.
+  // Fail with an actionable error rather than silently making every admin login appear to fail.
+  if (!/^-\d+$/.test(String(CHAT_ID || ''))) {
+    throw new TelegramError('TELEGRAM_CHAT_ID grup/kanal ID\'si olmalı (negatif sayı, genellikle -100 ile başlar); kullanıcı ID\'si kullanmayın.', 400);
+  }
   const ids = new Set();
   const list = await api('getChatAdministrators', { chat_id: CHAT_ID });
   if (Array.isArray(list)) {
@@ -392,6 +397,13 @@ async function getGroupAdminIds() {
     }
   }
   return [...ids];
+}
+
+/** Yöneticileri Telegram'dan yeniden alır ve botun eski yetki önbelleğini temizler. */
+async function refreshGroupAdminIds() {
+  const ids = await getGroupAdminIds();
+  adminCache.clear();
+  return ids;
 }
 
 /** Bildirim hedefleri: grup yöneticileri ve mevcut TELEGRAM_ADMIN_IDS yapılandırması. */
@@ -637,7 +649,7 @@ function stop() {
 
 module.exports = {
   start, stop, sendText, sendCard, flush, getStats, takeStats, queueLength, esc,
-  sendPrivate, sendDocument, sendDocumentPrivate, onPrivateStart, isMember, getBotUsername: () => botUsername, setCommands, publishCommands, onCallback, isAdmin, getChatAdminIds, getGroupAdminIds, editMessage,
+  sendPrivate, sendDocument, sendDocumentPrivate, onPrivateStart, isMember, getBotUsername: () => botUsername, setCommands, publishCommands, onCallback, isAdmin, getChatAdminIds, getGroupAdminIds, refreshGroupAdminIds, editMessage,
   getRecentDispatches: () => [...recentDispatches],
   isPolling: () => polling,
   _internal: { handleUpdate, enqueue, get commands() { return commands; }, queue },

@@ -34,7 +34,7 @@ function loginPage() {
   *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#070a10;color:#e2e8f0;font:15px system-ui,sans-serif;padding:20px}.card{width:min(420px,100%);background:#0c101b;border:1px solid #26344e;border-radius:14px;padding:28px;box-shadow:0 20px 70px #0008}h1{font-size:21px;margin:0 0 8px}p{color:#94a3b8;line-height:1.5;font-size:13px}label{display:block;font-size:12px;color:#cbd5e1;margin:18px 0 6px}input{width:100%;padding:12px;border:1px solid #334155;border-radius:8px;background:#070a10;color:white;font:inherit}button{width:100%;padding:12px;border:0;border-radius:8px;background:#f59e0b;color:#111827;font-weight:700;margin-top:14px;cursor:pointer}button:disabled{opacity:.6}#msg{min-height:20px;color:#fbbf24;font-size:13px;margin-top:14px;overflow-wrap:anywhere}.step{display:none}.step.active{display:block}.hint{font-size:11px;color:#64748b;margin-top:16px}</style></head><body><main class="card"><h1>⚡ Scalp Engine · Yönetici</h1><p>Panele yalnızca yapılandırılmış Telegram grup/kanalının yöneticileri girebilir. Kod, ana Telegram botu üzerinden size özel gönderilir.</p>
   <section id="step1" class="step active"><label for="tgid">Telegram kullanıcı ID</label><input id="tgid" inputmode="numeric" autocomplete="off" maxlength="20" placeholder="Örn. 123456789"><button id="send" onclick="requestCode()">Telegram kodu gönder</button></section>
   <section id="step2" class="step"><label for="otp">6 haneli doğrulama kodu</label><input id="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000"><button id="verify" onclick="verifyCode()">Giriş yap</button><button style="background:#1e293b;color:#e2e8f0" onclick="back()">Başka ID kullan</button></section>
-  <div id="msg" role="status" aria-live="polite"></div><div class="hint">Kod 5 dakika geçerlidir. Başarılı giriş 8 saat sürer.</div></main><script>
+  <div id="msg" role="status" aria-live="polite"></div><div class="hint">Kod 5 dakika geçerlidir. Başarılı giriş 8 saat sürer. Yönetici listesi TELEGRAM_CHAT_ID ile belirtilen grup/kanaldan alınır; bu değer kullanıcı ID'si değil, negatif grup/kanal ID'si olmalıdır (genellikle -100 ile başlar). Botla özel sohbeti açıp /start gönderin.</div></main><script>
   const msg=document.getElementById('msg');let userId='';
   async function post(path,data){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(data)});const d=await r.json().catch(()=>({}));if(!r.ok||!d.ok)throw new Error(d.error||'İşlem tamamlanamadı.');return d;}
   async function requestCode(){const id=document.getElementById('tgid').value.trim();if(!/^\d{5,20}$/.test(id)){msg.textContent='Geçerli Telegram kullanıcı ID girin.';return;}const b=document.getElementById('send');b.disabled=true;msg.textContent='İstek gönderiliyor…';try{await post('/api/auth/request-code',{userId:id});userId=id;document.getElementById('step1').classList.remove('active');document.getElementById('step2').classList.add('active');msg.textContent='Hesap yetkiliyse kod Telegram özel mesajınıza gönderildi. Spam klasörünü de kontrol edin.';}catch(e){msg.textContent=e.message;}finally{b.disabled=false;}}
@@ -48,24 +48,32 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
   const otps = new Map();
   const sessions = new Map();
   const cooldowns = new Map();
+  let lastAdminLookupError = null;
   const sessionCookieSecure = env.NODE_ENV === 'production';
   // Always resolve authorization from the live administrators of TELEGRAM_CHAT_ID.
   // TELEGRAM_ADMIN_IDS is intentionally not required for web-panel access.
-  async function adminIds() {
+  async function adminIds({ refresh = false } = {}) {
     if (typeof telegram?.getGroupAdminIds !== 'function') {
-      console.error('[AUTH] Telegram yönetici listesi alınamıyor: getGroupAdminIds fonksiyonu mevcut değil');
+      lastAdminLookupError = 'getGroupAdminIds fonksiyonu mevcut değil.';
+      console.error('[AUTH] Telegram yönetici listesi alınamıyor:', lastAdminLookupError);
       return null;
     }
     try {
-      const ids = await telegram.getGroupAdminIds();
+      const lookup = refresh && typeof telegram?.refreshGroupAdminIds === 'function' ? telegram.refreshGroupAdminIds.bind(telegram) : telegram.getGroupAdminIds.bind(telegram);
+      const ids = await lookup();
       if (!Array.isArray(ids)) {
+        lastAdminLookupError = 'Telegram yönetici listesi beklenmeyen formatta döndü.';
         console.error('[AUTH] Telegram yönetici listesi beklenmeyen formatta döndü');
         return null;
       }
+      lastAdminLookupError = null;
       return [...new Set(ids.map(String).filter(x => /^\d{5,20}$/.test(x)))];
     } catch (err) {
-      // Never log the bot token; api errors contain only Telegram's description.
-      console.error('[AUTH] Telegram grup yöneticileri alınamadı:', err.message);
+      // Telegram errors are descriptions, not request URLs; redact token-shaped text defensively.
+      lastAdminLookupError = String(err?.message || 'Bilinmeyen Telegram hatası')
+        .replace(/bot\d+:[A-Za-z0-9_-]+/gi, '[token gizlendi]')
+        .slice(0, 240);
+      console.error('[AUTH] Telegram grup yöneticileri alınamadı:', lastAdminLookupError);
       return null;
     }
   }
@@ -75,7 +83,7 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
     if (!/^\d{5,20}$/.test(String(userId || ''))) return { ok: true };
     const admins = await adminIds();
     if (admins === null) {
-      return { ok: false, error: 'Telegram grup yöneticileri okunamadı. TELEGRAM_CHAT_ID değerini ve botun gruptaki yönetici yetkisini kontrol edin.' };
+      return { ok: false, error: 'Telegram grup yöneticileri okunamadı. ' + (lastAdminLookupError || 'TELEGRAM_CHAT_ID ve botun grup erişimini kontrol edin.') };
     }
     if (!admins.includes(String(userId))) return { ok: true };
     const id = String(userId);
@@ -95,9 +103,9 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
 
   async function refreshAdminList(userId) {
     const id = String(userId || '');
-    const ids = await adminIds();
+    const ids = await adminIds({ refresh: true });
     if (ids === null) {
-      return { ok: false, status: 503, error: 'Telegram yönetici listesi alınamadı. TELEGRAM_CHAT_ID ve botun grup erişimini kontrol edin.' };
+      return { ok: false, status: 503, error: 'Telegram yönetici listesi alınamadı. ' + (lastAdminLookupError || 'TELEGRAM_CHAT_ID ve botun grup erişimini kontrol edin.') };
     }
     // A refresh is permitted only when the requesting signed-in user is still a live group admin.
     if (!/^\d{5,20}$/.test(id) || !ids.includes(id)) {
