@@ -15,10 +15,10 @@ const restClient = new USDMClient({
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // ── REST hız sınırlayıcı ───────────────────────────────────────────────────
-// Binance USDⓈ-M: IP başına 2400 weight/dk. Canlı bot yarısını kullanır; backtest vb. için pay kalır.
+// Binance USDⓈ-M: IP başına 2400 weight/dk. Bot bütçesi %75 = 1800 weight/dk.
 // Tüm istekler sıraya girer, her biri weight'i kadar "süre" tüketir.
 
-const WEIGHT_PER_MIN = Number(process.env.BINANCE_REST_WEIGHT_PER_MIN || 1200);
+const WEIGHT_PER_MIN = Number(process.env.BINANCE_REST_WEIGHT_PER_MIN || 1800);
 let nextSlotAt = 0;
 
 async function limited(weight, fn) {
