@@ -29,6 +29,7 @@ const UNIVERSE_EVERY_MS = 60 * 60_000;
 const OI_CACHE_MS       = 2 * 60_000;
 const GAP_FILL_MAX_MIN  = 200;
 const GAP_FILL_CONCURRENCY = Math.max(1, Math.min(4, Math.floor(Number(process.env.GAP_FILL_CONCURRENCY) || 4)));
+const RECOVERY_EVERY_MS = Math.max(10_000, Number(process.env.WS_RECOVERY_EVERY_MS) || 30_000);
 const KEEP_BELOW_RATIO  = 0.8;
 
 const settings = createSettings();
@@ -45,6 +46,11 @@ const series  = new Map();
 const busy    = new Set();
 const pending = new Map();
 const failed  = new Map();
+const recoveryBlocked = new Set();
+const recoveryQueue = new Set();
+const recoveryAttempts = new Map();
+const recoveryNotBefore = new Map();
+let recoveryRunning = false;
 let premium   = new Map();
 const oiCache = new Map();
 let vols24    = new Map();
@@ -67,6 +73,78 @@ function staleList(now = Date.now()) {
     if (t == null || now - (t + 60_000) > STALE_MS) out.push(sym);
   }
   return out;
+}
+
+function queueRecovery(sym, reason = 'stale stream') {
+  if (!series.has(sym) || binance.isTradfi?.(sym)) return;
+  const firstBlock = !recoveryBlocked.has(sym);
+  recoveryBlocked.add(sym);
+  recoveryQueue.add(sym);
+  if (firstBlock) console.warn(`[KURTARMA] ${sym} sinyalleri geçici durduruldu (${reason}); REST kurtarma kuyruğuna alındı`);
+}
+
+function isFreshSymbol(sym, now = Date.now()) {
+  const sr = series.get(sym);
+  const t = sr?.lastT('1m');
+  return t != null && now - (t + MIN) <= STALE_MS;
+}
+
+function scanStaleRecovery(now = Date.now()) {
+  for (const [sym, sr] of series) {
+    if (!sr.ready() || binance.isTradfi?.(sym)) continue;
+    const t = sr.lastT('1m');
+    if (t == null || now - (t + MIN) > STALE_MS) queueRecovery(sym, 'sembol mum akışı 3 dk geride');
+  }
+}
+
+async function runRecoveryCycle() {
+  if (recoveryRunning) return { skipped: true };
+  scanStaleRecovery();
+  if (!recoveryQueue.size) return { queued: 0, recovered: 0 };
+  const now = Date.now();
+  const batch = [...recoveryQueue].filter(sym => (recoveryNotBefore.get(sym) || 0) <= now);
+  if (!batch.length) return { queued: recoveryQueue.size, recovered: 0, deferred: true };
+  recoveryRunning = true;
+  for (const sym of batch) recoveryQueue.delete(sym);
+  let recovered = 0;
+  const toResubscribe = [];
+  try {
+    const result = await backfillGap(batch, Date.now() - STALE_MS);
+    for (const sym of batch) {
+      if (!series.has(sym)) {
+        recoveryBlocked.delete(sym);
+        recoveryQueue.delete(sym);
+        recoveryAttempts.delete(sym);
+        recoveryNotBefore.delete(sym);
+        continue;
+      }
+      if (result?.outcomes?.[sym] === 'ok' && isFreshSymbol(sym)) {
+        recoveryBlocked.delete(sym);
+        recoveryAttempts.delete(sym);
+        recoveryNotBefore.delete(sym);
+        recovered++;
+        toResubscribe.push(sym);
+        console.log(`[KURTARMA] ${sym}: REST doğrulaması başarılı; sinyaller yeniden açıldı`);
+      } else {
+        const outcome = result?.outcomes?.[sym] || 'REST sonrası mum hâlâ eski';
+        queueRecovery(sym, outcome);
+        const attempts = (recoveryAttempts.get(sym) || 0) + 1;
+        recoveryAttempts.set(sym, attempts);
+        const delay = outcome === 'busy' ? RECOVERY_EVERY_MS : Math.min(5 * 60_000, RECOVERY_EVERY_MS * (2 ** Math.min(attempts - 1, 4)));
+        recoveryNotBefore.set(sym, Date.now() + delay);
+      }
+    }
+    if (toResubscribe.length) {
+      const resubscribed = binance.resubscribeWsSymbols?.(toResubscribe) || [];
+      console.log(`[KURTARMA] ${toResubscribe.length} sembol için WebSocket aboneliği ${resubscribed.length ? 'yenileme kuyruğuna alındı' : 'yenilenemedi (bağlantı kapalı olabilir)'}`);
+    }
+    return { queued: batch.length, recovered, outcomes: result?.outcomes || {} };
+  } catch (err) {
+    for (const sym of batch) queueRecovery(sym, 'kurtarma döngüsü hatası');
+    throw err;
+  } finally {
+    recoveryRunning = false;
+  }
 }
 
 function diagText(d, now = Date.now()) {
@@ -210,7 +288,7 @@ function processCandle0(sr, c, live) {
   stats.closes++;
   const closed = sr.apply1m(c);
   store?.onCandle(sr.symbol, c);
-  if (!live) return;
+  if (!live || recoveryBlocked.has(sr.symbol)) return;
   if (sr.ready()) {
     try {
       for (const e of touches.observe(sr, closed, settings.get())) store?.addTouch(e);
@@ -268,6 +346,11 @@ function onKline(symbol, tf, k, isFinal) {
   c._receivedAt = Date.now();
   const sr = series.get(symbol);
   if (!sr) return;
+  if (recoveryBlocked.has(symbol)) {
+    if (!pending.has(symbol)) pending.set(symbol, []);
+    pending.get(symbol).push(c);
+    return;
+  }
   const lag = Math.max(0, Date.now() - (c.t + 60_000));
   diag.n++; diag.lagSum += lag; if (lag > diag.lagMax) diag.lagMax = lag;
   if (busy.has(symbol)) pending.get(symbol)?.push(c);
@@ -333,7 +416,7 @@ async function seedMany(list, label) {
 async function backfillGap(symbols, downSince) {
   const started = Date.now();
   const gapMin = Math.ceil((Date.now() - downSince) / MIN) + 2;
-  const metrics = { fetchMs: 0, processMs: 0, recoveredCandles: 0, failures: 0, skippedBusy: 0, active: 0, peakConcurrency: 0 };
+  const metrics = { fetchMs: 0, processMs: 0, recoveredCandles: 0, failures: 0, skippedBusy: 0, active: 0, peakConcurrency: 0, outcomes: {} };
   gapMetrics.runs++;
   gapMetrics.lastSymbols = symbols.length;
   console.log(`[WS] ${gapMin} dk kopukluk — ${symbols.length} coin dolduruluyor (eşzamanlılık ${GAP_FILL_CONCURRENCY})`);
@@ -344,17 +427,25 @@ async function backfillGap(symbols, downSince) {
     while (nextIndex < symbols.length) {
       const sym = symbols[nextIndex++];
       const sr = series.get(sym);
-      if (!sr) continue;
-      if (busy.has(sym)) { metrics.skippedBusy++; continue; }
+      if (!sr) { metrics.outcomes[sym] = 'removed'; continue; }
+      if (busy.has(sym)) {
+        metrics.skippedBusy++;
+        metrics.outcomes[sym] = 'busy';
+        queueRecovery(sym, 'başka işlem meşgul');
+        continue;
+      }
 
       // Uzun boşluk veya hazır olmayan seri için tam seed gerekir; yine aynı worker
       // havuzunda çalıştırılır, böylece REST istekleri sınırsız paralelleşmez.
       if (gapMin > GAP_FILL_MAX_MIN || !sr.ready()) {
         try {
           const seeded = await seedSymbol(sym);
-          if (!seeded) metrics.failures++;
+          metrics.outcomes[sym] = seeded ? 'ok' : 'seed failed';
+          if (!seeded) { metrics.failures++; queueRecovery(sym, 'seed başarısız'); }
         } catch (err) {
           metrics.failures++;
+          metrics.outcomes[sym] = 'seed failed';
+          queueRecovery(sym, 'seed hatası');
           console.error(`[BOŞLUK] ${sym} seed: ${err?.message || err}`);
         }
         continue;
@@ -387,8 +478,11 @@ async function backfillGap(symbols, downSince) {
           if (sr.lastT('1m') !== before) metrics.recoveredCandles++;
         }
         metrics.processMs += Date.now() - processStarted;
+        metrics.outcomes[sym] = 'ok';
       } catch (err) {
         metrics.failures++;
+        metrics.outcomes[sym] = 'REST failed';
+        queueRecovery(sym, 'REST doldurma hatası');
         console.error(`[BOŞLUK] ${sym}: ${err?.message || err}`);
       } finally {
         flushPending(sym);
@@ -407,6 +501,7 @@ async function backfillGap(symbols, downSince) {
   gapMetrics.lastSkippedBusy = metrics.skippedBusy;
   gapMetrics.lastPeakConcurrency = metrics.peakConcurrency;
   console.log(`[WS] Boşluk doldurma tamamlandı: ${metrics.recoveredCandles} mum, ${metrics.failures} hata, ${metrics.skippedBusy} meşgul coin atlandı, ${metrics.peakConcurrency} max paralellik, ${Math.round(metrics.fetchMs)} ms REST / ${Math.round(metrics.processMs)} ms işleme / ${gapMetrics.lastDurationMs} ms toplam`);
+  return { outcomes: metrics.outcomes };
 }
 
 // ── Evren ─────────────────────────────────────────────────────────────────
@@ -428,7 +523,7 @@ async function refreshUniverse(initial = false) {
   const added = next.filter(s => !series.has(s));
   const removed = [...series.keys()].filter(s => !next.includes(s));
 
-  for (const s of removed) { series.delete(s); tracker.forget(s); pending.delete(s); busy.delete(s); }
+  for (const s of removed) { series.delete(s); tracker.forget(s); pending.delete(s); busy.delete(s); recoveryBlocked.delete(s); recoveryQueue.delete(s); recoveryAttempts.delete(s); recoveryNotBefore.delete(s); }
   for (const s of added) { series.set(s, new Series(s)); if (!initial) { busy.add(s); pending.set(s, []); } }
   const retry = [...failed.keys()].filter(s => series.has(s) && !added.includes(s));
   failed.clear();
@@ -467,7 +562,7 @@ function statusText() {
   const up = Math.round((Date.now() - startedAt) / 60000);
   const mem = Math.round(process.memoryUsage().rss / 1024 / 1024);
   return `🟢 <b>Bilgi botu</b> · ${Math.floor(up / 60)}s ${up % 60}dk çalışıyor
-Coin: ${series.size} izleniyor · ${readyCount()} hazır${busy.size ? ` · ${busy.size} yükleniyor` : ''}${failed.size ? ` · ${failed.size} hata` : ''}
+Coin: ${series.size} izleniyor · ${readyCount()} hazır${busy.size ? ` · ${busy.size} yükleniyor` : ''}${failed.size ? ` · ${failed.size} hata` : ''}${recoveryBlocked.size ? ` · ${recoveryBlocked.size} kurtarma/sinyal kilidi` : ''}
 ${(() => { const st = staleList(); return st.length ? `⚠️ Geride (son 3 dk mum yok): ${st.length} coin — ${st.slice(0, 8).join(', ')}${st.length > 8 ? '…' : ''}` : '✅ Tüm hazır coinlerde son 3 dk mumu var'; })()}
 Son 5 dk: ${diagText(lastDiag && lastDiag.n ? lastDiag : diag)}
 Evren: 24s hacim ≥ ${s.minVolumeM}M $${s.tradfi ? ` · hisse/emtia açık (${tradfiCount()} izleniyor)` : ''}
@@ -566,6 +661,8 @@ async function main() {
   await seedMany(list, 'başlangıç');
   seedingAll = false;
 
+  setInterval(() => runRecoveryCycle().catch(err => console.error('[KURTARMA]', err?.stack || err)), RECOVERY_EVERY_MS);
+  runRecoveryCycle().catch(err => console.error('[KURTARMA]', err?.stack || err));
   setInterval(() => refreshUniverse().catch(err => console.error('[EVREN]', err?.message || err)), UNIVERSE_EVERY_MS);
   settings.onChange((key) => {
     if (key === 'minVolumeM' || key === 'tradfi') refreshUniverse().catch(err => console.error('[EVREN]', err?.message || err));
@@ -582,4 +679,4 @@ async function main() {
   console.log('\n✅ Bilgi botu çalışıyor.\n');
 }
 
-module.exports = { main, _internal: { onPeakCandidate, series, settings, tracker, touches, drops, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, gapMetrics, statusText, stats, busy, pending, details, getStore: () => store, getWeekly: () => weekly } };
+module.exports = { main, _internal: { onPeakCandidate, series, settings, tracker, touches, drops, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, runRecoveryCycle, scanStaleRecovery, queueRecovery, isFreshSymbol, recoveryBlocked, recoveryQueue, recoveryAttempts, recoveryNotBefore, gapMetrics, statusText, stats, busy, pending, details, getStore: () => store, getWeekly: () => weekly } };
