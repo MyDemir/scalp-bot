@@ -47,6 +47,8 @@ async function main() {
       internal.pending.set(sym, []);
       internal.recoveryBlocked.delete(sym);
       internal.recoveryQueue.delete(sym);
+      internal.recoveryAttempts.delete(sym);
+      internal.recoveryNotBefore.delete(sym);
     }
     internal.busy.add(busySym);
 
@@ -71,6 +73,8 @@ async function main() {
     assert(resubscribed.includes(okSym), 'successful REST recovery should request WebSocket resubscription');
 
     internal.busy.delete(busySym);
+    // Advance the retry eligibility without sleeping through the production backoff.
+    for (const sym of [busySym, failSym]) internal.recoveryNotBefore.delete(sym);
     const second = await internal.runRecoveryCycle();
     assert.strictEqual(second.outcomes[busySym], 'ok', 'busy symbol should recover on retry');
     assert.strictEqual(second.outcomes[failSym], 'ok', 'failed REST request should recover on retry');
@@ -90,6 +94,8 @@ async function main() {
       internal.pending.delete(sym);
       internal.recoveryBlocked.delete(sym);
       internal.recoveryQueue.delete(sym);
+      internal.recoveryAttempts.delete(sym);
+      internal.recoveryNotBefore.delete(sym);
     }
   }
 }
