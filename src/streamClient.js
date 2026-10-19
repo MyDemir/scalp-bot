@@ -217,11 +217,10 @@ function createStreamClient({ symbols, timeframes, onKline, onGap = () => {}, op
     for (const conn of conns) {
       const targets = conn.streams.filter(st => wanted.has(symOf(st)));
       if (!targets.length) continue;
+      if (conn.state !== 'open') continue;
       touched.push(...targets.map(symOf));
-      if (conn.state === 'open') {
-        queueMsg(conn, 'UNSUBSCRIBE', targets);
-        queueMsg(conn, 'SUBSCRIBE', targets);
-      }
+      queueMsg(conn, 'UNSUBSCRIBE', targets);
+      queueMsg(conn, 'SUBSCRIBE', targets);
     }
     return [...new Set(touched)];
   }
