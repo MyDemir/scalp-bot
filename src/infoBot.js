@@ -562,7 +562,7 @@ function statusText() {
   const up = Math.round((Date.now() - startedAt) / 60000);
   const mem = Math.round(process.memoryUsage().rss / 1024 / 1024);
   return `🟢 <b>Bilgi botu</b> · ${Math.floor(up / 60)}s ${up % 60}dk çalışıyor
-Coin: ${series.size} izleniyor · ${readyCount()} hazır${busy.size ? ` · ${busy.size} yükleniyor` : ''}${failed.size ? ` · ${failed.size} hata` : ''}
+Coin: ${series.size} izleniyor · ${readyCount()} hazır${busy.size ? ` · ${busy.size} yükleniyor` : ''}${failed.size ? ` · ${failed.size} hata` : ''}${recoveryBlocked.size ? ` · ${recoveryBlocked.size} kurtarma/sinyal kilidi` : ''}
 ${(() => { const st = staleList(); return st.length ? `⚠️ Geride (son 3 dk mum yok): ${st.length} coin — ${st.slice(0, 8).join(', ')}${st.length > 8 ? '…' : ''}` : '✅ Tüm hazır coinlerde son 3 dk mumu var'; })()}
 Son 5 dk: ${diagText(lastDiag && lastDiag.n ? lastDiag : diag)}
 Evren: 24s hacim ≥ ${s.minVolumeM}M $${s.tradfi ? ` · hisse/emtia açık (${tradfiCount()} izleniyor)` : ''}
