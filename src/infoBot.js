@@ -107,6 +107,7 @@ async function runRecoveryCycle() {
   recoveryRunning = true;
   for (const sym of batch) recoveryQueue.delete(sym);
   let recovered = 0;
+  const toResubscribe = [];
   try {
     const result = await backfillGap(batch, Date.now() - STALE_MS);
     for (const sym of batch) {
@@ -122,8 +123,8 @@ async function runRecoveryCycle() {
         recoveryAttempts.delete(sym);
         recoveryNotBefore.delete(sym);
         recovered++;
-        const resubscribed = binance.resubscribeWsSymbols?.([sym]) || [];
-        console.log(`[KURTARMA] ${sym}: REST doğrulaması başarılı; ${resubscribed.length ? 'WebSocket aboneliği yenilendi' : 'WebSocket yeniden abonelik isteği gönderilemedi/bağlantı kapalı'}`);
+        toResubscribe.push(sym);
+        console.log(`[KURTARMA] ${sym}: REST doğrulaması başarılı; sinyaller yeniden açıldı`);
       } else {
         const outcome = result?.outcomes?.[sym] || 'REST sonrası mum hâlâ eski';
         queueRecovery(sym, outcome);
@@ -132,6 +133,10 @@ async function runRecoveryCycle() {
         const delay = outcome === 'busy' ? RECOVERY_EVERY_MS : Math.min(5 * 60_000, RECOVERY_EVERY_MS * (2 ** Math.min(attempts - 1, 4)));
         recoveryNotBefore.set(sym, Date.now() + delay);
       }
+    }
+    if (toResubscribe.length) {
+      const resubscribed = binance.resubscribeWsSymbols?.(toResubscribe) || [];
+      console.log(`[KURTARMA] ${toResubscribe.length} sembol için WebSocket aboneliği ${resubscribed.length ? 'yenileme kuyruğuna alındı' : 'yenilenemedi (bağlantı kapalı olabilir)'}`);
     }
     return { queued: batch.length, recovered, outcomes: result?.outcomes || {} };
   } catch (err) {
