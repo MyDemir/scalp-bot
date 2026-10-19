@@ -210,6 +210,22 @@ function createStreamClient({ symbols, timeframes, onKline, onGap = () => {}, op
     }
   }
 
+  /** Belirtilen sembollerin mevcut stream aboneliğini yenile; kapalı bağlantılar yeniden bağlanınca tüm stream'leri zaten abone eder. */
+  function resubscribeSymbols(list) {
+    const wanted = new Set(list.map(s => String(s).toUpperCase()));
+    const touched = [];
+    for (const conn of conns) {
+      const targets = conn.streams.filter(st => wanted.has(symOf(st)));
+      if (!targets.length) continue;
+      touched.push(...targets.map(symOf));
+      if (conn.state === 'open') {
+        queueMsg(conn, 'UNSUBSCRIBE', targets);
+        queueMsg(conn, 'SUBSCRIBE', targets);
+      }
+    }
+    return [...new Set(touched)];
+  }
+
   /** Çalışırken sembol listesini değiştir. @returns {{added:string[], removed:string[]}} */
   function setSymbols(list) {
     const want = new Set(streamsOf(list));
@@ -245,6 +261,7 @@ function createStreamClient({ symbols, timeframes, onKline, onGap = () => {}, op
 
   return {
     setSymbols,
+    resubscribeSymbols,
 
     start() {
       stopped = false;
