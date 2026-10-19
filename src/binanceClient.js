@@ -197,6 +197,11 @@ function startWebSocket(symbols, timeframes, onKline, opts = {}) {
   return stream;
 }
 
+/** Belirli sembollerin WebSocket stream aboneliğini yeniler. */
+function resubscribeWsSymbols(symbols) {
+  return stream ? stream.resubscribeSymbols(symbols) : [];
+}
+
 /** Çalışan WebSocket'in sembol listesini değiştirir (bağlantıyı koparmadan) */
 function setWsSymbols(symbols) {
   return stream ? stream.setSymbols(symbols) : { added: [], removed: [] };
@@ -231,6 +236,7 @@ module.exports = {
   getSymbolVolumes,
   startWebSocket,
   setWsSymbols,
+  resubscribeWsSymbols,
   stopWebSocket,
   getWsStats,
   takeWsStats,
