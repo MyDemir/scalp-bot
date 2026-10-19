@@ -48,6 +48,8 @@ const pending = new Map();
 const failed  = new Map();
 const recoveryBlocked = new Set();
 const recoveryQueue = new Set();
+const recoveryAttempts = new Map();
+const recoveryNotBefore = new Map();
 let recoveryRunning = false;
 let premium   = new Map();
 const oiCache = new Map();
@@ -99,9 +101,11 @@ async function runRecoveryCycle() {
   if (recoveryRunning) return { skipped: true };
   scanStaleRecovery();
   if (!recoveryQueue.size) return { queued: 0, recovered: 0 };
+  const now = Date.now();
+  const batch = [...recoveryQueue].filter(sym => (recoveryNotBefore.get(sym) || 0) <= now);
+  if (!batch.length) return { queued: recoveryQueue.size, recovered: 0, deferred: true };
   recoveryRunning = true;
-  const batch = [...recoveryQueue];
-  recoveryQueue.clear();
+  for (const sym of batch) recoveryQueue.delete(sym);
   let recovered = 0;
   try {
     const result = await backfillGap(batch, Date.now() - STALE_MS);
@@ -109,18 +113,30 @@ async function runRecoveryCycle() {
       if (!series.has(sym)) {
         recoveryBlocked.delete(sym);
         recoveryQueue.delete(sym);
+        recoveryAttempts.delete(sym);
+        recoveryNotBefore.delete(sym);
         continue;
       }
       if (result?.outcomes?.[sym] === 'ok' && isFreshSymbol(sym)) {
         recoveryBlocked.delete(sym);
+        recoveryAttempts.delete(sym);
+        recoveryNotBefore.delete(sym);
         recovered++;
         const resubscribed = binance.resubscribeWsSymbols?.([sym]) || [];
         console.log(`[KURTARMA] ${sym}: REST doğrulaması başarılı; ${resubscribed.length ? 'WebSocket aboneliği yenilendi' : 'WebSocket yeniden abonelik isteği gönderilemedi/bağlantı kapalı'}`);
       } else {
-        queueRecovery(sym, result?.outcomes?.[sym] || 'REST sonrası mum hâlâ eski');
+        const outcome = result?.outcomes?.[sym] || 'REST sonrası mum hâlâ eski';
+        queueRecovery(sym, outcome);
+        const attempts = (recoveryAttempts.get(sym) || 0) + 1;
+        recoveryAttempts.set(sym, attempts);
+        const delay = outcome === 'busy' ? RECOVERY_EVERY_MS : Math.min(5 * 60_000, RECOVERY_EVERY_MS * (2 ** Math.min(attempts - 1, 4)));
+        recoveryNotBefore.set(sym, Date.now() + delay);
       }
     }
     return { queued: batch.length, recovered, outcomes: result?.outcomes || {} };
+  } catch (err) {
+    for (const sym of batch) queueRecovery(sym, 'kurtarma döngüsü hatası');
+    throw err;
   } finally {
     recoveryRunning = false;
   }
@@ -502,7 +518,7 @@ async function refreshUniverse(initial = false) {
   const added = next.filter(s => !series.has(s));
   const removed = [...series.keys()].filter(s => !next.includes(s));
 
-  for (const s of removed) { series.delete(s); tracker.forget(s); pending.delete(s); busy.delete(s); recoveryBlocked.delete(s); recoveryQueue.delete(s); }
+  for (const s of removed) { series.delete(s); tracker.forget(s); pending.delete(s); busy.delete(s); recoveryBlocked.delete(s); recoveryQueue.delete(s); recoveryAttempts.delete(s); recoveryNotBefore.delete(s); }
   for (const s of added) { series.set(s, new Series(s)); if (!initial) { busy.add(s); pending.set(s, []); } }
   const retry = [...failed.keys()].filter(s => series.has(s) && !added.includes(s));
   failed.clear();
@@ -658,4 +674,4 @@ async function main() {
   console.log('\n✅ Bilgi botu çalışıyor.\n');
 }
 
-module.exports = { main, _internal: { onPeakCandidate, series, settings, tracker, touches, drops, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, runRecoveryCycle, scanStaleRecovery, queueRecovery, isFreshSymbol, recoveryBlocked, recoveryQueue, gapMetrics, statusText, stats, busy, pending, details, getStore: () => store, getWeekly: () => weekly } };
+module.exports = { main, _internal: { onPeakCandidate, series, settings, tracker, touches, drops, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, runRecoveryCycle, scanStaleRecovery, queueRecovery, isFreshSymbol, recoveryBlocked, recoveryQueue, recoveryAttempts, recoveryNotBefore, gapMetrics, statusText, stats, busy, pending, details, getStore: () => store, getWeekly: () => weekly } };
