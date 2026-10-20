@@ -29,6 +29,10 @@ const UNIVERSE_EVERY_MS = 60 * 60_000;
 const OI_CACHE_MS       = 2 * 60_000;
 const GAP_FILL_MAX_MIN  = 200;
 const GAP_FILL_CONCURRENCY = Math.max(1, Math.min(4, Math.floor(Number(process.env.GAP_FILL_CONCURRENCY) || 4)));
+// Başlangıç/yeniden tohumlama da sınırlı paralellikle çalışır. Her istek binanceClient'taki
+// weight bütçesinden (BINANCE_REST_WEIGHT_PER_MIN) geçtiği için paralellik dakikalık sınırı aşmaz,
+// yalnızca ağ gecikmesini örter.
+const SEED_CONCURRENCY = Math.max(1, Math.min(8, Math.floor(Number(process.env.SEED_CONCURRENCY) || 4)));
 const RECOVERY_EVERY_MS = Math.max(10_000, Number(process.env.WS_RECOVERY_EVERY_MS) || 30_000);
 const KEEP_BELOW_RATIO  = 0.8;
 
@@ -56,7 +60,9 @@ const oiCache = new Map();
 let vols24    = new Map();
 
 const stats = { closes: 0, cards: 0, cardsToday: 0, day: null, seeded: 0, seedErrors: 0, gapFills: 0, peakAlerts: 0 };
-const gapMetrics = { runs: 0, lastDurationMs: 0, lastSymbols: 0, lastRecoveredCandles: 0, lastFetchMs: 0, lastProcessMs: 0, lastFailures: 0, lastSkippedBusy: 0, lastPeakConcurrency: 0 };
+const gapMetrics = { runs: 0, lastDurationMs: 0, lastSymbols: 0, lastRecoveredCandles: 0, lastFetchMs: 0, lastProcessMs: 0, lastFailures: 0, lastSkippedBusy: 0, lastPeakConcurrency: 0, lastIncomplete: 0, lastStale: 0, lastCoverage: {} };
+const seedMetrics = { runs: 0, lastLabel: null, lastSymbols: 0, lastFailures: 0, lastIncomplete: 0, lastPeakConcurrency: 0, lastDurationMs: 0 };
+const MAX_COVERAGE_REPORT = 50;   // panelde gösterilen sorunlu coin sayısı
 let startedAt = 0;
 let seedingAll = false;
 
@@ -73,6 +79,29 @@ function staleList(now = Date.now()) {
     if (t == null || now - (t + 60_000) > STALE_MS) out.push(sym);
   }
   return out;
+}
+
+/**
+ * Coin başına 1m kapsama kontrolü.
+ *   missing — `since` sonrasındaki ardışık mumlar arasında eksik kalan 1m mum sayısı
+ *   trailing — son kapanmış dakikaya kadar henüz gelmemiş mum sayısı (WS/REST gecikmesi)
+ *   ageMs   — son kapanmış 1m mumun yaşı (kapanışından bu yana)
+ * ok: aralıkta delik yok ve son mum STALE_MS'den yeni.
+ */
+function checkCoverage(sr, { since = null, now = Date.now() } = {}) {
+  const t = sr?.d?.['1m']?.t || [];
+  const last = t.length ? t[t.length - 1] : null;
+  if (last == null) return { ok: false, missing: 0, trailing: null, ageMs: null, lastT: null };
+  let missing = 0;
+  for (let i = 1; i < t.length; i++) {
+    if (since != null && t[i] <= since) continue;
+    const gap = Math.round((t[i] - t[i - 1]) / MIN) - 1;
+    if (gap > 0) missing += gap;
+  }
+  const lastClosedStart = Math.floor(now / MIN) * MIN - MIN;
+  const trailing = Math.max(0, Math.round((lastClosedStart - last) / MIN));
+  const ageMs = Math.max(0, now - (last + MIN));
+  return { ok: missing === 0 && ageMs <= STALE_MS, missing, trailing, ageMs, lastT: last };
 }
 
 function queueRecovery(sym, reason = 'stale stream') {
@@ -403,12 +432,26 @@ async function seedSymbol(sym) {
 
 async function seedMany(list, label) {
   const t0 = Date.now();
-  let done = 0;
-  for (const sym of list) {
-    await seedSymbol(sym);
-    if (++done % 50 === 0) console.log(`[SEED] ${label}: ${done}/${list.length} coin (${Math.round((Date.now() - t0) / 1000)} sn)`);
+  let done = 0, failures = 0, incomplete = 0, active = 0, peak = 0, next = 0;
+  async function worker() {
+    while (next < list.length) {
+      const sym = list[next++];
+      active++;
+      peak = Math.max(peak, active);
+      let ok = false;
+      try { ok = await seedSymbol(sym); } finally { active--; }
+      if (!ok) failures++;
+      else if (!binance.isTradfi?.(sym)) {
+        // Tohum sonrası son mum yaşı: REST eski veri döndürdüyse coin kurtarma kuyruğuna alınır.
+        const cov = checkCoverage(series.get(sym));
+        if (!cov.ok) { incomplete++; queueRecovery(sym, `tohum sonrası son 1m mum ${Math.round((cov.ageMs ?? 0) / 1000)} sn eski`); }
+      }
+      if (++done % 50 === 0) console.log(`[SEED] ${label}: ${done}/${list.length} coin (${Math.round((Date.now() - t0) / 1000)} sn)`);
+    }
   }
-  console.log(`[SEED] ${label}: ${list.length} coin tamam — ${Math.round((Date.now() - t0) / 1000)} sn`);
+  await Promise.all(Array.from({ length: Math.min(SEED_CONCURRENCY, list.length) }, () => worker()));
+  Object.assign(seedMetrics, { runs: seedMetrics.runs + 1, lastLabel: label, lastSymbols: list.length, lastFailures: failures, lastIncomplete: incomplete, lastPeakConcurrency: peak, lastDurationMs: Date.now() - t0 });
+  console.log(`[SEED] ${label}: ${list.length} coin tamam — ${Math.round((Date.now() - t0) / 1000)} sn · ${peak} max paralellik${failures ? ` · ${failures} hata` : ''}${incomplete ? ` · ${incomplete} eski veri` : ''}`);
 }
 
 // ── Kopukluk sonrası doldurma ─────────────────────────────────────────────
@@ -416,7 +459,7 @@ async function seedMany(list, label) {
 async function backfillGap(symbols, downSince) {
   const started = Date.now();
   const gapMin = Math.ceil((Date.now() - downSince) / MIN) + 2;
-  const metrics = { fetchMs: 0, processMs: 0, recoveredCandles: 0, failures: 0, skippedBusy: 0, active: 0, peakConcurrency: 0, outcomes: {} };
+  const metrics = { fetchMs: 0, processMs: 0, recoveredCandles: 0, failures: 0, skippedBusy: 0, active: 0, peakConcurrency: 0, incomplete: 0, stale: 0, outcomes: {}, coverage: {} };
   gapMetrics.runs++;
   gapMetrics.lastSymbols = symbols.length;
   console.log(`[WS] ${gapMin} dk kopukluk — ${symbols.length} coin dolduruluyor (eşzamanlılık ${GAP_FILL_CONCURRENCY})`);
@@ -437,7 +480,11 @@ async function backfillGap(symbols, downSince) {
 
       // Uzun boşluk veya hazır olmayan seri için tam seed gerekir; yine aynı worker
       // havuzunda çalıştırılır, böylece REST istekleri sınırsız paralelleşmez.
-      if (gapMin > GAP_FILL_MAX_MIN || !sr.ready()) {
+      // Eksik aralık coin'in kendi son mumundan ölçülür (kopukluk başlangıcından değil),
+      // böylece daha önce geride kalmış bir coin'de de delik kalmaz.
+      const ownLast = sr.lastT('1m');
+      const needMin = ownLast == null ? gapMin : Math.max(gapMin, Math.ceil((Date.now() - ownLast) / MIN) + 2);
+      if (needMin > GAP_FILL_MAX_MIN || !sr.ready()) {
         try {
           const seeded = await seedSymbol(sym);
           metrics.outcomes[sym] = seeded ? 'ok' : 'seed failed';
@@ -460,7 +507,7 @@ async function backfillGap(symbols, downSince) {
         const fetchStarted = Date.now();
         let raw;
         try {
-          raw = await binance.fetchKlines(sym, '1m', Math.min(gapMin + 2, KEEP['1m'] + 1));
+          raw = await binance.fetchKlines(sym, '1m', Math.min(needMin + 2, KEEP['1m'] + 1));
         } finally {
           metrics.fetchMs += Date.now() - fetchStarted;
           metrics.active--;
@@ -478,7 +525,23 @@ async function backfillGap(symbols, downSince) {
           if (sr.lastT('1m') !== before) metrics.recoveredCandles++;
         }
         metrics.processMs += Date.now() - processStarted;
-        metrics.outcomes[sym] = 'ok';
+
+        // Doldurulan aralıkta eksik mum ve son mum yaşı kontrolü: delik kaldıysa ya da
+        // REST hâlâ eski veri döndürüyorsa coin "ok" sayılmaz, kurtarma kuyruğuna alınır.
+        const cov = checkCoverage(sr, { since: lastT, now: Date.now() });
+        if (cov.missing > 0) {
+          metrics.incomplete++;
+          metrics.outcomes[sym] = 'incomplete';
+          metrics.coverage[sym] = cov;
+          queueRecovery(sym, `${cov.missing} eksik 1m mum`);
+        } else if (!cov.ok && !binance.isTradfi?.(sym)) {
+          metrics.stale++;
+          metrics.outcomes[sym] = 'stale';
+          metrics.coverage[sym] = cov;
+          queueRecovery(sym, `son 1m mum ${Math.round(cov.ageMs / 1000)} sn eski`);
+        } else {
+          metrics.outcomes[sym] = 'ok';
+        }
       } catch (err) {
         metrics.failures++;
         metrics.outcomes[sym] = 'REST failed';
@@ -500,8 +563,11 @@ async function backfillGap(symbols, downSince) {
   gapMetrics.lastFailures = metrics.failures;
   gapMetrics.lastSkippedBusy = metrics.skippedBusy;
   gapMetrics.lastPeakConcurrency = metrics.peakConcurrency;
-  console.log(`[WS] Boşluk doldurma tamamlandı: ${metrics.recoveredCandles} mum, ${metrics.failures} hata, ${metrics.skippedBusy} meşgul coin atlandı, ${metrics.peakConcurrency} max paralellik, ${Math.round(metrics.fetchMs)} ms REST / ${Math.round(metrics.processMs)} ms işleme / ${gapMetrics.lastDurationMs} ms toplam`);
-  return { outcomes: metrics.outcomes };
+  gapMetrics.lastIncomplete = metrics.incomplete;
+  gapMetrics.lastStale = metrics.stale;
+  gapMetrics.lastCoverage = Object.fromEntries(Object.entries(metrics.coverage).slice(0, MAX_COVERAGE_REPORT));
+  console.log(`[WS] Boşluk doldurma tamamlandı: ${metrics.recoveredCandles} mum, ${metrics.failures} hata, ${metrics.incomplete} eksik mumlu, ${metrics.stale} eski veri, ${metrics.skippedBusy} meşgul coin atlandı, ${metrics.peakConcurrency} max paralellik, ${Math.round(metrics.fetchMs)} ms REST / ${Math.round(metrics.processMs)} ms işleme / ${gapMetrics.lastDurationMs} ms toplam`);
+  return { outcomes: metrics.outcomes, coverage: metrics.coverage };
 }
 
 // ── Evren ─────────────────────────────────────────────────────────────────
@@ -679,4 +745,4 @@ async function main() {
   console.log('\n✅ Bilgi botu çalışıyor.\n');
 }
 
-module.exports = { main, _internal: { onPeakCandidate, series, settings, tracker, touches, drops, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, runRecoveryCycle, scanStaleRecovery, queueRecovery, isFreshSymbol, recoveryBlocked, recoveryQueue, recoveryAttempts, recoveryNotBefore, gapMetrics, statusText, stats, busy, pending, details, getStore: () => store, getWeekly: () => weekly } };
+module.exports = { main, _internal: { onPeakCandidate, series, settings, tracker, touches, drops, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, seedMany, checkCoverage, seedMetrics, runRecoveryCycle, scanStaleRecovery, queueRecovery, isFreshSymbol, recoveryBlocked, recoveryQueue, recoveryAttempts, recoveryNotBefore, gapMetrics, statusText, stats, busy, pending, details, getStore: () => store, getWeekly: () => weekly } };

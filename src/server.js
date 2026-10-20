@@ -3,6 +3,7 @@
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const { spawn } = require('child_process');
 const infoBot = require('./infoBot');
 const binance = require('./binanceClient');
@@ -13,10 +14,39 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = '0.0.0.0';
 
-app.use(express.json());
+app.disable('x-powered-by');
+app.use(express.json({ limit: '64kb' }));
 
-const { createAdminAuth } = require('./adminAuth');
+// Temel güvenlik başlıkları — API yanıtları önbelleğe alınmaz, URL'deki belirteç Referer ile sızmaz.
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
+  next();
+});
+
+// CSRF savunması: tarayıcıdan gelen yazma isteklerinde Origin/Referer bu sunucuyla aynı olmalı.
+// (Origin başlığı olmayan sunucu-sunucu istekleri — ör. harici bot nabzı — etkilenmez.)
+function sameOrigin(req) {
+  const source = req.headers.origin || req.headers.referer;
+  if (!source) return true;
+  try {
+    // Ters vekil (Fly.io vb.) Host'u değiştirebilir; iletilen özgün host da kabul edilir.
+    const host = new URL(source).host;
+    const forwarded = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+    return host === req.headers.host || (forwarded && host === forwarded);
+  } catch {
+    return false;
+  }
+}
+app.use((req, res, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || sameOrigin(req)) return next();
+  return res.status(403).json({ ok: false, error: 'Farklı kaynaktan gelen istek reddedildi.' });
+});
+
+const { createAdminAuth, safeEqual } = require('./adminAuth');
 const adminAuth = createAdminAuth({ telegram });
+app.locals.adminAuth = adminAuth;
 app.post('/api/auth/request-code', async (req, res) => {
   try {
     const result = await adminAuth.requestCode(String(req.body?.userId || ''));
@@ -42,6 +72,7 @@ app.get('/api/auth/session', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json({ ok: Boolean(session), userId: session?.userId || null, expiresAt: session?.expiresAt || null });
 });
+app.post('/api/external-bots/heartbeat', (req, res, next) => (validBotKey(req) ? handleHeartbeat(req, res) : next()));
 app.use(adminAuth.middleware);
 
 app.post('/api/auth/refresh-admins', async (req, res) => {
@@ -118,6 +149,43 @@ console.log = function(...args) {
 
 // Harici Telegram botları kayıt deposu (Multi-Bot Hub)
 const externalBots = new Map();
+const MAX_EXTERNAL_BOTS = 50;
+const MAX_BOT_METRICS = 20;
+const BOT_ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
+
+// Harici botlardan gelen alanlar panelde gösterilir: tür ve uzunluk sınırı (depolama/DoS),
+// HTML kaçışı ise istemcide escapeHtml ile yapılır.
+function cleanText(value, max = 120) {
+  if (value == null) return null;
+  if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') return null;
+  const text = String(value).replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
+  return text ? text.slice(0, max) : null;
+}
+
+function cleanMetrics(metrics) {
+  if (!metrics || typeof metrics !== 'object' || Array.isArray(metrics)) return null;
+  const out = {};
+  for (const [k, v] of Object.entries(metrics).slice(0, MAX_BOT_METRICS)) {
+    const key = cleanText(k, 40);
+    const val = cleanText(v, 80);
+    if (key && val != null) out[key] = val;
+  }
+  return out;
+}
+
+const BOT_STATUSES = new Set(['online', 'offline', 'error', 'pending', 'starting', 'idle']);
+
+function hasRoomFor(id) {
+  return externalBots.has(id) || externalBots.size < MAX_EXTERNAL_BOTS;
+}
+
+// Harici botlar panele oturum açmadan nabız gönderebilsin diye isteğe bağlı paylaşılan anahtar.
+// EXTERNAL_BOT_KEY tanımlı değilse nabız uç noktası yalnızca yönetici oturumuyla çalışır.
+function validBotKey(req) {
+  const expected = process.env.EXTERNAL_BOT_KEY;
+  const supplied = req.headers['x-bot-key'];
+  return Boolean(expected && expected.length >= 16 && typeof supplied === 'string' && safeEqual(supplied, expected));
+}
 
 // Başlangıç botu
 externalBots.set('scalp-primary', {
@@ -147,6 +215,8 @@ async function bootBot() {
 
 // ── Multi-Bot Hub API ───────────────────────────────────────────────────────
 
+app.post('/api/external-bots/heartbeat', handleHeartbeat);
+
 app.get('/api/external-bots', (req, res) => {
   const localBot = externalBots.get('scalp-primary');
   if (localBot) {
@@ -174,9 +244,19 @@ app.get('/api/external-bots', (req, res) => {
   res.json({ ok: true, bots: list });
 });
 
-app.post('/api/external-bots/heartbeat', (req, res) => {
-  const { id, name, telegram: tg, status, lastSignal, metrics, error } = req.body;
-  if (!id) return res.status(400).json({ ok: false, error: 'id alanı zorunludur' });
+function handleHeartbeat(req, res) {
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const id = typeof body.id === 'string' ? body.id.trim() : '';
+  if (!BOT_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'id alanı zorunludur (harf, rakam, _ . : - · en fazla 64 karakter)' });
+  if (id === 'scalp-primary') return res.status(400).json({ ok: false, error: 'Yerel bot nabzı dışarıdan güncellenemez' });
+  if (!hasRoomFor(id)) return res.status(429).json({ ok: false, error: `En fazla ${MAX_EXTERNAL_BOTS} harici bot kaydedilebilir` });
+
+  const name = cleanText(body.name, 80);
+  const tg = cleanText(body.telegram, 64);
+  const lastSignal = cleanText(body.lastSignal, 200);
+  const error = cleanText(body.error, 300);
+  const status = BOT_STATUSES.has(body.status) ? body.status : null;
+  const metrics = cleanMetrics(body.metrics);
 
   if (error) {
     console.error(`[HARİCİ BOT] ${name || id} hatası: ${error}`);
@@ -186,6 +266,7 @@ app.post('/api/external-bots/heartbeat', (req, res) => {
   externalBots.set(id, {
     ...existing,
     id,
+    type: 'remote',
     name: name || existing.name || id,
     telegram: tg || existing.telegram || '—',
     status: error ? 'error' : (status || 'online'),
@@ -196,16 +277,21 @@ app.post('/api/external-bots/heartbeat', (req, res) => {
   });
 
   res.json({ ok: true, message: 'Heartbeat kaydedildi' });
-});
+}
 
 app.post('/api/external-bots/register', (req, res) => {
-  const { id, name, telegram: tg, type = 'remote' } = req.body;
-  if (!id || !name) return res.status(400).json({ ok: false, error: 'id ve name zorunludur' });
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const id = typeof body.id === 'string' ? body.id.trim() : '';
+  const name = cleanText(body.name, 80);
+  const tg = cleanText(body.telegram, 64);
+  if (!BOT_ID_RE.test(id) || !name) return res.status(400).json({ ok: false, error: 'id ve name zorunludur (id: harf, rakam, _ . : - · en fazla 64 karakter)' });
+  if (id === 'scalp-primary') return res.status(400).json({ ok: false, error: 'Yerel bot yeniden kaydedilemez' });
+  if (!hasRoomFor(id)) return res.status(429).json({ ok: false, error: `En fazla ${MAX_EXTERNAL_BOTS} harici bot kaydedilebilir` });
 
   externalBots.set(id, {
     id,
     name,
-    type,
+    type: 'remote',
     telegram: tg || '—',
     status: 'pending',
     lastSeen: 0,
@@ -334,7 +420,7 @@ app.get('/api/cards', (req, res) => {
     return res.json({ ok: true, source: 'memory', cards: dispatches });
   }
   try {
-    const limit = Math.min(Number(req.query.limit || 50), 100);
+    const limit = Math.max(1, Math.min(Math.floor(Number(req.query.limit) || 50), 100));
     const since = Date.now() - 24 * 60 * 60 * 1000;
     const rows = store.since(since).slice(-limit).reverse();
     res.json({ ok: true, source: 'sqlite', cards: rows });
@@ -356,17 +442,36 @@ app.get('/api/touches', (req, res) => {
   }
 });
 
+let testRunActive = false;
+const TEST_RUN_TIMEOUT_MS = 10 * 60_000;
+const MAX_TEST_OUTPUT = 200_000;
 app.post('/api/run-tests', (req, res) => {
-  const child = spawn(process.execPath, [path.join(__dirname, '..', 'test', 'run.js')], {
+  const runner = path.join(__dirname, '..', 'test', 'run.js');
+  if (!fs.existsSync(runner)) return res.status(404).json({ ok: false, error: 'Test paketi bu dağıtımda bulunmuyor.' });
+  if (testRunActive) return res.status(409).json({ ok: false, error: 'Test paketi zaten çalışıyor.' });
+  testRunActive = true;
+  // Gizli anahtarlar test sürecine aktarılmaz; testler yalnızca sahte sunucularla çalışır.
+  const { TELEGRAM_BOT_TOKEN, BINANCE_API_KEY, BINANCE_API_SECRET, EXTERNAL_BOT_KEY, ...safeEnv } = process.env;
+  const child = spawn(process.execPath, [runner], {
     cwd: path.join(__dirname, '..'),
-    env: { ...process.env, NODE_ENV: 'test', TELEGRAM_OPTIONAL: '1' },
+    env: { ...safeEnv, NODE_ENV: 'test', TELEGRAM_OPTIONAL: '1' },
   });
+  const killTimer = setTimeout(() => child.kill('SIGKILL'), TEST_RUN_TIMEOUT_MS);
 
   let output = '';
-  child.stdout.on('data', d => { output += d.toString(); });
-  child.stderr.on('data', d => { output += d.toString(); });
+  const collect = d => { if (output.length < MAX_TEST_OUTPUT) output += d.toString(); };
+  child.stdout.on('data', collect);
+  child.stderr.on('data', collect);
 
+  child.on('error', err => {
+    clearTimeout(killTimer);
+    testRunActive = false;
+    if (!res.headersSent) res.status(500).json({ ok: false, error: err.message });
+  });
   child.on('close', code => {
+    clearTimeout(killTimer);
+    testRunActive = false;
+    if (res.headersSent) return;
     if (code !== 0) {
       console.error(`[TEST] Test paketi başarısız oldu (Çıkış kodu: ${code})`);
     } else {
@@ -383,7 +488,7 @@ app.post('/api/run-tests', (req, res) => {
 app.post('/api/notify-panel', async (req, res) => {
   try {
     const { notifyWebPanelToAdmins } = require('./webUrl');
-    const note = req.body?.note || 'Web Yönetici Paneli Üzerinden İletildi';
+    const note = cleanText(req.body?.note, 120) || 'Web Yönetici Paneli Üzerinden İletildi';
     const result = await notifyWebPanelToAdmins(telegram, {
       note,
       triggeredBy: 'Web Paneli (Admin Arayüzü)'
@@ -402,7 +507,7 @@ app.post('/api/notify-panel', async (req, res) => {
 // ── HTML Dashboard ─────────────────────────────────────────────────────────
 
 app.get('/', (req, res) => {
-  const session = adminAuth.getSession(req);
+  const session = adminAuth.getSession(req, { allowQuery: true });
   const currentToken = session ? (session.token || '') : '';
   res.send(`<!DOCTYPE html>
 <html lang="tr" class="dark">
@@ -833,6 +938,7 @@ app.get('/', (req, res) => {
           <h2 class="text-base font-bold text-white tracking-tight">Harici Telegram Botlarınızı Bu Panele Bağlama</h2>
           <p class="text-xs text-slate-400 mt-1 leading-relaxed">
             Diğer GitHub depolarınızda çalışan Telegram botlarını bu panele bağlamak için tek yapmanız gereken aşağıdaki JSON'u göndermektir. Botunuzda bir hata meydana geldiğinde <code>"error": "hata mesajı"</code> alanını doldurursanız paneldeki <b>Hata Günlüğü</b> otomatik olarak kırmızı alarm verir.
+            Uç nokta yetki ister: sunucuda en az 16 karakterlik <code>EXTERNAL_BOT_KEY</code> tanımlayıp isteğe <code>X-Bot-Key</code> başlığıyla ekleyin.
           </p>
         </div>
 
@@ -849,6 +955,7 @@ app.get('/', (req, res) => {
           <pre id="code-python" class="bg-obsidian-950 p-4 rounded border hairline-border text-xs font-mono text-emerald-300 overflow-x-auto leading-relaxed">import requests
 
 HUB_URL = "http://YOUR_SERVER_ADDRESS:3000/api/external-bots/heartbeat"
+BOT_KEY = "EXTERNAL_BOT_KEY değeri"
 
 def report_status(error_msg=None):
     payload = {
@@ -861,7 +968,7 @@ def report_status(error_msg=None):
         "metrics": { "Açık İşlem": "2", "Kâr": "+%4.2" }
     }
     try:
-        requests.post(HUB_URL, json=payload, timeout=5)
+        requests.post(HUB_URL, json=payload, headers={"X-Bot-Key": BOT_KEY}, timeout=5)
     except Exception as e:
         print("Heartbeat gönderilemedi:", e)
 
@@ -921,7 +1028,7 @@ def report_status(error_msg=None):
   </div>
 
   <script>
-    window.__ADMIN_TOKEN__ = ${JSON.stringify(currentToken)};
+    window.__ADMIN_TOKEN__ = ${JSON.stringify(currentToken).replace(/</g, '\\u003c')};
     let allCardsData = [];
     let currentLogLevel = 'all';
     let allLogsData = [];
@@ -1294,9 +1401,9 @@ def report_status(error_msg=None):
         return '<tr class="hover:bg-slate-900/50 transition">' +
           '<td class="py-2.5 px-3 font-bold text-white">' + escapeHtml(t.symbol) + '</td>' +
           '<td class="py-2.5 px-3 text-slate-300">' + escapeHtml(t.name) + '</td>' +
-          '<td class="py-2.5 px-3 tabular text-slate-400">$' + (t.value ? t.value.toFixed(4) : '—') + '</td>' +
-          '<td class="py-2.5 px-3 tabular text-slate-400">' + (t.hits || 1) + '</td>' +
-          '<td class="py-2.5 px-3 text-right tabular text-slate-300">%' + (t.pb ? t.pb.toFixed(2) : '0.00') + '</td>' +
+          '<td class="py-2.5 px-3 tabular text-slate-400">$' + (Number.isFinite(Number(t.value)) && t.value != null ? Number(t.value).toFixed(4) : '—') + '</td>' +
+          '<td class="py-2.5 px-3 tabular text-slate-400">' + (Math.floor(Number(t.hits)) || 1) + '</td>' +
+          '<td class="py-2.5 px-3 text-right tabular text-slate-300">%' + (Number.isFinite(Number(t.pb)) ? Number(t.pb).toFixed(2) : '0.00') + '</td>' +
           '<td class="py-2.5 px-3 text-right">' + heldBadge + '</td>' +
           '<td class="py-2.5 px-3 text-right text-slate-500">' + timeStr + '</td>' +
         '</tr>';
@@ -1486,21 +1593,30 @@ def report_status(error_msg=None):
 `);
 });
 
-// Sunucuyu 0.0.0.0:3000 üzerinde dinle
-const server = app.listen(PORT, HOST, () => {
-  console.log(`[SERVER] Scalp Terminal http://${HOST}:${PORT} üzerinde çalışıyor`);
-  bootBot();
-});
-
-function shutdownServer() {
-  console.log('\n[SERVER] Kapatılıyor...');
-  server.close(() => {
-    binance.stopWebSocket();
-    telegram.stop();
-    process.exit(0);
+// Sunucuyu 0.0.0.0:3000 üzerinde dinle ve bot motorunu başlat. `node src/server.js` ya da
+// src/index.js start() çağırır; testler uygulamayı require edip kendi portunda, motoru başlatmadan açar.
+let server = null;
+function start() {
+  if (server) return server;
+  server = app.listen(PORT, HOST, () => {
+    console.log(`[SERVER] Scalp Terminal http://${HOST}:${PORT} üzerinde çalışıyor`);
+    bootBot();
   });
-}
-process.on('SIGINT', shutdownServer);
-process.on('SIGTERM', shutdownServer);
 
+  function shutdownServer() {
+    console.log('\n[SERVER] Kapatılıyor...');
+    server.close(() => {
+      binance.stopWebSocket();
+      telegram.stop();
+      process.exit(0);
+    });
+  }
+  process.on('SIGINT', shutdownServer);
+  process.on('SIGTERM', shutdownServer);
+  return server;
+}
+
+if (require.main === module) start();
+
+app.start = start;
 module.exports = app;

@@ -421,14 +421,14 @@ Bot deploy edildikten veya yeniden başlatıldıktan sonra web panelinin adresin
 
 ## Harici Telegram Botlarınızı Bu Panele Bağlama
 
-Diğer GitHub depolarınızda veya bağımsız sunucularda çalışan botlarınıza küçük bir heartbeat (nabız) ekleyerek bu panelde görünmelerini sağlayabilirsiniz:
+Diğer GitHub depolarınızda veya bağımsız sunucularda çalışan botlarınıza küçük bir heartbeat (nabız) ekleyerek bu panelde görünmelerini sağlayabilirsiniz. Uç nokta yetki ister: sunucuda en az 16 karakterlik `EXTERNAL_BOT_KEY` tanımlayın ve isteğe `X-Bot-Key` başlığıyla ekleyin (anahtar yalnızca nabız gönderebilir, panel verisini okuyamaz):
 
 ```python
 # Python Botu Örneği
 import requests
 
 def report_to_hub(error_msg=None):
-    requests.post("https://<PANEL_ADRESI>/api/external-bots/heartbeat", json={
+    requests.post("https://<PANEL_ADRESI>/api/external-bots/heartbeat", headers={"X-Bot-Key": "<EXTERNAL_BOT_KEY>"}, json={
         "id": "trend-bot-1",
         "name": "BTC Trend Botu",
         "telegram": "@BtcTrendBot",
@@ -447,7 +447,10 @@ def report_to_hub(error_msg=None):
 * **Telegram Kuyruk Koruması:** `TELEGRAM_MAX_QUEUE_LEN` (250) sınırı ve 20-30 dk üzeri bayat scalp sinyalleri için TTL temizliği (`droppedExpired`) ile OOM bellek patlamaları önlenir. Kullanıcı komut yanıtları önceliklidir (`kind: 'reply'`).
 * **Mükerrer Mum Koruması:** WebSocket kopması sonrasında REST tamamlama (`backfillGap`) sırasında son işlenen mum zaman damgası (`lastT`) kontrol edilerek çift sinyal üretimi kesin olarak engellenir.
 * **Deterministik Docker Derlemesi:** `package-lock.json` ile `COPY package*.json ./` ve `npm ci` kullanılır.
-* **Otomatik Test Paketi:** 18 adet kapsamlı test (`npm test`) ve GitHub Actions CI iş akışı (`.github/workflows/test.yml`).
+* **Panel API Güvenliği:** Tüm `/api/*` uçları Telegram OTP oturumu ister; yazma işlemlerinde kullanıcının grupta hâlâ yönetici olduğu canlı doğrulanır (çıkarılan yöneticinin oturumu iptal edilir), farklı kaynaktan gelen yazma istekleri (CSRF) reddedilir, URL'deki `?token=` yalnızca panel açılışında kabul edilir. Harici bot alanları tür/uzunluk sınırıyla saklanır ve panelde HTML kaçışıyla gösterilir.
+* **Sert Kuyruk Sınırı:** Telegram 429 sonrası yeniden deneme de `TELEGRAM_MAX_QUEUE_LEN` sınırını aşamaz.
+* **Kontrollü Backfill:** Tohumlama (`SEED_CONCURRENCY`, varsayılan 4) ve boşluk doldurma (`GAP_FILL_CONCURRENCY`, en fazla 4) sınırlı paralellikle, REST weight bütçesi (`BINANCE_REST_WEIGHT_PER_MIN`) içinde çalışır. Her coin için doldurma sonrası eksik 1m mum ve son mum yaşı kontrol edilir; delik ya da eski veri kalırsa coin sinyalleri durdurulup kurtarma kuyruğuna alınır.
+* **Otomatik Test Paketi:** 26 adet kapsamlı test (`npm test`) ve GitHub Actions CI iş akışı (`.github/workflows/test.yml`).
 
 ---
 
