@@ -273,11 +273,10 @@ Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı kon
 
 ### 🌊 Alım-satım akışı (/akis)
 Kartı etkilemez; yalnız `/akis` komutu, panel (Raporlar → Alım-satım akışı, `/api/flow`) ve `/disaaktar` (`akis.csv`).
-İzlenen her coin için **spot ve futures** taker alış/satış dengesi **4s / günlük / haftalık / aylık** kapanmış pencerelerde
+Botun hacim filtresinden (3M $) **bağımsız**: spotta USDT paritesi olan tüm USDT perpetual'lar (`1000PEPEUSDT` ↔ `PEPEUSDT` gibi eşleşmeyle; stabil coinler hariç, liste saatte bir yenilenir). Her parite için **spot ve futures** taker alış/satış dengesi **4s / günlük / haftalık / aylık** kapanmış pencerelerde
 `/data/flow.db`'ye yazılır (`src/spotFlow.js`). Kaynak Binance klines: toplam quote hacmi ve taker alış hacmi
 (satış = toplam − alış); 1m mum biriktirilmez. İlk açılışta (mum tohumlamasından sonra) coin başına geçmiş yüklenir
 (4s 120 · günlük 60 · haftalık 30 · aylık 12 pencere), sonra her pencere kapanışından ~90 sn sonra güncellenir. 4s satırları 180 gün tutulur.
-Spotu olmayan coinde yalnız futures akışı gösterilir.
 
 Etiket son `flowK` (6) pencerede fiyat değişimi ile CVD'nin (net akış / hacim %) birlikte okunmasıdır:
 

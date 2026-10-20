@@ -724,7 +724,9 @@ async function main() {
 
   store = createCardStore();
   if (process.env.SPOT_FLOW !== '0') {
-    flow = createSpotFlow({ futuresKlines: (sym, tf, limit) => binance.fetchKlines(sym, tf, limit), getSymbols: () => [...series.keys()], getSettings: () => settings.get() });
+    // Evren botun hacim filtresinden bağımsız: spotu olan tüm USDT perpetual'lar (stabil coinler hariç)
+    flow = createSpotFlow({ futuresKlines: (sym, tf, limit) => binance.fetchKlines(sym, tf, limit),
+      getFuturesSymbols: () => binance.getTradableSymbols(cfg.autoFilter.excludeBaseAssets, { tradfi: false }), getSettings: () => settings.get() });
   }
   await telegram.start();
   telegramUi = installInfoTelegram({ telegram, settings, tracker, store, details, flow: () => flow, getSeries: sym => series.get(sym), ctx: () => ctx, status: statusText, chartFor: (sym, level, levels = []) => {

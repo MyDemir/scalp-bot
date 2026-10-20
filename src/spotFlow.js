@@ -3,6 +3,8 @@
 /**
  * Spot / futures akış takibi — kartı ETKİLEMEZ, yalnız istatistik (/akis komutu, panel, CSV).
  *
+ *   Evren   : botun izlediği coinlerden (hacim filtresi) BAĞIMSIZ — spotta USDT paritesi olan tüm USDT perpetual'lar
+ *             (futures exchangeInfo ∩ spot exchangeInfo, 1000PEPEUSDT ↔ PEPEUSDT gibi eşleşmeyle); saatte bir yenilenir.
  *   Veri    : Binance klines (spot /api/v3/klines + futures fapi) 4h / 1d / 1w / 1M. Her mum toplam quote hacmini (alan 7),
  *             işlem sayısını (8) ve taker alış quote hacmini (10) verir; satış = toplam − alış. Yalnız KAPANMIŞ pencereler.
  *   Kayıt   : <DB_PATH klasörü>/flow.db · flow (pencere başına bir satır) · flow_label (coin+pencere için son etiket) ·
@@ -30,6 +32,7 @@ const HISTORY = { '4h': 120, '1d': 60, '1w': 30, '1M': 12 };     // ilk yükleme
 const AVG_N = { '4h': 20, '1d': 30, '1w': 12, '1M': 6 };          // hacim katı için önceki pencere sayısı
 const KEEP_4H_DAYS = 180;
 const SETTLE_MS = 90_000;                                         // kapanıştan sonra bekleme (Binance mumu kesinleşsin)
+const UNIVERSE_MS = HOUR;                                         // evren (eşleşen spot+futures pariteleri) yenileme aralığı
 
 const LABELS = {
   birikim:   'Toplanıyor',
@@ -99,6 +102,12 @@ function classify(rows, tf, s = {}) {
   return { ...base, key, label: LABELS[key], enough: true, priceChg, cvdPct, strength };
 }
 
+/** Spotu olan futures sembolleri (futures sırası korunur) */
+function matchPairs(futuresSyms, spotSyms) {
+  const spot = new Set(spotSyms);
+  return [...futuresSyms].filter(f => spot.has(spotOf(f).spot));
+}
+
 function defaultFile() {
   const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'signals.db');
   return process.env.FLOW_DB_PATH || path.join(path.dirname(dbPath), 'flow.db');
@@ -107,11 +116,12 @@ function defaultFile() {
 /**
  * @param {object} o
  * @param {Function} o.futuresKlines  (sym, tf, limit) → Promise<ham kline[]> (binanceClient.fetchKlines)
- * @param {Function} o.getSymbols     () → izlenen futures sembolleri
+ * @param {Function} [o.getFuturesSymbols]  async () → işlemdeki USDT perpetual'lar (verilirse evren = bunların spotu olanları)
+ * @param {Function} [o.getSymbols]   () → sembol listesi (getFuturesSymbols yoksa; testler)
  * @param {Function} [o.getSettings]  () → ayarlar (flow* anahtarları)
  */
 function createSpotFlow({
-  file = defaultFile(), futuresKlines, getSymbols = () => [], getSettings = () => ({}),
+  file = defaultFile(), futuresKlines, getFuturesSymbols = null, getSymbols = () => [], getSettings = () => ({}),
   spotBase = process.env.BINANCE_SPOT_BASE_URL || 'https://api.binance.com', fetchFn = globalThis.fetch,
   spotGapMs = 150, now = () => Date.now(), logger = console,
 } = {}) {
@@ -160,6 +170,7 @@ function createSpotFlow({
   const done = {};                                // tf → en son güncellenen kapanmış pencere
   const stats = { requests: 0, rows: 0, errors: 0, changes: 0, lastRunMs: 0, running: false };
   let spotNext = 0;
+  let universe = [], universeAt = 0;
   const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   async function spotKlines(sym, tf, limit) {
@@ -224,6 +235,34 @@ function createSpotFlow({
     return null;
   }
 
+  /** Spotta işlemdeki USDT pariteleri (exchangeInfo, weight 20) */
+  async function spotSymbols() {
+    stats.requests++;
+    const res = await fetchFn(`${spotBase}/api/v3/exchangeInfo?permissions=SPOT&symbolStatus=TRADING`, { signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) throw new Error(`spot exchangeInfo: HTTP ${res.status}`);
+    const j = await res.json();
+    return (j.symbols || []).filter(x => x.status === 'TRADING' && x.quoteAsset === 'USDT').map(x => x.symbol);
+  }
+
+  /** Takip edilecek semboller: eşleşen spot+futures pariteleri (saatte bir), hata olursa son liste */
+  async function symbols() {
+    if (!getFuturesSymbols) return [...new Set(getSymbols())];
+    if (universe.length && now() - universeAt < UNIVERSE_MS) return universe;
+    try {
+      const [fut, spot] = await Promise.all([getFuturesSymbols(), spotSymbols()]);
+      const next = matchPairs(fut, spot);
+      if (next.length) {
+        if (universe.length !== next.length) logger.log(`[AKIŞ] evren: ${next.length} eşleşen spot+futures paritesi`);
+        universe = next; universeAt = now();
+      }
+    } catch (err) {
+      stats.errors++;
+      logger.warn(`[AKIŞ] evren yenilenemedi (${err?.message || err}) — ${universe.length ? 'son liste kullanılıyor' : 'tur atlandı'}`);
+      universeAt = now() - UNIVERSE_MS + 5 * 60_000;     // 5 dk sonra yeniden dene
+    }
+    return universe;
+  }
+
   async function fetchBoth(sym, tf, limit) {
     const out = { spot: 0, futures: 0 };
     try { out.spot = save(sym, 'spot', tf, await spotKlines(sym, tf, limit)); }
@@ -244,7 +283,7 @@ function createSpotFlow({
     const changed = [];
     try {
       const t = now();
-      const syms = [...new Set(getSymbols())];
+      const syms = await symbols();
       const live = new Set(syms);
       for (const s of [...seeded]) if (!live.has(s)) seeded.delete(s);
       const due = TFS.filter(tf => {
@@ -289,7 +328,7 @@ function createSpotFlow({
   }
 
   return {
-    enabled: () => Boolean(st), tick, summary, summaryTf, changes, rowsSince, rowsOf, stats,
+    enabled: () => Boolean(st), tick, universe: () => universe.slice(), summary, summaryTf, changes, rowsSince, rowsOf, stats,
     hasSpot: sym => !noSpot.has(spotOf(sym).spot),
     close: () => { try { db?.close(); } catch { /* yok */ } },
   };
@@ -341,4 +380,4 @@ function changesText(rows, hours = 24) {
   return `🌊 <b>Akış güncellemeleri</b> — son ${hours} saat (${rows.length})\n${rows.map(c => changeLine(c)).join('\n')}\n\nCoin ayrıntısı: /akis ETH`;
 }
 
-module.exports = { createSpotFlow, classify, windowStart, lastClosedStart, rowOf, flowText, changesText, LABELS, TFS, HISTORY, DEFAULTS };
+module.exports = { createSpotFlow, matchPairs, classify, windowStart, lastClosedStart, rowOf, flowText, changesText, LABELS, TFS, HISTORY, DEFAULTS };

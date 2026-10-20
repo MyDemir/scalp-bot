@@ -155,3 +155,33 @@ const flow = createSpotFlow({ file: path.join(dir, 'flow.db'), fetchFn, futuresK
   flow.close();
   console.log(R.join('\n'));
 })().catch(err => { console.error('❌ BAŞARISIZ', err); process.exit(1); });
+
+// ── Evren: botun hacim filtresinden bağımsız, spotu olan tüm futures pariteleri ──
+(async () => {
+  const { matchPairs } = require('../src/spotFlow');
+  assert.deepStrictEqual(matchPairs(['ETHUSDT', '1000PEPEUSDT', 'ONLYFUTUSDT'], ['ETHUSDT', 'PEPEUSDT', 'BTCUSDT']), ['ETHUSDT', '1000PEPEUSDT']);
+  let t = Date.UTC(2026, 9, 21, 12, 5), infoCalls = 0, futCalls = 0, failSpot = false;
+  const spotList = ['ETHUSDT', 'PEPEUSDT', 'SOLUSDT'];
+  const fetch2 = async url => {
+    if (url.includes('exchangeInfo')) {
+      infoCalls++;
+      if (failSpot) return { ok: false, status: 503, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => ({ symbols: [...spotList.map(symbol => ({ symbol, status: 'TRADING', quoteAsset: 'USDT' })), { symbol: 'OLDUSDT', status: 'BREAK', quoteAsset: 'USDT' }, { symbol: 'ETHBTC', status: 'TRADING', quoteAsset: 'BTC' }] }) };
+    }
+    return { ok: true, status: 200, json: async () => [] };
+  };
+  const d2 = path.join(__dirname, '.tmp', 'spot-flow-uni');
+  fs.rmSync(d2, { recursive: true, force: true });
+  const f2 = createSpotFlow({ file: path.join(d2, 'flow.db'), fetchFn: fetch2, futuresKlines: async () => [], spotGapMs: 0, now: () => t, logger: { log() {}, warn() {}, error() {} },
+    getFuturesSymbols: async () => { futCalls++; return new Set(['ETHUSDT', '1000PEPEUSDT', 'OLDUSDT', 'ONLYFUTUSDT']); } });
+  await f2.tick();
+  assert.deepStrictEqual(f2.universe(), ['ETHUSDT', '1000PEPEUSDT']);
+  t += 30 * 60_000; await f2.tick();
+  assert.strictEqual(infoCalls, 1, 'evren saatte bir yenilenir');
+  failSpot = true; t += 31 * 60_000; await f2.tick();
+  assert.deepStrictEqual(f2.universe(), ['ETHUSDT', '1000PEPEUSDT'], 'hata olursa son liste');
+  failSpot = false; spotList.push('ONLYFUTUSDT'); t += 6 * 60_000; await f2.tick();
+  assert.deepStrictEqual(f2.universe(), ['ETHUSDT', '1000PEPEUSDT', 'ONLYFUTUSDT']);
+  f2.close();
+  console.log('✅ Evren: spotu olan tüm USDT perpetual\'lar (1000PEPE ↔ PEPE, kapalı/BTC paritesi yok), saatte bir yenileme, hata olursa son liste');
+})().catch(err => { console.error('❌ BAŞARISIZ', err); process.exit(1); });
