@@ -43,7 +43,7 @@ Eşikler `/ayarlar`: `strongRsi`, `rsiEntryMax`, `confRsi`, `confluencePct`, `se
 Hacim/⚡ daireleri: 1 temel · 2 hacim ≥ 3× · 3 + yön uyumu ≥ %65; renk yönü gösterir (🟢 alış/yükseliş · 🔴 satış/düşüş · ⚪ nötr).
 
 **Seri içi patlama:** bir coinde kart gittikten sonra seri sürerken (kapanmış 15m RSI 75'in altına inmeden)
-gelen hacimli 1m mum, o an **5m RSI ≥ 85** ise (`seriesMinRsi5m`) şart aranmadan kart olur (`#SERI`). 5m RSI 85'in altına
+gelen hacimli 1m mum, o an **15m RSI ≥ 85** ise (`seriesMinRsi15m`) şart aranmadan kart olur (`#SERI`). 15m RSI 85'in altına
 inmişse (sert satış mumu RSI'ı düşürdüyse) kart gelmez — sürekli hacim bildirimi olmasın diye. `/ayarlar` → "Seri patlama" ile kapatılabilir.
 
 Seviye kırılırsa (fiyat seviyenin %0.3'ten fazla üstünde) o seviye sayılmaz, bir üstteki aranır.

@@ -10,7 +10,7 @@ const cfg  = require('./config');
 
 const DEFS = [
   { key: 'grade4Min', short: '4 daire skor', label: '4 daire için en az güven skoru', type: 'int', min: 1, max: 15, step: 1 },
-  { key: 'seriesMinRsi5m', short: 'Seri 5m RSI', label: 'Seri içi kart için min 5m RSI', type: 'int', min: 50, max: 100, step: 1 },
+  { key: 'seriesMinRsi15m', short: 'Seri 15m RSI', label: 'Seri içi kart için min 15m RSI', type: 'int', min: 50, max: 100, step: 1 },
   { key: 'sfpAbovePct', short: 'SFP üst %', label: 'SFP kırılım eşiği %', type: 'num', min: 0.1, max: 2, step: 0.1 },
   { key: 'sepPct2', short: 'EMA %2', label: 'EMA21 ayrışma ≥ %2', type: 'num', min: 0.5, max: 20, step: 0.5 },
   { key: 'sepPct5', short: 'EMA %5', label: 'EMA21 ayrışma ≥ %5', type: 'num', min: 1, max: 30, step: 0.5 },
@@ -48,7 +48,7 @@ const DEFS = [
   { key: 'windowMin', short: 'Pencere dk', label: 'Sayaç penceresi (dk)', type: 'int', min: 15, max: 200, step: 15 },
   { key: 'shortWindowMin', short: 'Kısa dk', label: 'Kısa pencere (dk)', type: 'int', min: 5, max: 60, step: 5 },
   { key: 'resetRsi', short: 'Sıfırlama RSI', label: 'Kart no. sıfırlama (15m RSI <)', type: 'int', min: 40, max: 95, step: 1 },
-  { key: 'seriesBursts', short: 'Seri patlama', label: 'Seri içi patlama (5m RSI ≥ seriesMinRsi5m)', type: 'bool' },
+  { key: 'seriesBursts', short: 'Seri patlama', label: 'Seri içi patlama (15m RSI ≥ seriesMinRsi15m)', type: 'bool' },
   { key: 'sepATR', short: 'Ayrışma ATR', label: 'EMA21 ayrışma (ATR)', type: 'num', min: 0, max: 5, step: 0.1 },
   { key: 'sepRequired', short: 'Ayrışma şartı', label: 'Ayrışma şartı', type: 'bool' },
   { key: 'confRsi', short: 'Destek RSI', label: 'Kontrol: 1h/4h RSI şişkin ≥', type: 'int', min: 50, max: 95, step: 1 },

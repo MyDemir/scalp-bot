@@ -46,7 +46,7 @@ module.exports = {
     resetRsi:      75,      // kart no. sıfırlama: kapanmış 15m RSI bunun altına inince
 
     seriesBursts:  true,
-    seriesMinRsi5m: 85,      // YENİ: seri içi için 5m RSI ≥ 85
+    seriesMinRsi15m: 85,     // seri içi için o an 15m RSI ≥ 85
 
     // EMA21 yüzde ayrışma (güven skoru kademeli)
     sepPct2:       2,

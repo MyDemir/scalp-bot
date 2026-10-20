@@ -35,8 +35,8 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
 
   const DEF = Object.fromEntries(defs.map(d => [d.key, d]));
   const SECTIONS = [
-    { id: 'rsi', title: '📊 RSI kartı', keys: ['rsiMin', 'rsiMin2', 'strongRsi', 'rsiEntryMax', 'minTFs', 'rsiPeriod', 'resetRsi', 'seriesBursts', 'seriesMinRsi5m'],
-      sum: v => `eşik ${v.rsiMin} · ${v.minTFs}/3 dilim · RSI(${v.rsiPeriod}) · seri 5m≥${v.seriesMinRsi5m ?? 85}` },
+    { id: 'rsi', title: '📊 RSI kartı', keys: ['rsiMin', 'rsiMin2', 'strongRsi', 'rsiEntryMax', 'minTFs', 'rsiPeriod', 'resetRsi', 'seriesBursts', 'seriesMinRsi15m'],
+      sum: v => `eşik ${v.rsiMin} · ${v.minTFs}/3 dilim · RSI(${v.rsiPeriod}) · seri 15m≥${v.seriesMinRsi15m ?? 85}` },
     { id: 'lvl', title: '🎯 Direnç ve kırılım', keys: ['levelRequired', 'levelMaxPct', 'dipBelowPct', 'dipAbovePct', 'sfpAbovePct', 'confluencePct', 'levelsSwing', 'swingBars', 'zoneTouches', 'levelsFib', 'levelsWeeklyZone', 'sfpCards', 'sfpBars', 'discoveryCards'],
       sum: v => `${v.levelRequired ? 'şart açık' : 'şart kapalı'} · %${v.levelMaxPct} içinde · haftalık bölge ${v.levelsWeeklyZone ? 'açık' : 'kapalı'} · SFP ${v.sfpCards ? 'açık' : 'kapalı'}` },
     { id: 'grd', title: '🏅 Derece ve kontrol listesi', keys: ['grade2Min', 'grade3Min', 'grade4Min', 'sepPct2', 'sepPct5', 'sepPct10', 'confRsi', 'sepATR', 'sepRequired', 'confRequired', 'macdRequired'],
@@ -229,7 +229,7 @@ Kart: kurulum kontrol listesi skoru (9 madde: günlük/haftalık direnç, çakı
 Hacimli mum / ⚡: 1 daire temel · 2 daire hacim ≥ ${settings.get().volGrade2X}× · 3 daire + yön uyumu ≥ %${settings.get().dirGrade3Pct} — 🟢 alış/yükseliş · 🔴 satış/düşüş · ⚪ nötr
 RSI periyodu: ${settings.get().rsiPeriod}
 
-Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesinde RSI ≥ <b>${settings.get().rsiMin}</b>${settings.get().levelRequired ? ` ve fiyatın üstünde en fazla <b>%${settings.get().levelMaxPct}</b> uzakta bir seviye (4h/1d MA200 · EMA200 · 30 günlük tepe)` : ''}. Kontrol: 3m/5m/15m kapanışları + hacimli her 1m mum. Önceki karttan bu yana yeni veri yoksa kart gitmez.${settings.get().seriesBursts ? ' Seri sürerken (5m RSI ' + (settings.get().seriesMinRsi5m ?? 85) + ' üzerinde) gelen hacimli mumlar şart aranmadan kart olur (#SERI).' : ''}${settings.get().moveAlertPct > 0 ? `\n\n⚡ İzlenen coinde 1 dakikada ≥ %${settings.get().moveAlertPct} fiyat değişimi: RSI şartı sağlanıyorsa RSI kartına eklenir; bugünkü ▲/▼ sayısı 📋 Detay'da.` : ''}`.trim();
+Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesinde RSI ≥ <b>${settings.get().rsiMin}</b>${settings.get().levelRequired ? ` ve fiyatın üstünde en fazla <b>%${settings.get().levelMaxPct}</b> uzakta bir seviye (4h/1d MA200 · EMA200 · 30 günlük tepe)` : ''}. Kontrol: 3m/5m/15m kapanışları + hacimli her 1m mum. Önceki karttan bu yana yeni veri yoksa kart gitmez.${settings.get().seriesBursts ? ' Seri sürerken (15m RSI ' + (settings.get().seriesMinRsi15m ?? 85) + ' üzerinde) gelen hacimli mumlar şart aranmadan kart olur (#SERI).' : ''}${settings.get().moveAlertPct > 0 ? `\n\n⚡ İzlenen coinde 1 dakikada ≥ %${settings.get().moveAlertPct} fiyat değişimi: RSI şartı sağlanıyorsa RSI kartına eklenir; bugünkü ▲/▼ sayısı 📋 Detay'da.` : ''}`.trim();
 
   const commands = {
     help, yardim: help, start: help,

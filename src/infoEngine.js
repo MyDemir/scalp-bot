@@ -710,12 +710,12 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
 
   let inSeries = false;
   if (!snap.ok) {
-    const rsi5 = ta.rsiLast(series.col('5m', 'c', true), s.rsiPeriod);
+    const rsi15 = ta.rsiLast(series.col('15m', 'c', true), s.rsiPeriod);
     const seriesBurst = Boolean(
       burst &&
       s.seriesBursts &&
       tracker.active(sym) &&
-      (rsi5 ?? 0) >= (s.seriesMinRsi5m ?? 85)
+      (rsi15 ?? 0) >= (s.seriesMinRsi15m ?? 85)
     );
     const moveCard = Boolean(move && snap.rsiOk);
     if (!sfp && !seriesBurst && !moveCard) return null;
