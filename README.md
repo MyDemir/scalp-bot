@@ -290,7 +290,17 @@ Son pencerenin hacmi önceki pencerelerin ortalamasının ≥ 1.5 katıysa "gü�
 CVD'si ters yöndeyse "⚠️ spot/futures ayrışması". Etiket değişince (ör. günlük Nötr → Toplanıyor) kayda geçer:
 `/akis` (argümansız) son 24 saatin değişikliklerini, `/akis ETH` coinin 4 penceresini ve son değişikliklerini gösterir
 (ayrı bildirim gönderilmez). Eşikler `/ayarlar → 🌊 Akış`: `flowK`, `flowCvdPct`, `flowPricePct`, `flowStrongX`, `flowWeakX`,
-`flowBuyPct`, `flowSellPct`. Kapatmak için `SPOT_FLOW=0`. Taker alış "piyasa emriyle alan" demektir; etiket yorumdur, mal toplamanın kanıtı değildir.
+`flowBuyPct`, `flowSellPct`. Kapatmak için `SPOT_FLOW=0`.
+
+**🐋 Büyük alım / satım** (`src/bigTrades.js`): aynı evrendeki spot paritelerin işlem akışı (`<sembol>@aggTrade`, tek WebSocket)
+dinlenir; tek market emri coinin eşiğini geçerse alış ya da satış olarak sayılır. Eşik coine göre:
+`max(flowBigMinUsd, son günlük spot hacmi × flowBigPct %)` — varsayılan %0,05 ve en az 5K $ (10M $ hacim → 5K $, 100M $ → 50K $,
+1B $ → 500K $). Sayaçlar saat başına `flow_big` tablosuna yazılır; `/akis`, panel ve `akis.csv` pencere toplamlarını gösterir.
+Binance geçmiş büyük işlem listesi vermediği için sayım botun açılışından başlar. Kapatmak için `BIG_TRADES=0`.
+
+**Panel → Alım-Satım Akışı sekmesi:** tüm pariteler tek tabloda (günlük hacim, alış-satış %, değişim %, 4s/günlük/haftalık/aylık
+etiket, bugünkü 🐋 alım/satım), coin arama ve günlük etiket filtresi; satıra tıklayınca pencere ayrıntısı (spot + futures) ve spot 4s
+geçmişi, yanda son 7 günün etiket güncellemeleri. Taker alış "piyasa emriyle alan" demektir; etiket yorumdur, mal toplamanın kanıtı değildir.
 
 ### Telegram komutları
 | Komut | Kim | |
@@ -365,6 +375,7 @@ src/
 ├── peakFeatures.js   # Tepe adayı ek özellikleri: CVD, mum yapısı, Bollinger, hız, piyasa, zaman, coin geçmişi
 ├── marketData.js     # Binance ek verisi: açık pozisyon, long/short, emir defteri, spot, baz, likidasyon akışı
 ├── spotFlow.js       # Spot/futures alım-satım akışı (4s/günlük/haftalık/aylık) → flow.db, Toplanıyor/Dağıtım etiketi, /akis
+├── bigTrades.js      # Spot büyük alım/satım sayacı (aggTrade akışı, coin başına eşik) → flow.db
 ├── exportData.js     # CSV dışa aktarma (/disaaktar ve komut satırı)
 ├── marketSnap.js     # 1m–4h göstergeleri, VWAP seti, tepki/destek seviyesi eşleştirme (istatistik kaydı)
 ├── weeklyReport.js   # Haftalık MD + zip (CSV'ler; Pazartesi 03:01 TSİ) → gruba, sonra veritabanından silme

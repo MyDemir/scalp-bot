@@ -146,6 +146,10 @@ function createSpotFlow({
       );
       CREATE INDEX IF NOT EXISTS flow_changes_at ON flow_changes(at);
       CREATE INDEX IF NOT EXISTS flow_changes_sym ON flow_changes(symbol, at);
+      CREATE TABLE IF NOT EXISTS flow_big (
+        symbol TEXT NOT NULL, t INTEGER NOT NULL, buy_n INTEGER NOT NULL DEFAULT 0, buy_usd REAL NOT NULL DEFAULT 0,
+        sell_n INTEGER NOT NULL DEFAULT 0, sell_usd REAL NOT NULL DEFAULT 0, PRIMARY KEY (symbol, t)
+      );
     `);
   } catch (err) {
     logger.error(`[AKIŞ] ${file} açılamadı (${err.message}) — akış takibi KAPALI, bot çalışmaya devam ediyor`);
@@ -163,6 +167,12 @@ function createSpotFlow({
     changesSym: db.prepare('SELECT symbol, tf, market, t, at, old, new FROM flow_changes WHERE symbol = ? AND at >= ? ORDER BY at DESC, id DESC LIMIT ?'),
     since: db.prepare('SELECT symbol, market, tf, t, vol, buy, open, close, trades FROM flow WHERE t >= ? ORDER BY symbol, market, tf, t'),
     purge4h: db.prepare("DELETE FROM flow WHERE tf = '4h' AND t < ?"),
+    purgeBig: db.prepare('DELETE FROM flow_big WHERE t < ?'),
+    addBig: db.prepare(`INSERT INTO flow_big (symbol, t, buy_n, buy_usd, sell_n, sell_usd) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(symbol, t) DO UPDATE SET buy_n = buy_n + excluded.buy_n, buy_usd = buy_usd + excluded.buy_usd,
+      sell_n = sell_n + excluded.sell_n, sell_usd = sell_usd + excluded.sell_usd`),
+    bigSum: db.prepare('SELECT COUNT(*) AS hours, SUM(buy_n) AS buyN, SUM(buy_usd) AS buyUsd, SUM(sell_n) AS sellN, SUM(sell_usd) AS sellUsd FROM flow_big WHERE symbol = ? AND t >= ? AND t < ?'),
+    bigSince: db.prepare('SELECT symbol, t, buy_n, buy_usd, sell_n, sell_usd FROM flow_big WHERE t >= ?'),
   };
 
   const noSpot = new Set();
@@ -213,7 +223,9 @@ function createSpotFlow({
     const o = { ...DEFAULTS, ...s };
     const diverge = Boolean(spot?.enough && futures?.enough
       && dirOf(spot.cvdPct, o.flowCvdPct) * dirOf(futures.cvdPct, o.flowCvdPct) < 0);
-    return { tf, spot, futures, diverge, main: spot?.enough ? 'spot' : futures?.enough ? 'futures' : null };
+    const t = now();
+    return { tf, spot, futures, diverge, main: spot?.enough ? 'spot' : futures?.enough ? 'futures' : null,
+      big: bigSum(sym, lastClosedStart(tf, t), windowStart(tf, t)), bigLive: bigSum(sym, windowStart(tf, t), t + 1) };
   }
 
   function summary(sym) {
@@ -302,7 +314,7 @@ function createSpotFlow({
         if (fresh) seeded.add(sym);
       }
       for (const tf of due) done[tf] = lastClosedStart(tf, t);
-      if (due.includes('1d')) st.purge4h.run(t - KEEP_4H_DAYS * DAY);
+      if (due.includes('1d')) { st.purge4h.run(t - KEEP_4H_DAYS * DAY); st.purgeBig.run(t - 400 * DAY); }
       return { symbols: syms.length, due, changed };
     } finally {
       stats.running = false;
@@ -316,19 +328,87 @@ function createSpotFlow({
     return symbol ? st.changesSym.all(symbol, since, n) : st.changesAll.all(since, n);
   }
 
-  /** CSV dışa aktarma için: pencere satırları + türetilmiş alanlar */
+  /** Panel tablosu: evrendeki her coin için günlük spot özeti + 4 pencerenin etiketi + bugünkü büyük işlemler (60 sn önbellek) */
+  let tableCache = null;
+  function table() {
+    if (!st) return [];
+    if (tableCache && now() - tableCache.at < 60_000) return tableCache.rows;
+    const s = getSettings();
+    const syms = universe.length ? universe : [...seeded];
+    const n = Math.max(...Object.values(AVG_N)) + Math.max(1, Math.floor(s.flowK ?? DEFAULTS.flowK)) + 1;
+    const rows = syms.map(sym => {
+      const t = now();
+      const w = Object.fromEntries(TFS.map(tf => {
+        const sp = classify(rowsOf(sym, 'spot', tf, n), tf, s), fu = classify(rowsOf(sym, 'futures', tf, n), tf, s);
+        const m = sp?.enough ? sp : fu?.enough ? fu : sp || fu;
+        return [tf, m ? { key: m.key, strength: m.strength, market: m === sp ? 'spot' : 'futures', cvdPct: m.cvdPct, buyPct: m.buyPct, vol: m.vol, net: m.net } : null];
+      }));
+      const d = rowsOf(sym, 'spot', '1d', 1)[0] || rowsOf(sym, 'futures', '1d', 1)[0];
+      return {
+        symbol: sym, vol: d ? d.vol : null, buyPct: d && d.vol > 0 ? num(d.buy / d.vol * 100, 2) : null,
+        chg: d && d.open > 0 ? num((d.close / d.open - 1) * 100, 2) : null, windows: w,
+        bigToday: bigSum(sym, windowStart('1d', t), t + 1), bigThreshold: num(bigThreshold(sym), 0),
+      };
+    }).sort((a, b) => (b.vol || 0) - (a.vol || 0));
+    tableCache = { at: now(), rows };
+    return rows;
+  }
+
+  /** Coin başına büyük işlem eşiği ($): max(flowBigMinUsd, son kapanmış günlük spot hacmi × flowBigPct / 100); günde bir hesaplanır */
+  const thrCache = new Map();
+  function bigThreshold(sym) {
+    const s = { flowBigPct: 0.05, flowBigMinUsd: 5000, ...getSettings() };
+    const day = windowStart('1d', now());
+    let c = thrCache.get(sym);
+    if (!c || c.day !== day) {
+      const r = st ? st.rows.get(sym, 'spot', '1d', 1) : null;
+      c = { day, vol: r ? r.vol : 0 };
+      thrCache.set(sym, c);
+    }
+    return Math.max(s.flowBigMinUsd, c.vol * s.flowBigPct / 100);
+  }
+
+  /** Büyük işlem saatlik sayaçlarını ekle (bigTrades) */
+  const recordBig = rows => {
+    if (!st || !rows.length) return;
+    db.transaction(list => { for (const r of list) st.addBig.run(r.symbol, r.t, r.buyN, r.buyUsd, r.sellN, r.sellUsd); })(rows);
+  };
+
+  /** [from, to) aralığındaki büyük alım/satım toplamı (saat sayaçlarından); kayıt yoksa null */
+  function bigSum(sym, from, to) {
+    if (!st) return null;
+    const r = st.bigSum.get(sym, from, to);
+    if (!r || !r.hours) return null;
+    return { buyN: r.buyN || 0, buyUsd: r.buyUsd || 0, sellN: r.sellN || 0, sellUsd: r.sellUsd || 0, hours: r.hours };
+  }
+
+  /** CSV dışa aktarma için: pencere satırları + türetilmiş alanlar (spot satırlarına pencerenin büyük işlem sayıları) */
   function rowsSince(since) {
     if (!st) return [];
+    const big = new Map();
+    for (const b of st.bigSince.all(since)) {
+      for (const tf of TFS) {
+        const k = `${b.symbol}|${tf}|${windowStart(tf, b.t)}`;
+        const a = big.get(k) || { n1: 0, u1: 0, n2: 0, u2: 0 };
+        a.n1 += b.buy_n; a.u1 += b.buy_usd; a.n2 += b.sell_n; a.u2 += b.sell_usd;
+        big.set(k, a);
+      }
+    }
     return st.since.all(since).map(r => ({
       symbol: r.symbol, market: r.market, tf: r.tf, time: new Date(r.t).toISOString(),
       vol_usd: num(r.vol, 0), buy_usd: num(r.buy, 0), sell_usd: num(r.vol - r.buy, 0), net_usd: num(2 * r.buy - r.vol, 0),
       buy_pct: r.vol > 0 ? num(r.buy / r.vol * 100, 2) : null, open: r.open, close: r.close,
       chg_pct: r.open > 0 ? num((r.close / r.open - 1) * 100, 2) : null, trades: r.trades,
+      ...(() => {
+        const b = r.market === 'spot' ? big.get(`${r.symbol}|${r.tf}|${r.t}`) : null;
+        return { big_buy_n: b ? b.n1 : null, big_buy_usd: b ? num(b.u1, 0) : null, big_sell_n: b ? b.n2 : null, big_sell_usd: b ? num(b.u2, 0) : null };
+      })(),
     }));
   }
 
   return {
-    enabled: () => Boolean(st), tick, universe: () => universe.slice(), summary, summaryTf, changes, rowsSince, rowsOf, stats,
+    enabled: () => Boolean(st), tick, universe: () => universe.slice(), summary, summaryTf, changes, rowsSince, rowsOf, stats, recordBig, bigSum, bigThreshold, table,
+    pairs: () => universe.map(f => [spotOf(f).spot, f]),
     hasSpot: sym => !noSpot.has(spotOf(sym).spot),
     close: () => { try { db?.close(); } catch { /* yok */ } },
   };
@@ -354,6 +434,12 @@ function lineOf(c, s = {}) {
   return `${head} · alış ${side}%${c.buyPct ?? '—'} · net ${usd(c.net)} · hacim ${usd(c.vol).replace('+', '')}${c.volX != null ? ` (${c.volX}×)` : ''}${trend}`;
 }
 
+function bigLine(b, label) {
+  if (!b) return `${label}: kayıt yok`;
+  const d = b.buyUsd - b.sellUsd;
+  return `${label}: alım <b>${b.buyN}</b> (${usd(b.buyUsd).replace('+', '')}) · satım <b>${b.sellN}</b> (${usd(b.sellUsd).replace('+', '')}) · fark ${usd(d)}`;
+}
+
 function changeLine(c, withSym = true) {
   const at = new Date(c.at).toISOString().slice(5, 16).replace('T', ' ');
   return `${at} UTC · ${withSym ? `<b>${c.symbol}</b> ` : ''}${TF_TXT[c.tf] || c.tf}: ${LABELS[c.old] || c.old || '—'} → ${labelTxt(c.new)}${c.market === 'futures' ? ' (futures)' : ''}`;
@@ -367,10 +453,11 @@ function flowText(sym, sm, changes, s = {}, hasSpot = true) {
     parts.push(`\n<b>${TF_TXT[tf]}</b>${x.diverge ? ' · ⚠️ spot/futures ayrışması' : ''}`);
     if (hasSpot) parts.push(`Spot: ${lineOf(x.spot, s)}`);
     parts.push(`Futures: ${lineOf(x.futures, s)}`);
+    if (hasSpot && (x.big || x.bigLive)) parts.push(`🐋 ${bigLine(x.big, 'Büyük işlem (son pencere)')}${x.bigLive ? `\n🐋 ${bigLine(x.bigLive, 'Devam eden pencere')}` : ''}`);
   }
   if (!hasSpot) parts.push('\nBu coinin spotu yok; etiket futures akışından.');
   parts.push(`\n<b>Güncellemeler</b>\n${changes.length ? changes.map(c => changeLine(c, false)).join('\n') : 'Henüz etiket değişikliği yok.'}`);
-  parts.push('\n<i>Taker alış = piyasa emriyle alan; mal toplamanın kanıtı değil, yorumdur.</i>');
+  parts.push(`\n<i>Taker alış = piyasa emriyle alan; mal toplamanın kanıtı değil, yorumdur. 🐋 = spotta tek seferde ≥ günlük spot hacminin %${s.flowBigPct ?? 0.05}'i (en az ${usd(s.flowBigMinUsd ?? 5000).replace('+', '')}) market emri (sayım botun açılışından itibaren).</i>`);
   return parts.join('\n');
 }
 

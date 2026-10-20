@@ -52,8 +52,8 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
       sum: v => `kart ${v.cardSound ? 'sesli' : 'sessiz'}` },
     { id: 'cht', title: '🖼 Grafik', keys: ['chart', 'chartTf', 'chartFib', 'chartIchi', 'chartMinTouches'],
       sum: v => (v.chart ? `${v.chartTf}${v.chartIchi ? ' · Ichimoku' : ''}${v.chartFib ? ' · Fibonacci' : ''}` : 'kapalı') },
-    { id: 'flw', title: '🌊 Akış (/akis)', keys: ['flowK', 'flowCvdPct', 'flowPricePct', 'flowStrongX', 'flowWeakX', 'flowBuyPct', 'flowSellPct'],
-      sum: v => `son ${v.flowK} pencere · CVD ±%${v.flowCvdPct} · fiyat ±%${v.flowPricePct}` },
+    { id: 'flw', title: '🌊 Akış (/akis)', keys: ['flowK', 'flowCvdPct', 'flowPricePct', 'flowStrongX', 'flowWeakX', 'flowBuyPct', 'flowSellPct', 'flowBigPct', 'flowBigMinUsd'],
+      sum: v => `son ${v.flowK} pencere · CVD ±%${v.flowCvdPct} · fiyat ±%${v.flowPricePct} · 🐋 günlük hacmin %${v.flowBigPct} (≥ ${v.flowBigMinUsd} $)` },
     { id: 'uni', title: '🌐 İzlenen coinler', keys: ['minVolumeM', 'tradfi'],
       sum: v => `24s hacim ≥ ${v.minVolumeM}M $ · hisse/emtia ${v.tradfi ? 'açık' : 'kapalı'}` },
   ];

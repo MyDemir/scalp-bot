@@ -77,6 +77,8 @@ const DEFS = [
   { key: 'flowWeakX', short: 'Akış zayıf ×', label: 'Akış: hacim katı < → zayıf hacim', type: 'num', min: 0.1, max: 1, step: 0.1 },
   { key: 'flowBuyPct', short: 'Akış alış %', label: 'Akış: alış ≥ % → 🟢', type: 'int', min: 50, max: 90, step: 1 },
   { key: 'flowSellPct', short: 'Akış satış %', label: 'Akış: alış ≤ % → 🔴', type: 'int', min: 10, max: 50, step: 1 },
+  { key: 'flowBigPct', short: 'Büyük işlem %', label: 'Akış 🐋: büyük işlem eşiği = günlük spot hacminin %…', type: 'num', min: 0.01, max: 1, step: 0.01 },
+  { key: 'flowBigMinUsd', short: 'Büyük işlem min $', label: 'Akış 🐋: büyük işlem eşiği en az … $', type: 'int', min: 500, max: 1000000, step: 500 },
   { key: 'minVolumeM', short: 'Hacim M$', label: 'Evren: 24s hacim ≥ (milyon $)', type: 'num', min: 0, max: 500, step: 1 },
   { key: 'tradfi', short: 'Hisse/emtia', label: 'Evren: kripto dışı kontratlar (hisse · ETF · altın/gümüş · döviz) izlensin', type: 'bool' },
 ];

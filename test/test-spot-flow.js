@@ -185,3 +185,72 @@ const flow = createSpotFlow({ file: path.join(dir, 'flow.db'), fetchFn, futuresK
   f2.close();
   console.log('✅ Evren: spotu olan tüm USDT perpetual\'lar (1000PEPE ↔ PEPE, kapalı/BTC paritesi yok), saatte bir yenileme, hata olursa son liste');
 })().catch(err => { console.error('❌ BAŞARISIZ', err); process.exit(1); });
+
+// ── 🐋 Büyük işlem sayacı: eşik (günlük spot hacmine göre), alış/satış yönü, saatlik kayıt, pencere toplamı, CSV ──
+(async () => {
+  const { createBigTrades } = require('../src/bigTrades');
+  const d3 = path.join(__dirname, '.tmp', 'spot-flow-big');
+  fs.rmSync(d3, { recursive: true, force: true });
+  let t = Date.UTC(2026, 9, 21, 12, 5);
+  const kl = (tf, limit, vol) => { const out = []; let s = windowStart(tf, t); for (let i = 0; i < limit; i++) { out.unshift([s, '1', '1', '1', '1', '0', s + (tf === '1d' ? DAY : 4 * HOUR) - 1, String(vol), 1, '0', String(vol / 2)]); s = windowStart(tf, s - 1); } return out; };
+  const f3 = createSpotFlow({ file: path.join(d3, 'flow.db'), spotGapMs: 0, now: () => t, logger: { log() {}, warn() {}, error() {} }, getSymbols: () => ['BIGUSDT', 'SMALLUSDT'],
+    getSettings: () => ({ flowBigPct: 0.05, flowBigMinUsd: 5000 }),
+    fetchFn: async url => { const u = new URL(url); const sym = u.searchParams.get('symbol'), tf = u.searchParams.get('interval');
+      if (tf !== '1d' && tf !== '4h') return { ok: true, status: 200, json: async () => [] };
+      return { ok: true, status: 200, json: async () => kl(tf, Number(u.searchParams.get('limit')), sym === 'BIGUSDT' ? (tf === '1d' ? 200e6 : 30e6) : 2e6) }; },
+    futuresKlines: async () => [] });
+  await f3.tick();
+  assert.strictEqual(f3.bigThreshold('BIGUSDT'), 100_000);    // 200M × %0.05
+  assert.strictEqual(f3.bigThreshold('SMALLUSDT'), 5000);     // 2M × %0.05 = 1K → en az 5K
+  const bt = createBigTrades({ getPairs: () => [['BIGUSDT', 'BIGUSDT'], ['SMALLUSDT', 'SMALLUSDT']], getThreshold: s => f3.bigThreshold(s), record: rows => f3.recordBig(rows), now: () => t });
+  const T = t;
+  bt._onTrade({ e: 'aggTrade', s: 'BIGUSDT', p: '10', q: '20000', m: false, T });        // 200K alış ✓
+  bt._onTrade({ e: 'aggTrade', s: 'BIGUSDT', p: '10', q: '5000', m: false, T });         // 50K < 100K ✗
+  bt._onTrade({ e: 'aggTrade', s: 'BIGUSDT', p: '10', q: '15000', m: true, T });         // 150K satış ✓
+  bt._onTrade({ e: 'aggTrade', s: 'SMALLUSDT', p: '1', q: '6000', m: false, T });        // 6K ≥ 5K ✓
+  bt._onTrade({ e: 'aggTrade', s: 'OTHERUSDT', p: '1', q: '1e9', m: false, T });         // evrende yok ✗
+  assert.strictEqual(bt.flush(), 2);
+  bt._onTrade({ e: 'aggTrade', s: 'BIGUSDT', p: '10', q: '30000', m: false, T: T + 60_000 });   // aynı saat, ikinci flush → üstüne eklenir
+  bt._onTrade({ e: 'aggTrade', s: 'BIGUSDT', p: '10', q: '30000', m: false, T: T - 5 * HOUR });  // önceki 4s penceresi
+  bt.flush();
+  const live = f3.bigSum('BIGUSDT', windowStart('4h', t), t + 1);
+  assert.deepStrictEqual({ ...live, hours: undefined }, { buyN: 2, buyUsd: 500_000, sellN: 1, sellUsd: 150_000, hours: undefined });
+  t = Date.UTC(2026, 9, 21, 16, 3); await f3.tick();
+  const sm = f3.summaryTf('BIGUSDT', '4h');
+  assert.strictEqual(sm.big.buyN, 2); assert.strictEqual(sm.big.sellN, 1);              // 12:00 penceresi artık "son pencere"
+  assert.strictEqual(f3.summaryTf('BIGUSDT', '1d').bigLive.buyN, 3);                     // bugün: 3 alım
+  const txt = flowText('BIGUSDT', f3.summary('BIGUSDT'), [], { flowBigPct: 0.05, flowBigMinUsd: 5000 }, true);
+  assert(txt.includes('🐋 Büyük işlem (son pencere): alım <b>2</b> (500.0K $) · satım <b>1</b> (150.0K $) · fark +350.0K $'), txt);
+  const csv = f3.rowsSince(Date.UTC(2026, 9, 21)).find(r => r.symbol === 'BIGUSDT' && r.tf === '4h' && r.market === 'spot' && r.time === '2026-10-21T12:00:00.000Z');
+  assert(csv && csv.big_buy_n === 2 && csv.big_sell_usd === 150000, JSON.stringify(csv));
+  const tbl = f3.table();
+  assert.strictEqual(tbl[0].symbol, 'BIGUSDT'); assert.strictEqual(tbl[0].bigToday.buyN, 3); assert.strictEqual(tbl[0].bigThreshold, 100000);
+  f3.close();
+  console.log('✅ 🐋 Büyük işlem: coin başına eşik (200M $ → 100K, 2M $ → en az 5K), alış/satış yönü, evren dışı yok sayılır, saatlik sayaç üstüne eklenir, son/devam eden pencere, /akis satırı, panel tablosu, CSV sütunları');
+})().catch(err => { console.error('❌ BAŞARISIZ', err); process.exit(1); });
+
+// ── 🐋 WebSocket: SUBSCRIBE (<sembol>@aggTrade), mesaj → sayaç, evren değişince UNSUBSCRIBE/SUBSCRIBE ──
+(async () => {
+  const WebSocket = require('ws');
+  const { createBigTrades } = require('../src/bigTrades');
+  const wss = new WebSocket.Server({ port: 18391 });
+  const log = []; let sock = null;
+  wss.on('connection', s => { sock = s; s.on('message', raw => { const m = JSON.parse(raw); log.push(`${m.method} ${m.params.join(',')}`); }); });
+  let pairs = [['ETHUSDT', 'ETHUSDT'], ['PEPEUSDT', '1000PEPEUSDT']];
+  const got = [];
+  const bt = createBigTrades({ url: 'ws://127.0.0.1:18391', getPairs: () => pairs, getThreshold: () => 1000, record: rows => got.push(...rows), logger: { log() {}, warn() {}, error() {} } });
+  bt.start();
+  const wait = async (pred, ms = 3000) => { const t0 = Date.now(); while (!pred()) { if (Date.now() - t0 > ms) throw new Error('zaman aşımı'); await new Promise(r => setTimeout(r, 20)); } };
+  await wait(() => log.length >= 1);
+  assert.strictEqual(log[0], 'SUBSCRIBE ethusdt@aggTrade,pepeusdt@aggTrade');
+  sock.send(JSON.stringify({ stream: 'pepeusdt@aggTrade', data: { e: 'aggTrade', s: 'PEPEUSDT', p: '0.00001', q: '300000000', m: false, T: Date.UTC(2026, 9, 21, 12, 30) } }));
+  await wait(() => bt.stats.big === 1);
+  bt.flush();
+  assert.strictEqual(got[0].symbol, '1000PEPEUSDT'); assert.strictEqual(got[0].buyN, 1); assert.strictEqual(got[0].t, Date.UTC(2026, 9, 21, 12));
+  pairs = [['ETHUSDT', 'ETHUSDT'], ['SOLUSDT', 'SOLUSDT']];
+  await bt.refresh();
+  await wait(() => log.length >= 3);
+  assert.deepStrictEqual(log.slice(1), ['UNSUBSCRIBE pepeusdt@aggTrade', 'SUBSCRIBE solusdt@aggTrade']);
+  bt.stop(); wss.close();
+  console.log('✅ 🐋 WebSocket: aggTrade aboneliği, spot PEPE → 1000PEPEUSDT kaydı (saat başı), evren değişince UNSUBSCRIBE/SUBSCRIBE');
+})().catch(err => { console.error('❌ BAŞARISIZ', err); process.exit(1); });

@@ -23,6 +23,7 @@ const chart = require('./chart');
 const { createSettings } = require('./infoSettings');
 const { installInfoTelegram } = require('./infoTelegram');
 const { createSpotFlow } = require('./spotFlow');
+const { createBigTrades } = require('./bigTrades');
 
 const SEED_ORDER = ['1d', '4h', '1h', '15m', '5m', '3m', '1m'];
 const PREMIUM_EVERY_MS  = 5 * 60_000;
@@ -47,6 +48,7 @@ const liqStream = createLiqStream();
 const drops    = createDropLedger({ ...cfg.events, enrich: (sym, o) => enricher.enrich(sym, o), orderBook: sym => enricher.orderBook(sym), onCandidate: (sr, e) => onPeakCandidate(sr, e) });
 let store = null;
 let flow = null;              // spot/futures akış takibi (src/spotFlow.js) — main'de kurulur
+let bigTrades = null;         // spot büyük alım/satım sayacı (src/bigTrades.js) — akış evreniyle çalışır
 let weekly = null;
 let telegramUi = null;        // installInfoTelegram dönüşü — panel salt okunur raporlar için komut tablosunu kullanır
 
@@ -698,7 +700,7 @@ function heartbeat() {
     ` | son ${mins}dk: ${closes} 1m kapanış, ${ws?.skipped ?? 0} ara güncelleme atlandı, ${cards} kart, ${peaks} tepe reddi` +
     ` | coin: ${readyCount()}/${series.size} hazır${busy.size ? `, ${busy.size} yükleniyor` : ''}${stale.length ? `, ${stale.length} GERİDE` : ''}` +
     ` | ${dTxt}` +
-    ` | takipte ${store?.openCount() ?? 0} kart, ${touches.openCount()} seviye teması, ${drops.openCount()} tepe adayı · ek veri ${enricher.stats.ok} (atlanan ${enricher.stats.skipped}) · likidasyon mesajı ${liqStream.stats().messages}${flow?.enabled() ? ` · akış ${flow.stats.rows} satır/${flow.stats.changes} değişim` : ''}` +
+    ` | takipte ${store?.openCount() ?? 0} kart, ${touches.openCount()} seviye teması, ${drops.openCount()} tepe adayı · ek veri ${enricher.stats.ok} (atlanan ${enricher.stats.skipped}) · likidasyon mesajı ${liqStream.stats().messages}${flow?.enabled() ? ` · akış ${flow.stats.rows} satır/${flow.stats.changes} değişim` : ''}${bigTrades ? ` · 🐋 ${bigTrades.stats.big} büyük işlem (${bigTrades.stats.messages} mesaj)` : ''}` +
     ` | telegram: ${tg.sent} gönderildi, ${tg.queued} kuyrukta${tg.failed ? `, ${tg.failed} BAŞARISIZ` : ''}` +
     ` | bellek: ${mem} MB`,
   );
@@ -774,8 +776,15 @@ async function main() {
   setInterval(() => runRecoveryCycle().catch(err => console.error('[KURTARMA]', err?.stack || err)), RECOVERY_EVERY_MS);
   // Akış takibi mum tohumlamasından SONRA başlar (ilk tur coin başına geçmişi yükler; REST kuyruğunu tohumlamayla paylaşmasın)
   if (flow?.enabled()) {
-    const runFlow = () => flow.tick().then(r => { if (r?.changed?.length) console.log(`[AKIŞ] ${r.changed.length} etiket değişti`); })
-      .catch(err => console.error('[AKIŞ]', err?.message || err));
+    if (process.env.BIG_TRADES !== '0') {
+      bigTrades = createBigTrades({ getPairs: () => flow.pairs(), getThreshold: fut => flow.bigThreshold(fut), record: rows => flow.recordBig(rows) });
+    }
+    const runFlow = () => flow.tick().then(r => {
+      if (r?.changed?.length) console.log(`[AKIŞ] ${r.changed.length} etiket değişti`);
+      if (bigTrades && flow.pairs().length) {                     // evren belli olunca başlar, sonra abonelikler evrenle güncellenir
+        if (!bigTrades.started) { bigTrades.started = true; bigTrades.start(); } else bigTrades.refresh().catch(() => {});
+      }
+    }).catch(err => console.error('[AKIŞ]', err?.message || err));
     setInterval(runFlow, FLOW_EVERY_MS).unref?.();
     runFlow();
   }
@@ -796,4 +805,4 @@ async function main() {
   console.log('\n✅ Bilgi botu çalışıyor.\n');
 }
 
-module.exports = { main, _internal: { onPeakCandidate, series, settings, tracker, touches, drops, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, seedMany, checkCoverage, seedMetrics, health, runReport, PANEL_REPORTS, runRecoveryCycle, scanStaleRecovery, queueRecovery, isFreshSymbol, recoveryBlocked, recoveryQueue, recoveryAttempts, recoveryNotBefore, gapMetrics, statusText, stats, busy, pending, details, getStore: () => store, getFlow: () => flow, getWeekly: () => weekly } };
+module.exports = { main, _internal: { onPeakCandidate, series, settings, tracker, touches, drops, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, seedMany, checkCoverage, seedMetrics, health, runReport, PANEL_REPORTS, runRecoveryCycle, scanStaleRecovery, queueRecovery, isFreshSymbol, recoveryBlocked, recoveryQueue, recoveryAttempts, recoveryNotBefore, gapMetrics, statusText, stats, busy, pending, details, getStore: () => store, getFlow: () => flow, getBigTrades: () => bigTrades, getWeekly: () => weekly } };

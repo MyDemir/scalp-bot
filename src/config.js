@@ -74,6 +74,9 @@ module.exports = {
     flowWeakX:     0.7,     // hacim katı < → "zayıf hacim"
     flowBuyPct:    55,      // son pencere alış ≥ % → 🟢
     flowSellPct:   45,      // son pencere alış ≤ % → 🔴
+    // 🐋 büyük alım/satım (src/bigTrades.js): coin başına eşik = max(flowBigMinUsd, son günlük spot hacmi × flowBigPct / 100)
+    flowBigPct:    0.05,    // ör. 10M $ günlük hacim → 5K $, 100M $ → 50K $, 1B $ → 500K $
+    flowBigMinUsd: 5000,
 
     minVolumeM:    3,
     tradfi:        false, // kripto dışı kontratlar (hisse · ETF · emtia · döviz — Binance TRADIFI_PERPETUAL) izlensin mi
