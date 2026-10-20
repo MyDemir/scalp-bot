@@ -94,6 +94,16 @@ const MAX_LOGS = 500;
 let errorCount = 0;
 let warnCount = 0;
 
+// Kayıtlar ayrıca diske yazılır (bkz. logStore.js) — yeniden başlatmadan sonra da incelenebilir.
+// Testlerde LOG_DIR verilmedikçe diske yazılmaz.
+const { createLogStore, dayOf } = require('./logStore');
+const logStore = createLogStore({ disabled: process.env.NODE_ENV === 'test' && !process.env.LOG_DIR });
+app.locals.logStore = logStore;
+logStore.prune();
+for (const e of logStore.recent(MAX_LOGS)) logsBuffer.push({ id: e.t + Math.random(), restored: true, ...e });
+setInterval(() => logStore.prune(), 6 * 60 * 60 * 1000).unref();
+process.on('exit', () => logStore.flush());
+
 function addLog(level, args) {
   const msg = args.map(a => {
     if (a instanceof Error) return a.stack || a.message;
@@ -103,20 +113,16 @@ function addLog(level, args) {
     return String(a);
   }).join(' ');
 
-  const tagMatch = msg.match(/^\[([A-Za-z0-9#_.-]+)\]/);
+  const tagMatch = msg.match(/^\[([\p{L}\p{N}#_.-]+)\]/u);
   const tag = tagMatch ? tagMatch[1] : (level === 'error' ? 'HATA' : (level === 'warn' ? 'UYARI' : 'SİSTEM'));
 
   if (level === 'error') errorCount++;
   if (level === 'warn') warnCount++;
 
-  logsBuffer.unshift({
-    id: Date.now() + Math.random(),
-    t: Date.now(),
-    level,
-    tag,
-    message: msg
-  });
+  const entry = { id: Date.now() + Math.random(), t: Date.now(), level, tag, message: msg };
+  logsBuffer.unshift(entry);
   if (logsBuffer.length > MAX_LOGS) logsBuffer.pop();
+  logStore.append(entry);
 }
 
 // Konsol çıktılarını dinle ve log havuzuna aktar
@@ -289,6 +295,29 @@ app.get('/api/logs', (req, res) => {
   });
 });
 
+
+// Kalıcı günlük: gün listesi, bir günün kayıtları (filtreli) ve ham dosya indirme
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+app.get('/api/logs/days', (req, res) => {
+  res.json({ ok: true, persistent: logStore.enabled(), days: logStore.summary() });
+});
+
+app.get('/api/logs/history', (req, res) => {
+  const day = String(req.query.day || dayOf(Date.now()));
+  if (!DAY_RE.test(day)) return res.status(400).json({ ok: false, error: 'day YYYY-MM-DD olmalı' });
+  const level = ['all', 'error', 'warn', 'info'].includes(req.query.level) ? req.query.level : 'all';
+  const result = logStore.query({ day, level, q: String(req.query.q || '').slice(0, 100), limit: req.query.limit });
+  res.json({ ok: true, persistent: logStore.enabled(), ...result });
+});
+
+app.get('/api/logs/export', (req, res) => {
+  const day = String(req.query.day || '');
+  if (!DAY_RE.test(day)) return res.status(400).json({ ok: false, error: 'day YYYY-MM-DD olmalı' });
+  const buf = logStore.exportDay(day);
+  if (!buf) return res.status(404).json({ ok: false, error: 'Bu güne ait kayıt yok.' });
+  res.setHeader('Content-Disposition', `attachment; filename="scalp-log-${day}.jsonl"`);
+  res.type('application/x-ndjson').send(buf);
+});
 
 // ── Scalp Bot API ──────────────────────────────────────────────────────────
 
@@ -719,10 +748,15 @@ app.get('/', (req, res) => {
         <div class="bg-obsidian-950 border hairline-border rounded-lg p-3 font-mono text-xs overflow-hidden flex flex-col">
           <div class="flex items-center justify-between text-[11px] text-slate-500 border-b hairline-border pb-2 mb-2 px-1">
             <span class="flex items-center gap-2">
-              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span>Canlı Log Akışı</span>
+              <span id="log-mode-dot" class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span id="log-mode-label">Canlı Log Akışı</span>
             </span>
-            <span class="text-slate-600">Maksimum 500 olay tamponlanır</span>
+            <span class="flex items-center gap-2">
+              <select id="log-day" onchange="selectLogDay(this.value)" class="bg-obsidian-950 border hairline-border rounded px-2 py-1 text-[11px] text-slate-200 font-mono">
+                <option value="">Canlı (son kayıtlar)</option>
+              </select>
+              <button onclick="downloadLogDay()" id="log-download" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border hairline-border">İndir</button>
+            </span>
           </div>
           
           <div id="log-stream-container" class="space-y-1.5 max-h-[560px] overflow-y-auto pr-1">
@@ -835,6 +869,7 @@ def report_status(error_msg=None):
     let allCardsData = [];
     let currentLogLevel = 'all';
     let allLogsData = [];
+    let logDay = '';          // '' = canlı akış, aksi halde geçmiş gün (YYYY-MM-DD)
 
     function showToast(msg, type = 'info') {
       const container = document.getElementById('toast-container');
@@ -949,9 +984,11 @@ def report_status(error_msg=None):
         }
 
         if (resLogs.ok) {
-          allLogsData = resLogs.logs || [];
-          document.getElementById('log-count-badge').textContent = resLogs.total + ' kayıt';
-          renderLogs(allLogsData);
+          if (!logDay) {
+            allLogsData = resLogs.logs || [];
+            document.getElementById('log-count-badge').textContent = resLogs.total + ' kayıt';
+            renderLogs(allLogsData);
+          }
 
           const errs = resLogs.errorCount || 0;
           const warns = resLogs.warnCount || 0;
@@ -1063,6 +1100,56 @@ def report_status(error_msg=None):
           '<span class="text-slate-200 break-all">' + escapeHtml(l.message) + '</span>' +
         '</div>';
       }).join('');
+    }
+
+    async function loadLogDays() {
+      try {
+        const r = await fetch('/api/logs/days', { headers: getAuthHeaders(), credentials: 'same-origin' }).then(x => x.json());
+        const sel = document.getElementById('log-day');
+        if (!r.ok || !sel) return;
+        const keep = sel.value;
+        sel.innerHTML = '<option value="">Canlı (son kayıtlar)</option>' + (r.days || []).map(d =>
+          '<option value="' + escapeHtml(d.day) + '">' + escapeHtml(d.day + ' · ' + d.errors + ' hata · ' + d.warnings + ' uyarı · ' + d.total + ' kayıt') + '</option>').join('');
+        sel.value = keep;
+        if (!r.persistent) sel.title = 'Kalıcı kayıt kapalı (disk yazılamıyor)';
+      } catch (e) {}
+    }
+
+    async function selectLogDay(day) {
+      logDay = day;
+      const dot = document.getElementById('log-mode-dot');
+      const label = document.getElementById('log-mode-label');
+      if (!day) {
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
+        label.textContent = 'Canlı Log Akışı';
+        fetchData();
+        return;
+      }
+      dot.className = 'w-2 h-2 rounded-full bg-sky-500';
+      label.textContent = 'Kayıtlı günlük · ' + day;
+      try {
+        const r = await fetch('/api/logs/history?limit=5000&day=' + encodeURIComponent(day), { headers: getAuthHeaders(), credentials: 'same-origin' }).then(x => x.json());
+        allLogsData = r.ok ? (r.entries || []) : [];
+        document.getElementById('log-count-badge').textContent = (r.total || 0) + ' kayıt';
+        renderLogs(allLogsData);
+      } catch (e) {
+        showToast('Günlük okunamadı: ' + e.message, 'error');
+      }
+    }
+
+    async function downloadLogDay() {
+      const day = logDay || new Date().toISOString().slice(0, 10);
+      try {
+        const res = await fetch('/api/logs/export?day=' + encodeURIComponent(day), { headers: getAuthHeaders(), credentials: 'same-origin' });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'İndirilemedi');
+        const url = URL.createObjectURL(await res.blob());
+        const a = document.createElement('a');
+        a.href = url; a.download = 'scalp-log-' + day + '.jsonl';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (e) {
+        showToast('Günlük indirilemedi: ' + e.message, 'error');
+      }
     }
 
     function setLogLevel(lvl) {
@@ -1248,6 +1335,8 @@ def report_status(error_msg=None):
 
     fetchData();
     setInterval(fetchData, 3000);
+    loadLogDays();
+    setInterval(loadLogDays, 60000);
   </script>
 </body>
 </html>

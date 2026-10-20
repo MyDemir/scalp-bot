@@ -32,7 +32,7 @@ async function main() {
 
   try {
     // ── Kimlik doğrulama: oturumsuz hiçbir API ucu veri vermez ─────────────
-    for (const [method, path] of [['GET', '/api/status'], ['GET', '/api/settings'], ['GET', '/api/logs'], ['GET', '/api/external-bots'],
+    for (const [method, path] of [['GET', '/api/status'], ['GET', '/api/settings'], ['GET', '/api/logs'], ['GET', '/api/external-bots'], ['GET', '/api/logs/days'], ['GET', '/api/logs/history'], ['GET', '/api/logs/export?day=2026-01-01'],
       ['POST', '/api/settings'], ['POST', '/api/logs/clear'], ['POST', '/api/run-tests'], ['POST', '/api/notify-panel'], ['DELETE', '/api/external-bots/x']]) {
       const r = await req(path, { method, body: method === 'GET' || method === 'DELETE' ? undefined : {} });
       assert.strictEqual(r.status, 401, `${method} ${path} must require a session (got ${r.status})`);
@@ -75,6 +75,8 @@ async function main() {
       const r = await req(path, { method, token, headers: { origin: base }, body: method === 'DELETE' ? undefined : { rsiMin: 1 } });
       assert.strictEqual(r.status, 405, `${method} ${path} must be read-only (got ${r.status})`);
     }
+    assert.strictEqual((await req('/api/logs/history?day=../x', { token })).status, 400, 'log day parameter is validated');
+    assert.strictEqual((await req('/api/logs/days', { token })).status, 200, 'log history is readable');
     const settings = await (await req('/api/settings', { token })).json();
     assert(settings.ok && settings.settings && Array.isArray(settings.defs), 'settings are readable for the mirror view');
     const dash = await (await req('/', { token })).text();
