@@ -3,7 +3,6 @@
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
-const { spawn } = require('child_process');
 const infoBot = require('./infoBot');
 const binance = require('./binanceClient');
 const telegram = require('./telegram');
@@ -13,10 +12,39 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = '0.0.0.0';
 
-app.use(express.json());
+app.disable('x-powered-by');
+app.use(express.json({ limit: '64kb' }));
 
-const { createAdminAuth } = require('./adminAuth');
+// Temel güvenlik başlıkları — API yanıtları önbelleğe alınmaz, URL'deki belirteç Referer ile sızmaz.
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
+  next();
+});
+
+// CSRF savunması: tarayıcıdan gelen yazma isteklerinde Origin/Referer bu sunucuyla aynı olmalı.
+// (Origin başlığı olmayan sunucu-sunucu istekleri — ör. harici bot nabzı — etkilenmez.)
+function sameOrigin(req) {
+  const source = req.headers.origin || req.headers.referer;
+  if (!source) return true;
+  try {
+    // Ters vekil (Fly.io vb.) Host'u değiştirebilir; iletilen özgün host da kabul edilir.
+    const host = new URL(source).host;
+    const forwarded = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+    return host === req.headers.host || (forwarded && host === forwarded);
+  } catch {
+    return false;
+  }
+}
+app.use((req, res, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || sameOrigin(req)) return next();
+  return res.status(403).json({ ok: false, error: 'Farklı kaynaktan gelen istek reddedildi.' });
+});
+
+const { createAdminAuth, safeEqual } = require('./adminAuth');
 const adminAuth = createAdminAuth({ telegram });
+app.locals.adminAuth = adminAuth;
 app.post('/api/auth/request-code', async (req, res) => {
   try {
     const result = await adminAuth.requestCode(String(req.body?.userId || ''));
@@ -42,23 +70,19 @@ app.get('/api/auth/session', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json({ ok: Boolean(session), userId: session?.userId || null, expiresAt: session?.expiresAt || null });
 });
+app.post('/api/external-bots/heartbeat', (req, res) => {
+  if (!validBotKey(req)) return res.status(401).json({ ok: false, error: 'Geçerli X-Bot-Key başlığı gerekli (EXTERNAL_BOT_KEY).' });
+  return handleHeartbeat(req, res);
+});
 app.use(adminAuth.middleware);
 
-app.post('/api/auth/refresh-admins', async (req, res) => {
-  // /api/auth/* routes are exempted from the generic middleware so OTP can work;
-  // explicitly require a valid session here and then re-check live Telegram admin status.
-  const session = adminAuth.getSession(req);
-  if (!session) return res.status(401).json({ ok: false, error: 'Yönetici girişi gerekli.' });
-  try {
-    const result = await adminAuth.refreshAdminList(session.userId);
-    const status = result.ok ? 200 : (result.status || 503);
-    res.setHeader('Cache-Control', 'no-store');
-    return res.status(status).json(result);
-  } catch (err) {
-    console.error('[AUTH] Yönetici listesi yenilenemedi:', err.message);
-    return res.status(503).json({ ok: false, error: 'Telegram yönetici listesi yenilenemedi.' });
-  }
+// Panel salt okunur bir yansıtma ekranıdır: bot ayarları ve durumu panelden değiştirilemez
+// (ayarlar yalnızca Telegram komutlarıyla yapılır). Oturumlu kullanıcıdan gelen yazma isteği reddedilir.
+app.use((req, res, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  return res.status(405).json({ ok: false, error: 'Panel salt okunurdur; ayarlar Telegram üzerinden yapılır.' });
 });
+
 
 const startedAt = Date.now();
 let botStarted = false;
@@ -70,6 +94,16 @@ const MAX_LOGS = 500;
 let errorCount = 0;
 let warnCount = 0;
 
+// Uyarı ve hatalar ayrıca diske yazılır (bkz. logStore.js) — yeniden başlatmadan sonra da incelenebilir.
+// Testlerde LOG_DIR verilmedikçe diske yazılmaz.
+const { createLogStore, dayOf } = require('./logStore');
+const logStore = createLogStore({ disabled: process.env.NODE_ENV === 'test' && !process.env.LOG_DIR });
+app.locals.logStore = logStore;
+logStore.prune();
+for (const e of logStore.recent(MAX_LOGS)) logsBuffer.push({ id: e.t + Math.random(), restored: true, ...e });
+setInterval(() => logStore.prune(), 6 * 60 * 60 * 1000).unref();
+process.on('exit', () => logStore.flush());
+
 function addLog(level, args) {
   const msg = args.map(a => {
     if (a instanceof Error) return a.stack || a.message;
@@ -79,20 +113,20 @@ function addLog(level, args) {
     return String(a);
   }).join(' ');
 
-  const tagMatch = msg.match(/^\[([A-Za-z0-9#_.-]+)\]/);
+  const tagMatch = msg.match(/^\[([\p{L}\p{N}#_.-]+)\]/u);
   const tag = tagMatch ? tagMatch[1] : (level === 'error' ? 'HATA' : (level === 'warn' ? 'UYARI' : 'SİSTEM'));
+  // Bot bazı uyarıları console.log ile "[UYARI] …" / "[HATA] …" biçiminde yazar; seviyeyi etiketten düzelt.
+  if (level === 'info' && /^UYARI$/i.test(tag)) level = 'warn';
+  if (level === 'info' && /^HATA$/i.test(tag)) level = 'error';
 
   if (level === 'error') errorCount++;
   if (level === 'warn') warnCount++;
 
-  logsBuffer.unshift({
-    id: Date.now() + Math.random(),
-    t: Date.now(),
-    level,
-    tag,
-    message: msg
-  });
+  const entry = { id: Date.now() + Math.random(), t: Date.now(), level, tag, message: msg };
+  logsBuffer.unshift(entry);
   if (logsBuffer.length > MAX_LOGS) logsBuffer.pop();
+  // Diske yalnızca uyarı ve hatalar yazılır; sistem/bilgi satırları yalnızca canlı akışta kalır.
+  if (level === 'error' || level === 'warn') logStore.append(entry);
 }
 
 // Konsol çıktılarını dinle ve log havuzuna aktar
@@ -118,6 +152,43 @@ console.log = function(...args) {
 
 // Harici Telegram botları kayıt deposu (Multi-Bot Hub)
 const externalBots = new Map();
+const MAX_EXTERNAL_BOTS = 50;
+const MAX_BOT_METRICS = 20;
+const BOT_ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
+
+// Harici botlardan gelen alanlar panelde gösterilir: tür ve uzunluk sınırı (depolama/DoS),
+// HTML kaçışı ise istemcide escapeHtml ile yapılır.
+function cleanText(value, max = 120) {
+  if (value == null) return null;
+  if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') return null;
+  const text = String(value).replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
+  return text ? text.slice(0, max) : null;
+}
+
+function cleanMetrics(metrics) {
+  if (!metrics || typeof metrics !== 'object' || Array.isArray(metrics)) return null;
+  const out = {};
+  for (const [k, v] of Object.entries(metrics).slice(0, MAX_BOT_METRICS)) {
+    const key = cleanText(k, 40);
+    const val = cleanText(v, 80);
+    if (key && val != null) out[key] = val;
+  }
+  return out;
+}
+
+const BOT_STATUSES = new Set(['online', 'offline', 'error', 'pending', 'starting', 'idle']);
+
+function hasRoomFor(id) {
+  return externalBots.has(id) || externalBots.size < MAX_EXTERNAL_BOTS;
+}
+
+// Harici botlar panele oturum açmadan nabız gönderebilsin diye isteğe bağlı paylaşılan anahtar.
+// EXTERNAL_BOT_KEY tanımlı değilse nabız uç noktası yalnızca yönetici oturumuyla çalışır.
+function validBotKey(req) {
+  const expected = process.env.EXTERNAL_BOT_KEY;
+  const supplied = req.headers['x-bot-key'];
+  return Boolean(expected && expected.length >= 16 && typeof supplied === 'string' && safeEqual(supplied, expected));
+}
 
 // Başlangıç botu
 externalBots.set('scalp-primary', {
@@ -174,9 +245,19 @@ app.get('/api/external-bots', (req, res) => {
   res.json({ ok: true, bots: list });
 });
 
-app.post('/api/external-bots/heartbeat', (req, res) => {
-  const { id, name, telegram: tg, status, lastSignal, metrics, error } = req.body;
-  if (!id) return res.status(400).json({ ok: false, error: 'id alanı zorunludur' });
+function handleHeartbeat(req, res) {
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const id = typeof body.id === 'string' ? body.id.trim() : '';
+  if (!BOT_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'id alanı zorunludur (harf, rakam, _ . : - · en fazla 64 karakter)' });
+  if (id === 'scalp-primary') return res.status(400).json({ ok: false, error: 'Yerel bot nabzı dışarıdan güncellenemez' });
+  if (!hasRoomFor(id)) return res.status(429).json({ ok: false, error: `En fazla ${MAX_EXTERNAL_BOTS} harici bot kaydedilebilir` });
+
+  const name = cleanText(body.name, 80);
+  const tg = cleanText(body.telegram, 64);
+  const lastSignal = cleanText(body.lastSignal, 200);
+  const error = cleanText(body.error, 300);
+  const status = BOT_STATUSES.has(body.status) ? body.status : null;
+  const metrics = cleanMetrics(body.metrics);
 
   if (error) {
     console.error(`[HARİCİ BOT] ${name || id} hatası: ${error}`);
@@ -186,6 +267,7 @@ app.post('/api/external-bots/heartbeat', (req, res) => {
   externalBots.set(id, {
     ...existing,
     id,
+    type: 'remote',
     name: name || existing.name || id,
     telegram: tg || existing.telegram || '—',
     status: error ? 'error' : (status || 'online'),
@@ -196,34 +278,9 @@ app.post('/api/external-bots/heartbeat', (req, res) => {
   });
 
   res.json({ ok: true, message: 'Heartbeat kaydedildi' });
-});
+}
 
-app.post('/api/external-bots/register', (req, res) => {
-  const { id, name, telegram: tg, type = 'remote' } = req.body;
-  if (!id || !name) return res.status(400).json({ ok: false, error: 'id ve name zorunludur' });
 
-  externalBots.set(id, {
-    id,
-    name,
-    type,
-    telegram: tg || '—',
-    status: 'pending',
-    lastSeen: 0,
-    lastSignal: 'Bağlantı bekleniyor...',
-    metrics: {},
-    registeredAt: Date.now()
-  });
-
-  res.json({ ok: true, bot: externalBots.get(id) });
-});
-
-app.delete('/api/external-bots/:id', (req, res) => {
-  if (req.params.id === 'scalp-primary') {
-    return res.status(400).json({ ok: false, error: 'Yerel bot kaldırılamaz' });
-  }
-  externalBots.delete(req.params.id);
-  res.json({ ok: true });
-});
 
 // ── Sistem Hata & Günlük API ───────────────────────────────────────────────
 
@@ -242,11 +299,42 @@ app.get('/api/logs', (req, res) => {
   });
 });
 
-app.post('/api/logs/clear', (req, res) => {
-  logsBuffer.length = 0;
-  errorCount = 0;
-  warnCount = 0;
-  res.json({ ok: true });
+
+// Kalıcı günlük: gün listesi, bir günün kayıtları (filtreli) ve ham dosya indirme
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+app.get('/api/logs/days', (req, res) => {
+  res.json({ ok: true, persistent: logStore.enabled(), days: logStore.summary() });
+});
+
+app.get('/api/logs/history', (req, res) => {
+  const day = String(req.query.day || dayOf(Date.now()));
+  if (!DAY_RE.test(day)) return res.status(400).json({ ok: false, error: 'day YYYY-MM-DD olmalı' });
+  const level = ['all', 'error', 'warn', 'info'].includes(req.query.level) ? req.query.level : 'all';
+  const result = logStore.query({ day, level, q: String(req.query.q || '').slice(0, 100), limit: req.query.limit });
+  res.json({ ok: true, persistent: logStore.enabled(), ...result });
+});
+
+app.get('/api/logs/export', (req, res) => {
+  const day = String(req.query.day || '');
+  if (!DAY_RE.test(day)) return res.status(400).json({ ok: false, error: 'day YYYY-MM-DD olmalı' });
+  const buf = logStore.exportDay(day);
+  if (!buf) return res.status(404).json({ ok: false, error: 'Bu güne ait kayıt yok.' });
+  res.setHeader('Content-Disposition', `attachment; filename="scalp-log-${day}.jsonl"`);
+  res.type('application/x-ndjson').send(buf);
+});
+
+// Salt okunur raporlar — Telegram komutlarının çıktısı (ayar/durum değiştirmeyenler)
+app.get('/api/reports/:name', async (req, res) => {
+  const internal = infoBot._internal || {};
+  const name = String(req.params.name || '');
+  if (!internal.PANEL_REPORTS?.has(name)) return res.status(404).json({ ok: false, error: 'Bilinmeyen rapor.' });
+  try {
+    const out = await internal.runReport(name, cleanText(req.query.args, 60) || '');
+    res.json({ ok: true, name, text: out.text, image: out.photo ? 'data:image/png;base64,' + out.photo.toString('base64') : null });
+  } catch (err) {
+    console.error(`[PANEL] /api/reports/${name} hatası: ${err?.message || err}`);
+    res.status(500).json({ ok: false, error: 'Rapor hazırlanamadı.' });
+  }
 });
 
 // ── Scalp Bot API ──────────────────────────────────────────────────────────
@@ -284,6 +372,7 @@ app.get('/api/status', (req, res) => {
     },
     websocket: wsStats,
     gapRecovery: internal.gapMetrics || {},
+    health: internal.health ? internal.health() : null,
     memory: {
       rssMb: Math.round(mem.rss / 1024 / 1024),
       heapUsedMb: Math.round(mem.heapUsed / 1024 / 1024),
@@ -295,19 +384,10 @@ app.get('/api/status', (req, res) => {
 app.get('/api/settings', (req, res) => {
   const internal = infoBot._internal || {};
   const s = internal.settings ? internal.settings.get() : cfg.info;
-  res.json({ ok: true, settings: s });
+  const { DEFS } = require('./infoSettings');
+  res.json({ ok: true, settings: s, defs: DEFS.map(d => ({ key: d.key, label: d.label, type: d.type })) });
 });
 
-app.post('/api/settings', (req, res) => {
-  const internal = infoBot._internal || {};
-  if (!internal.settings) return res.status(500).json({ ok: false, error: 'Ayar motoru henüz yüklenmedi' });
-  try {
-    const s = internal.settings.set(req.body);
-    res.json({ ok: true, settings: s });
-  } catch (err) {
-    res.status(400).json({ ok: false, error: err.message });
-  }
-});
 
 app.get('/api/universe', (req, res) => {
   const internal = infoBot._internal || {};
@@ -334,7 +414,7 @@ app.get('/api/cards', (req, res) => {
     return res.json({ ok: true, source: 'memory', cards: dispatches });
   }
   try {
-    const limit = Math.min(Number(req.query.limit || 50), 100);
+    const limit = Math.max(1, Math.min(Math.floor(Number(req.query.limit) || 50), 100));
     const since = Date.now() - 24 * 60 * 60 * 1000;
     const rows = store.since(since).slice(-limit).reverse();
     res.json({ ok: true, source: 'sqlite', cards: rows });
@@ -356,53 +436,12 @@ app.get('/api/touches', (req, res) => {
   }
 });
 
-app.post('/api/run-tests', (req, res) => {
-  const child = spawn(process.execPath, [path.join(__dirname, '..', 'test', 'run.js')], {
-    cwd: path.join(__dirname, '..'),
-    env: { ...process.env, NODE_ENV: 'test', TELEGRAM_OPTIONAL: '1' },
-  });
 
-  let output = '';
-  child.stdout.on('data', d => { output += d.toString(); });
-  child.stderr.on('data', d => { output += d.toString(); });
-
-  child.on('close', code => {
-    if (code !== 0) {
-      console.error(`[TEST] Test paketi başarısız oldu (Çıkış kodu: ${code})`);
-    } else {
-      console.log('[TEST] Tüm testler başarıyla geçti');
-    }
-    res.json({
-      ok: code === 0,
-      exitCode: code,
-      output,
-    });
-  });
-});
-
-app.post('/api/notify-panel', async (req, res) => {
-  try {
-    const { notifyWebPanelToAdmins } = require('./webUrl');
-    const note = req.body?.note || 'Web Yönetici Paneli Üzerinden İletildi';
-    const result = await notifyWebPanelToAdmins(telegram, {
-      note,
-      triggeredBy: 'Web Paneli (Admin Arayüzü)'
-    });
-    res.json({
-      ok: true,
-      message: `Web paneli adresi (${result.url}) Telegram grubuna ve ${result.adminCount} yöneticiye başarıyla iletildi!`,
-      ...result
-    });
-  } catch (err) {
-    console.error('[API] /api/notify-panel hatası:', err.message);
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
 
 // ── HTML Dashboard ─────────────────────────────────────────────────────────
 
 app.get('/', (req, res) => {
-  const session = adminAuth.getSession(req);
+  const session = adminAuth.getSession(req, { allowQuery: true });
   const currentToken = session ? (session.token || '') : '';
   res.send(`<!DOCTYPE html>
 <html lang="tr" class="dark">
@@ -498,15 +537,6 @@ app.get('/', (req, res) => {
           <span id="quick-err-dot" class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
           <span id="quick-err-text">0 Hata</span>
         </button>
-        <button onclick="notifyTelegramPanel()" id="btn-notify-tg" class="w-[102px] shrink-0 justify-center text-xs font-semibold px-2 py-1.5 rounded bg-sky-600 hover:bg-sky-500 text-white font-mono transition flex items-center gap-1.5 shadow-sm whitespace-nowrap border border-sky-400/30 select-none cursor-pointer" title="Web paneli adresini Telegram grubuna ilet">
-          <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
-          <span id="btn-notify-tg-text">Telegram</span>
-        </button>
-        <button onclick="refreshTelegramAdmins()" id="btn-refresh-admins" class="w-[136px] shrink-0 justify-center text-xs font-semibold px-2 py-1.5 rounded bg-emerald-700 hover:bg-emerald-600 text-white font-mono transition whitespace-nowrap border border-emerald-500/30 select-none cursor-pointer" title="Telegram yöneticilerini yeniden sorgula">Yönetici Yenile</button>
-        <button onclick="runTests()" class="w-[86px] shrink-0 justify-center text-xs font-semibold px-2.5 py-1.5 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono transition flex items-center gap-1.5 shadow-sm whitespace-nowrap select-none cursor-pointer">
-          <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path></svg>
-          <span>Testler</span>
-        </button>
         <button onclick="logoutAdmin()" class="w-[58px] shrink-0 justify-center text-xs font-semibold px-2.5 py-1.5 rounded bg-slate-800 hover:bg-rose-950 hover:text-rose-300 text-slate-400 font-mono transition whitespace-nowrap border hairline-border select-none cursor-pointer" title="Oturumu Kapat">Çıkış</button>
       </div>
 
@@ -530,6 +560,9 @@ app.get('/', (req, res) => {
         </button>
         <button onclick="switchTab('tab-settings')" id="nav-tab-settings" class="px-3.5 py-1.5 rounded text-xs font-semibold whitespace-nowrap shrink-0 flex items-center gap-1.5 transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent select-none cursor-pointer">
           <span>Motor Ayarları</span>
+        </button>
+        <button onclick="switchTab('tab-reports')" id="nav-tab-reports" class="px-3.5 py-1.5 rounded text-xs font-semibold whitespace-nowrap shrink-0 flex items-center gap-1.5 transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent select-none cursor-pointer">
+          <span>Raporlar & İstatistik</span>
         </button>
         <button onclick="switchTab('tab-logs')" id="nav-tab-logs" class="px-3.5 py-1.5 rounded text-xs font-semibold whitespace-nowrap shrink-0 flex items-center gap-1.5 transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent select-none cursor-pointer">
           <span>Hata & Olay Günlüğü</span>
@@ -604,12 +637,6 @@ app.get('/', (req, res) => {
             Bu panel hem bu depodaki Scalp botunu hem de diğer repolarınızdaki harici botları tek ekranda toplar.
           </p>
         </div>
-        <div class="flex items-center gap-3">
-          <button onclick="openAddBotModal()" class="text-xs font-semibold px-3.5 py-2 rounded bg-slate-800 hover:bg-slate-700 text-white border hairline-border transition flex items-center gap-1.5 whitespace-nowrap">
-            <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
-            Harici Bot Ekle
-          </button>
-        </div>
       </div>
 
       <div id="bots-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -644,7 +671,7 @@ app.get('/', (req, res) => {
           <div class="glass-panel p-4 rounded-lg space-y-3.5">
             <div class="flex items-center justify-between border-b hairline-border pb-2.5">
               <span class="text-xs font-bold text-white font-mono tracking-tight uppercase">Motor Parametreleri</span>
-              <button onclick="switchTab('tab-settings')" class="text-[11px] text-amber-400 hover:text-amber-300">Düzenle</button>
+              <button onclick="switchTab('tab-settings')" class="text-[11px] text-amber-400 hover:text-amber-300">Tümü</button>
             </div>
             <div class="space-y-2 text-xs font-mono">
               <div class="flex justify-between py-1 border-b border-slate-800/40">
@@ -690,6 +717,16 @@ app.get('/', (req, res) => {
               </div>
             </div>
           </div>
+
+          <div class="glass-panel p-4 rounded-lg space-y-3.5">
+            <div class="flex items-center justify-between border-b hairline-border pb-2.5">
+              <span class="text-xs font-bold text-white font-mono tracking-tight uppercase">Veri Akışı Sağlığı</span>
+              <span class="text-[10px] font-mono" id="hl-badge">—</span>
+            </div>
+            <div class="space-y-2 text-xs font-mono" id="health-rows">
+              <div class="text-slate-500">Yükleniyor…</div>
+            </div>
+          </div>
         </div>
 
       </div>
@@ -722,9 +759,6 @@ app.get('/', (req, res) => {
             <!-- Search in logs -->
             <input type="text" id="log-search" oninput="filterLogView()" placeholder="Loglarda ara..." class="w-40 bg-obsidian-950 border hairline-border rounded px-2.5 py-1 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500/50 font-mono">
 
-            <button onclick="clearLogs()" class="text-xs font-mono px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border hairline-border transition">
-              Temizle
-            </button>
             <button onclick="copyAllLogs()" class="text-xs font-mono px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border hairline-border transition">
               Kopyala
             </button>
@@ -735,10 +769,15 @@ app.get('/', (req, res) => {
         <div class="bg-obsidian-950 border hairline-border rounded-lg p-3 font-mono text-xs overflow-hidden flex flex-col">
           <div class="flex items-center justify-between text-[11px] text-slate-500 border-b hairline-border pb-2 mb-2 px-1">
             <span class="flex items-center gap-2">
-              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span>Canlı Log Akışı</span>
+              <span id="log-mode-dot" class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span id="log-mode-label">Canlı Log Akışı</span>
             </span>
-            <span class="text-slate-600">Maksimum 500 olay tamponlanır</span>
+            <span class="flex items-center gap-2">
+              <select id="log-day" onchange="selectLogDay(this.value)" class="bg-obsidian-950 border hairline-border rounded px-2 py-1 text-[11px] text-slate-200 font-mono">
+                <option value="">Canlı (son kayıtlar)</option>
+              </select>
+              <button onclick="downloadLogDay()" id="log-download" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border hairline-border">İndir</button>
+            </span>
           </div>
           
           <div id="log-stream-container" class="space-y-1.5 max-h-[560px] overflow-y-auto pr-1">
@@ -785,44 +824,45 @@ app.get('/', (req, res) => {
 
     <!-- ═══════════════ TAB 5: ENGINE SETTINGS ═══════════════ -->
     <div id="tab-settings" class="hidden space-y-6">
-      <div class="glass-panel p-6 rounded-lg max-w-3xl space-y-6">
+      <div class="glass-panel p-6 rounded-lg max-w-4xl space-y-4">
         <div>
-          <h2 class="text-sm font-bold text-white uppercase font-mono tracking-tight">Scalp Motoru Parametre Yapılandırması</h2>
-          <p class="text-xs text-slate-400 mt-1">Bu ayarlar çalışan motorda anında güncellenir ve yeni sinyallere derhal yansıtılır.</p>
+          <h2 class="text-sm font-bold text-white uppercase font-mono tracking-tight">Motor Ayarları (salt okunur)</h2>
+          <p class="text-xs text-slate-400 mt-1">Çalışan motorun güncel ayarları. Bu panel yalnızca yansıtma ekranıdır; ayarlar Telegram komutlarıyla değiştirilir.</p>
         </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 text-xs">
-          <div>
-            <label class="block text-slate-400 mb-1 font-medium">Asgari RSI Eşiği</label>
-            <input type="number" id="setting-rsi" min="70" max="95" class="w-full bg-obsidian-950 border hairline-border rounded p-2.5 text-white font-mono focus:border-amber-500/50 outline-none">
-            <span class="text-[11px] text-slate-500 mt-1 block">3m, 5m veya 15m dilimlerinde aranan eşik (Varsayılan: 85).</span>
-          </div>
-
-          <div>
-            <label class="block text-slate-400 mb-1 font-medium">Direnç Uzaklığı Maks %</label>
-            <input type="number" step="0.1" id="setting-level" min="0.5" max="5.0" class="w-full bg-obsidian-950 border hairline-border rounded p-2.5 text-white font-mono focus:border-amber-500/50 outline-none">
-            <span class="text-[11px] text-slate-500 mt-1 block">Fiyatın direnç seviyesine olan azami mesafesi (Varsayılan: 2.5).</span>
-          </div>
-
-          <div>
-            <label class="block text-slate-400 mb-1 font-medium">Patlama Yüzdesi (% kademe 1)</label>
-            <input type="number" step="0.1" id="setting-burst1" class="w-full bg-obsidian-950 border hairline-border rounded p-2.5 text-white font-mono focus:border-amber-500/50 outline-none">
-            <span class="text-[11px] text-slate-500 mt-1 block">Hacimli 1 dakikalık mum boyutu (Varsayılan: 1.0).</span>
-          </div>
-
-          <div>
-            <label class="block text-slate-400 mb-1 font-medium">Asgari 24s Hacim (Milyon $)</label>
-            <input type="number" id="setting-vol" min="1" max="50" class="w-full bg-obsidian-950 border hairline-border rounded p-2.5 text-white font-mono focus:border-amber-500/50 outline-none">
-            <span class="text-[11px] text-slate-500 mt-1 block">Evrene alınacak pariteler için filtre (Varsayılan: 3).</span>
-          </div>
+        <div id="settings-table" class="divide-y divide-slate-800/60 text-xs font-mono">
+          <div class="py-6 text-center text-slate-500">Ayarlar yükleniyor…</div>
         </div>
+      </div>
+    </div>
 
-        <div class="flex items-center justify-between pt-4 border-t hairline-border">
-          <span id="save-status" class="text-xs font-mono text-emerald-400"></span>
-          <button onclick="saveSettings()" class="text-xs font-semibold px-4 py-2 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono transition">
-            Ayarları Kaydet
-          </button>
+    <!-- ═══════════════ TAB 7: RAPORLAR (salt okunur Telegram raporları) ═══════════════ -->
+    <div id="tab-reports" class="hidden space-y-6">
+      <div class="glass-panel p-5 rounded-lg space-y-4">
+        <div>
+          <h2 class="text-sm font-bold text-white uppercase font-mono tracking-tight">Raporlar & İstatistik</h2>
+          <p class="text-xs text-slate-400 mt-1">Telegram komutlarıyla aynı raporlar, salt okunur. Hiçbiri botun ayarını ya da durumunu değiştirmez.</p>
         </div>
+        <div class="flex flex-wrap items-end gap-2 text-xs font-mono">
+          <label class="flex flex-col gap-1"><span class="text-slate-500">Rapor</span>
+            <select id="report-name" onchange="reportArgsHint()" class="bg-obsidian-950 border hairline-border rounded px-2.5 py-1.5 text-slate-200">
+              <option value="istatistik">📊 Kart istatistiği (/istatistik)</option>
+              <option value="gecmis">🗂 Coin kart geçmişi (/gecmis)</option>
+              <option value="coin">🔎 Coin anlık durumu (/coin)</option>
+              <option value="seviye">📐 Seviye tepkisi (/seviye)</option>
+              <option value="kacan">🔻 Düşüş defteri (/kacan)</option>
+              <option value="teyit">✅ Short teyidi (/teyit)</option>
+              <option value="takip">⭐ Takip listesi (/takip)</option>
+              <option value="sessiz">🔕 Susturulanlar (/sessiz)</option>
+              <option value="durum">🟢 Motor durumu (/durum)</option>
+            </select>
+          </label>
+          <label class="flex flex-col gap-1"><span class="text-slate-500" id="report-args-label">Gün</span>
+            <input id="report-args" maxlength="40" class="w-44 bg-obsidian-950 border hairline-border rounded px-2.5 py-1.5 text-slate-200" placeholder="7">
+          </label>
+          <button onclick="runReport()" id="report-run" class="px-4 py-1.5 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold">Göster</button>
+        </div>
+        <div id="report-image" class="hidden"></div>
+        <div id="report-output" class="bg-obsidian-950 border hairline-border rounded p-4 font-mono text-xs text-slate-200 whitespace-pre-wrap leading-relaxed min-h-[120px]">Bir rapor seçip "Göster"e bas.</div>
       </div>
     </div>
 
@@ -833,6 +873,7 @@ app.get('/', (req, res) => {
           <h2 class="text-base font-bold text-white tracking-tight">Harici Telegram Botlarınızı Bu Panele Bağlama</h2>
           <p class="text-xs text-slate-400 mt-1 leading-relaxed">
             Diğer GitHub depolarınızda çalışan Telegram botlarını bu panele bağlamak için tek yapmanız gereken aşağıdaki JSON'u göndermektir. Botunuzda bir hata meydana geldiğinde <code>"error": "hata mesajı"</code> alanını doldurursanız paneldeki <b>Hata Günlüğü</b> otomatik olarak kırmızı alarm verir.
+            Uç nokta yetki ister: sunucuda en az 16 karakterlik <code>EXTERNAL_BOT_KEY</code> tanımlayıp isteğe <code>X-Bot-Key</code> başlığıyla ekleyin.
           </p>
         </div>
 
@@ -849,6 +890,7 @@ app.get('/', (req, res) => {
           <pre id="code-python" class="bg-obsidian-950 p-4 rounded border hairline-border text-xs font-mono text-emerald-300 overflow-x-auto leading-relaxed">import requests
 
 HUB_URL = "http://YOUR_SERVER_ADDRESS:3000/api/external-bots/heartbeat"
+BOT_KEY = "EXTERNAL_BOT_KEY değeri"
 
 def report_status(error_msg=None):
     payload = {
@@ -861,7 +903,7 @@ def report_status(error_msg=None):
         "metrics": { "Açık İşlem": "2", "Kâr": "+%4.2" }
     }
     try:
-        requests.post(HUB_URL, json=payload, timeout=5)
+        requests.post(HUB_URL, json=payload, headers={"X-Bot-Key": BOT_KEY}, timeout=5)
     except Exception as e:
         print("Heartbeat gönderilemedi:", e)
 
@@ -873,58 +915,13 @@ def report_status(error_msg=None):
 
   </main>
 
-  <!-- Add Bot Modal -->
-  <div id="add-bot-modal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="glass-panel border hairline-border rounded-lg max-w-md w-full p-6 space-y-4 shadow-2xl">
-      <div class="flex items-center justify-between border-b hairline-border pb-3">
-        <h3 class="font-bold text-white text-sm font-mono uppercase tracking-tight">Yeni Harici Bot Ekle</h3>
-        <button onclick="closeAddBotModal()" class="text-slate-400 hover:text-white">&times;</button>
-      </div>
-      <div class="space-y-3.5 text-xs">
-        <div>
-          <label class="block text-slate-400 mb-1 font-medium">Bot Kimliği (ID)</label>
-          <input id="input-bot-id" placeholder="ornek: trend-bot-1" class="w-full bg-obsidian-950 border hairline-border rounded p-2.5 text-white font-mono focus:border-amber-500/50 outline-none">
-        </div>
-        <div>
-          <label class="block text-slate-400 mb-1 font-medium">Bot Adı</label>
-          <input id="input-bot-name" placeholder="Örn: BTC Trend Takipçisi" class="w-full bg-obsidian-950 border hairline-border rounded p-2.5 text-white focus:border-amber-500/50 outline-none">
-        </div>
-        <div>
-          <label class="block text-slate-400 mb-1 font-medium">Telegram Kullanıcı Adı</label>
-          <input id="input-bot-tg" placeholder="@BtcTrendBot" class="w-full bg-obsidian-950 border hairline-border rounded p-2.5 text-white font-mono focus:border-amber-500/50 outline-none">
-        </div>
-      </div>
-      <div class="flex justify-end gap-2.5 pt-3 border-t hairline-border">
-        <button onclick="closeAddBotModal()" class="px-3.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs text-white">İptal</button>
-        <button onclick="saveNewBot()" class="px-4 py-1.5 rounded bg-amber-500 hover:bg-amber-400 font-bold text-xs text-slate-950 font-mono">Kaydet</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Test Modal -->
-  <div id="test-modal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="glass-panel border hairline-border rounded-lg max-w-2xl w-full p-6 space-y-4 shadow-2xl">
-      <div class="flex items-center justify-between border-b hairline-border pb-3">
-        <h3 class="font-bold text-white text-sm font-mono flex items-center gap-2">
-          <span>Test Paketi Yürütücüsü (test/run.js)</span>
-          <span id="test-spinner" class="hidden w-3 h-3 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></span>
-        </h3>
-        <button onclick="closeTestModal()" class="text-slate-400 hover:text-white">&times;</button>
-      </div>
-      <div class="bg-obsidian-950 rounded p-4 font-mono text-xs text-slate-300 max-h-96 overflow-y-auto whitespace-pre-wrap leading-relaxed" id="test-output">
-        Test başlatılıyor...
-      </div>
-      <div class="flex justify-end">
-        <button onclick="closeTestModal()" class="px-4 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs text-white font-mono">Kapat</button>
-      </div>
-    </div>
-  </div>
 
   <script>
-    window.__ADMIN_TOKEN__ = ${JSON.stringify(currentToken)};
+    window.__ADMIN_TOKEN__ = ${JSON.stringify(currentToken).replace(/</g, '\\u003c')};
     let allCardsData = [];
     let currentLogLevel = 'all';
     let allLogsData = [];
+    let logDay = '';          // '' = canlı akış, aksi halde geçmiş gün (YYYY-MM-DD)
 
     function showToast(msg, type = 'info') {
       const container = document.getElementById('toast-container');
@@ -1000,7 +997,7 @@ def report_status(error_msg=None):
     }
 
     function switchTab(tabId) {
-      const tabs = ['tab-hub', 'tab-terminal', 'tab-logs', 'tab-levels', 'tab-settings', 'tab-integration'];
+      const tabs = ['tab-hub', 'tab-terminal', 'tab-logs', 'tab-levels', 'tab-settings', 'tab-integration', 'tab-reports'];
       tabs.forEach(id => {
         const el = document.getElementById(id);
         if (el) el.classList.add('hidden');
@@ -1039,9 +1036,11 @@ def report_status(error_msg=None):
         }
 
         if (resLogs.ok) {
-          allLogsData = resLogs.logs || [];
-          document.getElementById('log-count-badge').textContent = resLogs.total + ' kayıt';
-          renderLogs(allLogsData);
+          if (!logDay) {
+            allLogsData = resLogs.logs || [];
+            document.getElementById('log-count-badge').textContent = resLogs.total + ' kayıt';
+            renderLogs(allLogsData);
+          }
 
           const errs = resLogs.errorCount || 0;
           const warns = resLogs.warnCount || 0;
@@ -1092,6 +1091,8 @@ def report_status(error_msg=None):
           }
         }
 
+        if (resStatus.ok) renderHealth(resStatus);
+
         if (resSettings.ok && resSettings.settings) {
           const s = resSettings.settings;
           document.getElementById('cfg-rsi').textContent = '≥ ' + s.rsiMin + ' (' + s.minTFs + '/3 TF)';
@@ -1099,12 +1100,7 @@ def report_status(error_msg=None):
           document.getElementById('cfg-burst').textContent = '%' + s.burstPct1 + ' / %' + s.burstPct2 + ' (×' + s.volMult + ')';
           document.getElementById('cfg-vol').textContent = '≥ ' + s.minVolumeM + 'M $';
 
-          if (!document.getElementById('setting-rsi').value) {
-            document.getElementById('setting-rsi').value = s.rsiMin;
-            document.getElementById('setting-level').value = s.levelMaxPct;
-            document.getElementById('setting-burst1').value = s.burstPct1;
-            document.getElementById('setting-vol').value = s.minVolumeM;
-          }
+          renderSettings(s, resSettings.defs || []);
         }
 
         if (resCards.ok && resCards.cards) {
@@ -1158,6 +1154,102 @@ def report_status(error_msg=None):
       }).join('');
     }
 
+    async function loadLogDays() {
+      try {
+        const r = await fetch('/api/logs/days', { headers: getAuthHeaders(), credentials: 'same-origin' }).then(x => x.json());
+        const sel = document.getElementById('log-day');
+        if (!r.ok || !sel) return;
+        const keep = sel.value;
+        sel.innerHTML = '<option value="">Canlı (son kayıtlar)</option>' + (r.days || []).map(d =>
+          '<option value="' + escapeHtml(d.day) + '">' + escapeHtml(d.day + ' · ' + d.errors + ' hata · ' + d.warnings + ' uyarı') + '</option>').join('');
+        sel.value = keep;
+        if (!r.persistent) sel.title = 'Kalıcı kayıt kapalı (disk yazılamıyor)';
+      } catch (e) {}
+    }
+
+    async function selectLogDay(day) {
+      logDay = day;
+      const dot = document.getElementById('log-mode-dot');
+      const label = document.getElementById('log-mode-label');
+      if (!day) {
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
+        label.textContent = 'Canlı Log Akışı';
+        fetchData();
+        return;
+      }
+      dot.className = 'w-2 h-2 rounded-full bg-sky-500';
+      label.textContent = 'Kayıtlı günlük · ' + day;
+      try {
+        const r = await fetch('/api/logs/history?limit=5000&day=' + encodeURIComponent(day), { headers: getAuthHeaders(), credentials: 'same-origin' }).then(x => x.json());
+        allLogsData = r.ok ? (r.entries || []) : [];
+        document.getElementById('log-count-badge').textContent = (r.total || 0) + ' kayıt';
+        renderLogs(allLogsData);
+      } catch (e) {
+        showToast('Günlük okunamadı: ' + e.message, 'error');
+      }
+    }
+
+    async function downloadLogDay() {
+      const day = logDay || new Date().toISOString().slice(0, 10);
+      try {
+        const res = await fetch('/api/logs/export?day=' + encodeURIComponent(day), { headers: getAuthHeaders(), credentials: 'same-origin' });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'İndirilemedi');
+        const url = URL.createObjectURL(await res.blob());
+        const a = document.createElement('a');
+        a.href = url; a.download = 'scalp-log-' + day + '.jsonl';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (e) {
+        showToast('Günlük indirilemedi: ' + e.message, 'error');
+      }
+    }
+
+    // Telegram HTML'i (yalnızca b/i/u/code/pre) güvenle gösterir: önce her şey kaçışlanır, sonra bu etiketler geri açılır.
+    function tgHtml(str) {
+      return escapeHtml(str)
+        .replace(/&lt;a\\s[\\s\\S]*?&gt;|&lt;\\/a&gt;/g, '')
+        .replace(/&lt;(\\/?)(b|i|u|code|pre)&gt;/g, '<$1$2>');
+    }
+
+    const REPORT_ARGS = {
+      istatistik: ['Gün', '7'], seviye: ['Gün ve seviye adı', '7 fib'], kacan: ['Gün', '7'], teyit: ['Gün', '7'],
+      gecmis: ['Coin ve adet', 'ETH 10'], coin: ['Coin', 'ETH'], takip: null, sessiz: null, durum: null,
+    };
+    function reportArgsHint() {
+      const name = document.getElementById('report-name').value;
+      const a = REPORT_ARGS[name];
+      const input = document.getElementById('report-args');
+      document.getElementById('report-args-label').textContent = a ? a[0] : '—';
+      input.placeholder = a ? a[1] : '';
+      input.disabled = !a;
+      if (!a) input.value = '';
+    }
+
+    async function runReport() {
+      const name = document.getElementById('report-name').value;
+      const args = document.getElementById('report-args').value.trim();
+      const out = document.getElementById('report-output');
+      const img = document.getElementById('report-image');
+      const btn = document.getElementById('report-run');
+      btn.disabled = true;
+      out.textContent = 'Hazırlanıyor…';
+      img.classList.add('hidden'); img.innerHTML = '';
+      try {
+        const r = await fetch('/api/reports/' + encodeURIComponent(name) + '?args=' + encodeURIComponent(args), { headers: getAuthHeaders(), credentials: 'same-origin' }).then(x => x.json());
+        if (!r.ok) throw new Error(r.error || 'Rapor alınamadı');
+        out.innerHTML = tgHtml(r.text || '—');
+        if (r.image && r.image.startsWith('data:image/png;base64,')) {
+          const el = document.createElement('img');
+          el.src = r.image; el.alt = name + ' grafik'; el.className = 'max-w-full rounded border hairline-border';
+          img.appendChild(el); img.classList.remove('hidden');
+        }
+      } catch (e) {
+        out.textContent = 'Hata: ' + e.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
     function setLogLevel(lvl) {
       currentLogLevel = lvl;
       ['all', 'error', 'warn', 'info'].forEach(k => {
@@ -1173,17 +1265,6 @@ def report_status(error_msg=None):
       renderLogs(allLogsData);
     }
 
-    async function clearLogs() {
-      try {
-        await fetch('/api/logs/clear', { method: 'POST', headers: { ...getAuthHeaders() } });
-        allLogsData = [];
-        renderLogs([]);
-        showToast('Loglar temizlendi', 'info');
-        fetchData();
-      } catch (e) {
-        showToast('Loglar temizlenemedi: ' + e.message, 'error');
-      }
-    }
 
     function copyAllLogs() {
       const text = allLogsData.map(l => '[' + new Date(l.t).toLocaleTimeString('tr-TR') + '] [' + l.level.toUpperCase() + '] [' + l.tag + '] ' + l.message).join('\\n');
@@ -1226,13 +1307,10 @@ def report_status(error_msg=None):
           (metricsHtml ? '<div class="space-y-0.5 pt-2 border-t hairline-border">' + metricsHtml + '</div>' : '') +
           '<div class="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t hairline-border font-mono">' +
             '<span>Son nabız: ' + lastSeenText + '</span>' +
-            (b.type !== 'local' ? '<button type="button" data-delete-bot="' + escapeHtml(b.id) + '" class="text-rose-400 hover:text-rose-300">Kaldır</button>' : '<span class="text-slate-600">Sistem Servisi</span>') +
+            '<span class="text-slate-600">' + (b.type === 'local' ? 'Sistem Servisi' : 'Harici Bot') + '</span>' +
           '</div>' +
         '</div>';
       }).join('');
-      container.querySelectorAll('[data-delete-bot]').forEach(button => {
-        button.addEventListener('click', () => deleteBot(button.dataset.deleteBot));
-      });
     }
 
     function renderCards(cards) {
@@ -1294,113 +1372,53 @@ def report_status(error_msg=None):
         return '<tr class="hover:bg-slate-900/50 transition">' +
           '<td class="py-2.5 px-3 font-bold text-white">' + escapeHtml(t.symbol) + '</td>' +
           '<td class="py-2.5 px-3 text-slate-300">' + escapeHtml(t.name) + '</td>' +
-          '<td class="py-2.5 px-3 tabular text-slate-400">$' + (t.value ? t.value.toFixed(4) : '—') + '</td>' +
-          '<td class="py-2.5 px-3 tabular text-slate-400">' + (t.hits || 1) + '</td>' +
-          '<td class="py-2.5 px-3 text-right tabular text-slate-300">%' + (t.pb ? t.pb.toFixed(2) : '0.00') + '</td>' +
+          '<td class="py-2.5 px-3 tabular text-slate-400">$' + (Number.isFinite(Number(t.value)) && t.value != null ? Number(t.value).toFixed(4) : '—') + '</td>' +
+          '<td class="py-2.5 px-3 tabular text-slate-400">' + (Math.floor(Number(t.hits)) || 1) + '</td>' +
+          '<td class="py-2.5 px-3 text-right tabular text-slate-300">%' + (Number.isFinite(Number(t.pb)) ? Number(t.pb).toFixed(2) : '0.00') + '</td>' +
           '<td class="py-2.5 px-3 text-right">' + heldBadge + '</td>' +
           '<td class="py-2.5 px-3 text-right text-slate-500">' + timeStr + '</td>' +
         '</tr>';
       }).join('');
     }
 
-    async function saveSettings() {
-      const rsi = Number(document.getElementById('setting-rsi').value);
-      const level = Number(document.getElementById('setting-level').value);
-      const burst1 = Number(document.getElementById('setting-burst1').value);
-      const vol = Number(document.getElementById('setting-vol').value);
-      const statusEl = document.getElementById('save-status');
-
-      try {
-        const res = await fetch('/api/settings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify({ rsiMin: rsi, levelMaxPct: level, burstPct1: burst1, minVolumeM: vol })
-        }).then(r => r.json());
-
-        if (res.ok) {
-          statusEl.textContent = '✓ Ayarlar başarıyla güncellendi';
-          showToast('Ayarlar başarıyla kaydedildi', 'success');
-          setTimeout(() => { statusEl.textContent = ''; }, 3000);
-          fetchData();
-        } else {
-          statusEl.textContent = 'Hata: ' + res.error;
-          showToast('Hata: ' + res.error, 'error');
-        }
-      } catch (err) {
-        statusEl.textContent = 'İletişim hatası';
-        showToast('İletişim hatası: ' + err.message, 'error');
-      }
+    function renderHealth(st) {
+      const box = document.getElementById('health-rows');
+      const badge = document.getElementById('hl-badge');
+      const h = st.health;
+      if (!box) return;
+      if (!h) { box.innerHTML = '<div class="text-slate-500">Motor henüz başlamadı.</div>'; return; }
+      const ws = st.websocket || {};
+      const sec = ms => ms == null ? '—' : (ms / 1000).toFixed(1) + ' sn';
+      const lat = (h.latency.last5m && h.latency.last5m.candles) ? h.latency.last5m : h.latency.current;
+      const g = h.gapFill || {}, sd = h.seed || {};
+      const row = (label, value, cls) => '<div class="flex justify-between gap-3 py-1 border-b border-slate-800/40"><span class="text-slate-400">' + escapeHtml(label) +
+        '</span><span class="font-semibold tabular text-right ' + (cls || 'text-white') + '">' + escapeHtml(value) + '</span></div>';
+      const bad = h.stale.count > 0 || h.recovery.blocked > 0 || (ws.connections && ws.open < ws.connections);
+      if (badge) { badge.textContent = bad ? '⚠ Dikkat' : '● Sağlıklı'; badge.className = 'text-[10px] font-mono ' + (bad ? 'text-amber-400' : 'text-emerald-400'); }
+      box.innerHTML =
+        row('WebSocket:', (ws.open ?? 0) + '/' + (ws.connections ?? 0) + ' bağlı · ' + (ws.streams ?? 0) + ' stream', ws.connections && ws.open < ws.connections ? 'text-rose-400' : 'text-emerald-400') +
+        row('Yeniden bağlanma:', String(ws.reconnects ?? 0), ws.reconnects ? 'text-amber-400' : 'text-slate-300') +
+        row('1m mum gecikmesi (ort / maks):', sec(lat.lagAvgMs) + ' / ' + sec(lat.lagMaxMs), lat.lagMaxMs > 60000 ? 'text-rose-400' : (lat.lagMaxMs > 20000 ? 'text-amber-400' : 'text-slate-200')) +
+        row('Hazır / izlenen coin:', h.ready + ' / ' + h.coins + (h.loading ? ' · ' + h.loading + ' yükleniyor' : '')) +
+        row('Geride (3 dk mum yok):', h.stale.count + (h.stale.count ? ' · ' + h.stale.sample.slice(0, 4).join(', ') : ''), h.stale.count ? 'text-amber-400' : 'text-emerald-400') +
+        row('Kurtarmada (sinyal kilidi):', String(h.recovery.blocked), h.recovery.blocked ? 'text-amber-400' : 'text-emerald-400') +
+        row('Son boşluk doldurma:', g.runs ? (g.lastRecoveredCandles + ' mum · ' + (g.lastIncomplete || 0) + ' eksik · ' + (g.lastStale || 0) + ' eski · ' + (g.lastFailures || 0) + ' hata') : 'yok', (g.lastIncomplete || g.lastStale || g.lastFailures) ? 'text-amber-400' : 'text-slate-300') +
+        row('Son tohumlama:', sd.runs ? (sd.lastSymbols + ' coin · ' + Math.round((sd.lastDurationMs || 0) / 1000) + ' sn · ' + (sd.lastFailures || 0) + ' hata') : 'yok', sd.lastFailures ? 'text-amber-400' : 'text-slate-300');
     }
 
-    function openAddBotModal() { document.getElementById('add-bot-modal').classList.remove('hidden'); }
-    function closeAddBotModal() { document.getElementById('add-bot-modal').classList.add('hidden'); }
-
-    async function saveNewBot() {
-      const id = document.getElementById('input-bot-id').value.trim();
-      const name = document.getElementById('input-bot-name').value.trim();
-      const tg = document.getElementById('input-bot-tg').value.trim();
-      if (!id || !name) return showToast('Lütfen ID ve Ad giriniz', 'warn');
-
-      try {
-        const res = await fetch('/api/external-bots/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify({ id, name, telegram: tg })
-        }).then(r => r.json());
-        if (res.ok) {
-          closeAddBotModal();
-          showToast('Yeni bot başarıyla kaydedildi', 'success');
-          fetchData();
-        } else {
-          showToast('Hata: ' + (res.error || 'Eklenemedi'), 'error');
-        }
-      } catch (err) {
-        showToast('İletişim hatası: ' + err.message, 'error');
-      }
+    function renderSettings(s, defs) {
+      const box = document.getElementById('settings-table');
+      if (!box) return;
+      const known = new Set(defs.map(d => d.key));
+      const rows = defs.filter(d => d.key in s).map(d => [d.label, s[d.key], d.type])
+        .concat(Object.keys(s).filter(k => !known.has(k)).map(k => [k, s[k], typeof s[k]]));
+      box.innerHTML = rows.map(([label, v, type]) => {
+        const shown = type === 'bool' || typeof v === 'boolean' ? (v ? 'açık' : 'kapalı') : (v && typeof v === 'object' ? JSON.stringify(v) : v);
+        return '<div class="flex justify-between gap-4 py-1.5"><span class="text-slate-400">' + escapeHtml(label) + '</span>' +
+          '<span class="text-white font-semibold text-right">' + escapeHtml(shown) + '</span></div>';
+      }).join('');
     }
 
-    async function deleteBot(id) {
-      openConfirm('Bu harici botu kaldırmak istediğinize emin misiniz?', async () => {
-        try {
-          const res = await fetch('/api/external-bots/' + encodeURIComponent(id), {
-            method: 'DELETE',
-            headers: { ...getAuthHeaders() }
-          }).then(r => r.json());
-          if (res.ok) {
-            showToast('Harici bot kaldırıldı', 'success');
-            fetchData();
-          } else {
-            showToast('Kaldırılamadı: ' + (res.error || 'Hata'), 'error');
-          }
-        } catch (err) {
-          showToast('Silme hatası: ' + err.message, 'error');
-        }
-      });
-    }
-
-    async function runTests() {
-      const modal = document.getElementById('test-modal');
-      const out = document.getElementById('test-output');
-      const spinner = document.getElementById('test-spinner');
-      modal.classList.remove('hidden');
-      spinner.classList.remove('hidden');
-      out.textContent = 'Test paketi yürütülüyor (test/run.js)... Lütfen bekleyin...\\n';
-
-      try {
-        const res = await fetch('/api/run-tests', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() }
-        }).then(r => r.json());
-        spinner.classList.add('hidden');
-        out.textContent = res.output || (res.ok ? 'Tüm testler başarıyla geçti!' : 'Testler başarısız oldu.');
-        showToast(res.ok ? 'Tüm testler başarıyla geçti!' : 'Test paketi tamamlandı', res.ok ? 'success' : 'warn');
-      } catch (err) {
-        spinner.classList.add('hidden');
-        out.textContent = 'Hata: ' + err.message;
-        showToast('Test yürütme hatası: ' + err.message, 'error');
-      }
-    }
-    function closeTestModal() { document.getElementById('test-modal').classList.add('hidden'); }
 
     function copyCode(id) {
       const text = document.getElementById(id).textContent;
@@ -1410,97 +1428,43 @@ def report_status(error_msg=None):
       showToast('Kod panoya kopyalandı!', 'success');
     }
 
-    async function notifyTelegramPanel() {
-      const btn = document.getElementById('btn-notify-tg');
-      const txt = document.getElementById('btn-notify-tg-text');
-      const origText = txt ? txt.textContent : 'Telegram';
-      if (btn) btn.disabled = true;
-      if (txt) txt.textContent = 'İletiliyor...';
-      try {
-        const res = await fetch('/api/notify-panel', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify({ note: 'Web Paneli Üzerinden İletildi' })
-        }).then(r => r.json());
-        if (res.ok) {
-          showToast('✅ Web paneli adresi Telegram grubuna ve ' + res.adminCount + ' yöneticiye iletildi.', 'success');
-        } else {
-          showToast('Hata: ' + (res.error || 'İletilemedi'), 'error');
-        }
-      } catch (err) {
-        showToast('Ağ Hatası: ' + err.message, 'error');
-      } finally {
-        if (btn) btn.disabled = false;
-        if (txt) txt.textContent = origText;
-      }
-    }
-
-    async function refreshTelegramAdmins() {
-      const btn = document.getElementById('btn-refresh-admins');
-      const mobileBtn = document.getElementById('btn-refresh-admins-mobile');
-      const oldText = btn ? btn.textContent : 'Yönetici Yenile';
-      const oldMobileText = mobileBtn ? mobileBtn.textContent : '';
-      if (btn) {
-        btn.disabled = true;
-        btn.textContent = 'Kontrol ediliyor…';
-      }
-      if (mobileBtn) {
-        mobileBtn.disabled = true;
-        mobileBtn.textContent = 'Kontrol ediliyor…';
-      }
-      try {
-        const response = await fetch('/api/auth/refresh-admins', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: '{}'
-        });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok || !result.ok) throw new Error(result.error || 'Yönetici listesi yenilenemedi.');
-        if (btn) btn.textContent = 'Liste güncel ✓';
-        if (mobileBtn) mobileBtn.textContent = 'Liste güncel ✓';
-        showToast('Telegram yönetici listesi başarıyla yenilendi (Toplam: ' + result.adminCount + ')', 'success');
-        setTimeout(() => {
-          if (btn) btn.textContent = oldText;
-          if (mobileBtn) mobileBtn.textContent = oldMobileText;
-        }, 3000);
-      } catch (err) {
-        if (btn) btn.textContent = oldText;
-        if (mobileBtn) mobileBtn.textContent = oldMobileText;
-        showToast('Yönetici listesi yenilenemedi: ' + err.message, 'error');
-      } finally {
-        if (btn) btn.disabled = false;
-        if (mobileBtn) mobileBtn.disabled = false;
-      }
-    }
-
     const wh = document.getElementById('webhook-url');
     if (wh) wh.textContent = window.location.origin + '/api/external-bots/heartbeat';
 
     fetchData();
     setInterval(fetchData, 3000);
+    loadLogDays();
+    setInterval(loadLogDays, 60000);
   </script>
 </body>
 </html>
 `);
 });
 
-// Sunucuyu 0.0.0.0:3000 üzerinde dinle
-const server = app.listen(PORT, HOST, () => {
-  console.log(`[SERVER] Scalp Terminal http://${HOST}:${PORT} üzerinde çalışıyor`);
-  bootBot();
-});
-
-function shutdownServer() {
-  console.log('\n[SERVER] Kapatılıyor...');
-  server.close(() => {
-    binance.stopWebSocket();
-    telegram.stop();
-    process.exit(0);
+// Sunucuyu 0.0.0.0:3000 üzerinde dinle ve bot motorunu başlat. `node src/server.js` ya da
+// src/index.js start() çağırır; testler uygulamayı require edip kendi portunda, motoru başlatmadan açar.
+let server = null;
+function start() {
+  if (server) return server;
+  server = app.listen(PORT, HOST, () => {
+    console.log(`[SERVER] Scalp Terminal http://${HOST}:${PORT} üzerinde çalışıyor`);
+    bootBot();
   });
-}
-process.on('SIGINT', shutdownServer);
-process.on('SIGTERM', shutdownServer);
 
+  function shutdownServer() {
+    console.log('\n[SERVER] Kapatılıyor...');
+    server.close(() => {
+      binance.stopWebSocket();
+      telegram.stop();
+      process.exit(0);
+    });
+  }
+  process.on('SIGINT', shutdownServer);
+  process.on('SIGTERM', shutdownServer);
+  return server;
+}
+
+if (require.main === module) start();
+
+app.start = start;
 module.exports = app;

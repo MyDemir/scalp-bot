@@ -389,7 +389,7 @@ Tarayıcınızdan `http://localhost:3000` adresine giderek:
 * **Bot Merkezi (Multi-Bot Hub):** Tüm Telegram botlarınızın durumunu, son nabızlarını ve sinyallerini canlı izleyin.
 * **Sinyal Akışı:** Canlı RSI değerleri, EMA21 ayrışması ve seviye kartları.
 * **Direnç & Temas Kayıtları:** SQLite veritabanındaki seviye tepkileri tablosu.
-* **Canlı Ayarlar:** RSI eşiği ve hacim çarpanlarını anında düzenleme.
+* **Motor Ayarları (salt okunur):** Çalışan motorun güncel ayarlarının tamamı. Panel yalnızca yansıtma ekranıdır; ayarlar Telegram komutlarıyla değiştirilir, panelden hiçbir yazma işlemi yapılamaz (`/api/*` yazma istekleri 405 döner).
 * **Hata & Olay Günlüğü:** Sistem hataları, WebSocket kopuklukları ve Telegram hız sınırlarını anlık log akışından filtreleme.
 
 ---
@@ -410,10 +410,7 @@ Bot deploy edildikten veya yeniden başlatıldıktan sonra web panelinin adresin
    * `/panel` veya `/web`: Bot anlık olarak panel adresini ve **"🌐 Web Panelini Aç"** butonunu döner.
    * `/panel gonder` (veya `/panelligonder`): Yöneticiler bu komutu yazdığında panel linki gruba ve tüm adminlere anında yeniden duyurulur.
 
-3. **Web Panelinden Tek Tıkla Gönderim:**
-   * Web arayüzünün sağ üstündeki **"Telegram'a İlet"** butonuyla dilediğiniz zaman tek tıkla grubunuza ve adminlerinize güncel linki gönderebilirsiniz (`POST /api/notify-panel`).
-
-4. **Fly.io 7/24 Kesintisiz Çalışma Yapılandırması:**
+3. **Fly.io 7/24 Kesintisiz Çalışma Yapılandırması:**
    * `fly.toml` dosyasında `[http_service]` aktif edilmiştir.
    * `auto_stop_machines = false` yapılandırması sayesinde web trafiği olmasa dahi makine uyutulmaz; Binance WebSocket ve Telegram botu kesintisiz 7/24 çalışmaya devam eder.
 
@@ -421,14 +418,14 @@ Bot deploy edildikten veya yeniden başlatıldıktan sonra web panelinin adresin
 
 ## Harici Telegram Botlarınızı Bu Panele Bağlama
 
-Diğer GitHub depolarınızda veya bağımsız sunucularda çalışan botlarınıza küçük bir heartbeat (nabız) ekleyerek bu panelde görünmelerini sağlayabilirsiniz:
+Diğer GitHub depolarınızda veya bağımsız sunucularda çalışan botlarınıza küçük bir heartbeat (nabız) ekleyerek bu panelde görünmelerini sağlayabilirsiniz. Uç nokta yetki ister: sunucuda en az 16 karakterlik `EXTERNAL_BOT_KEY` tanımlayın ve isteğe `X-Bot-Key` başlığıyla ekleyin (anahtar yalnızca nabız gönderebilir, panel verisini okuyamaz):
 
 ```python
 # Python Botu Örneği
 import requests
 
 def report_to_hub(error_msg=None):
-    requests.post("https://<PANEL_ADRESI>/api/external-bots/heartbeat", json={
+    requests.post("https://<PANEL_ADRESI>/api/external-bots/heartbeat", headers={"X-Bot-Key": "<EXTERNAL_BOT_KEY>"}, json={
         "id": "trend-bot-1",
         "name": "BTC Trend Botu",
         "telegram": "@BtcTrendBot",
@@ -447,7 +444,10 @@ def report_to_hub(error_msg=None):
 * **Telegram Kuyruk Koruması:** `TELEGRAM_MAX_QUEUE_LEN` (250) sınırı ve 20-30 dk üzeri bayat scalp sinyalleri için TTL temizliği (`droppedExpired`) ile OOM bellek patlamaları önlenir. Kullanıcı komut yanıtları önceliklidir (`kind: 'reply'`).
 * **Mükerrer Mum Koruması:** WebSocket kopması sonrasında REST tamamlama (`backfillGap`) sırasında son işlenen mum zaman damgası (`lastT`) kontrol edilerek çift sinyal üretimi kesin olarak engellenir.
 * **Deterministik Docker Derlemesi:** `package-lock.json` ile `COPY package*.json ./` ve `npm ci` kullanılır.
-* **Otomatik Test Paketi:** 18 adet kapsamlı test (`npm test`) ve GitHub Actions CI iş akışı (`.github/workflows/test.yml`).
+* **Panel API Güvenliği:** Tüm `/api/*` uçları Telegram OTP oturumu ister; kullanıcının grupta hâlâ yönetici olduğu 5 dakikada bir canlı doğrulanır (çıkarılan yöneticinin oturumu iptal edilir), panel salt okunurdur, farklı kaynaktan gelen yazma istekleri (CSRF) reddedilir, URL'deki `?token=` yalnızca panel açılışında kabul edilir. Harici bot alanları tür/uzunluk sınırıyla saklanır ve panelde HTML kaçışıyla gösterilir.
+* **Sert Kuyruk Sınırı:** Telegram 429 sonrası yeniden deneme de `TELEGRAM_MAX_QUEUE_LEN` sınırını aşamaz.
+* **Kontrollü Backfill:** Tohumlama (`SEED_CONCURRENCY`, varsayılan 4) ve boşluk doldurma (`GAP_FILL_CONCURRENCY`, en fazla 4) sınırlı paralellikle, REST weight bütçesi (`BINANCE_REST_WEIGHT_PER_MIN`) içinde çalışır. Her coin için doldurma sonrası eksik 1m mum ve son mum yaşı kontrol edilir; delik ya da eski veri kalırsa coin sinyalleri durdurulup kurtarma kuyruğuna alınır.
+* **Otomatik Test Paketi:** 26 adet kapsamlı test (`npm test`) ve GitHub Actions CI iş akışı (`.github/workflows/test.yml`).
 
 ---
 

@@ -1,5 +1,7 @@
 'use strict';
 
+const escHtml = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
 /**
  * Web panel adresini ortam değişkenlerinden akıllıca belirler.
  * Sırayla:
@@ -49,13 +51,17 @@ function getDeployPlatformInfo() {
  * @param {boolean} [options.broadcastToGroup=false] - Gruba/kanala panel bağlantısını yalnızca açık yönetici talebiyle gönder
  * @returns {Promise<{ ok: boolean, url: string, sentToGroup: boolean, adminCount: number, dmSuccessCount: number }>}
  */
-async function notifyWebPanelToAdmins(telegram, { note = 'Dağıtım Başarılı & Hazır', triggeredBy = 'Deploy / Sistem Başlatıcı', thread = null, broadcastToGroup = false } = {}) {
-  const url = getWebPanelUrl();
+async function notifyWebPanelToAdmins(telegram, { note: rawNote = 'Dağıtım Başarılı & Hazır', triggeredBy: rawTriggeredBy = 'Deploy / Sistem Başlatıcı', thread = null, broadcastToGroup = false } = {}) {
+  // Not ve tetikleyen (ör. Telegram kullanıcı adı) dışarıdan gelebilir; HTML parse_mode için kaçışlanır.
+  const note = escHtml(rawNote);
+  const triggeredBy = escHtml(rawTriggeredBy);
+  const rawUrl = getWebPanelUrl();
+  const url = escHtml(rawUrl);
   const platform = getDeployPlatformInfo();
   const now = new Date().toLocaleTimeString('tr-TR', { timeZone: 'Europe/Istanbul', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
   const keyboard = [
-    [{ text: '🌐 Web Panelini Aç', url }],
+    [{ text: '🌐 Web Panelini Aç', url: rawUrl }],
     [{ text: '⚡ Sinyal & Motor Durumu', callback_data: 'g:main' }]
   ];
 
@@ -70,8 +76,7 @@ async function notifyWebPanelToAdmins(telegram, { note = 'Dağıtım Başarılı
     `• Canlı Sinyal Akışı & RSI/SFP/Seviye Kartları\n` +
     `• Multi-Bot Hub (Tüm Telegram Botlarını Bağlama)\n` +
     `• Hata & Sistem Teşhis Havuzu (Anlık Filtreli)\n` +
-    `• Dinamik Motor & Parametre Ayarları\n` +
-    `• Tek Tıkla Otomatik Test Doğrulama\n\n` +
+    `• Motor Ayarları & Durum Görüntüleme (salt okunur)\n\n` +
     `<i>💡 İpucu: Telegram sohbetinde <code>/panel</code> yazarak bu adrese her an ulaşabilirsiniz.</i>`;
 
   let sentToGroup = false;
@@ -105,9 +110,9 @@ async function notifyWebPanelToAdmins(telegram, { note = 'Dağıtım Başarılı
     `🕒 <b>Saat:</b> ${now} TSİ\n` +
     `📌 <b>Not:</b> ${note}\n` +
     `👤 <b>Tetikleyen:</b> ${triggeredBy}\n\n` +
-    `<i>Web paneli üzerinden canlı bot ayarlarını değiştirebilir, testleri çalıştırabilir veya diğer botlarınızın durumunu izleyebilirsiniz.</i>`;
+    `<i>Web paneli botunuzun canlı durumunu, sinyallerini, ayarlarını ve diğer botlarınızı salt okunur olarak yansıtır; ayarlar Telegram komutlarıyla değiştirilir.</i>`;
 
-  const dmKeyboard = [[{ text: '🌐 Web Paneline Git', url }]];
+  const dmKeyboard = [[{ text: '🌐 Web Paneline Git', url: rawUrl }]];
 
   let dmSuccessCount = 0;
   for (const adminId of adminIds) {
@@ -127,7 +132,7 @@ async function notifyWebPanelToAdmins(telegram, { note = 'Dağıtım Başarılı
 
   return {
     ok: true,
-    url,
+    url: rawUrl,
     sentToGroup,
     adminCount: adminIds.length,
     dmSuccessCount

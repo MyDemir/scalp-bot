@@ -19,7 +19,7 @@ function main() {
   // Web sunucusunu ve botu birlikte başlat (DISABLE_WEB=1 ile yalnız konsol botu çalıştırılabilir)
   if (process.env.DISABLE_WEB !== '1') {
     try {
-      require('./server');
+      require('./server').start();
       return Promise.resolve();
     } catch (err) {
       console.warn('[BOOT] Web sunucusu yüklenemedi, salt bilgi botu modunda devam ediliyor:', err.message);

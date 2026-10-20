@@ -188,6 +188,30 @@ function enqueue(kind, chatId, text, extra = {}) {
   return true;
 }
 
+/**
+ * Gönderimi başarısız olan mesajı kuyruğun başına geri koyar. Gönderim beklenirken kuyruk yeni
+ * mesajlarla dolmuş olabilir; sert sınır burada da korunur (önce en eski yanıt dışı mesaj düşer).
+ */
+function requeue(item) {
+  if (queue.length >= MAX_QUEUE_LEN) {
+    let dropIdx = -1;
+    for (let i = queue.length - 1; i >= 0; i--) if (queue[i].kind !== 'reply') { dropIdx = i; break; }
+    if (dropIdx === -1 && item.kind !== 'reply') {
+      stats.droppedOverflow++;
+      recordDispatch(item, 'dropped_overflow', 'Kuyruk dolu — yeniden deneme atlandı');
+      console.warn(`[TELEGRAM] Kuyruk limiti (${MAX_QUEUE_LEN}) dolu — yeniden denenecek ${item.kind} atlandı`);
+      return false;
+    }
+    if (dropIdx === -1) dropIdx = queue.length - 1;
+    const dropped = queue.splice(dropIdx, 1)[0];
+    stats.droppedOverflow++;
+    recordDispatch(dropped, 'dropped_overflow', 'Kuyruk dolu — yeniden deneme önceliği');
+    console.warn(`[TELEGRAM] Kuyruk limiti (${MAX_QUEUE_LEN}) dolu — ${dropped.kind} düşürüldü`);
+  }
+  queue.unshift(item);
+  return true;
+}
+
 async function pump() {
   if (pumping) return;
   pumping = true;
@@ -247,7 +271,7 @@ async function pump() {
           const sec = err.retryAfter ?? 5;
           stats.retried429++;
           console.warn(`[TELEGRAM] 429 hız sınırı — ${sec} sn sonra tekrar denenecek (kuyrukta ${queue.length + 1})`);
-          queue.unshift(item);
+          requeue(item);
           await sleep(sec * 1000);
           continue;
         }
@@ -255,14 +279,14 @@ async function pump() {
           // Konu silinmiş/kapatılmış → mesajı kaybetme, genel akışa gönder
           console.warn(`[TELEGRAM] Konu ${item.thread} bulunamadı (${err.message}) — mesaj genel akışa gönderiliyor. /konu ile yeniden bağla.`);
           item.thread = null;
-          queue.unshift(item);
+          requeue(item);
           continue;
         }
         if (item.photo && err.code >= 400 && err.code < 500) {
           // Grafik reddedildiyse (boyut/biçim) kartı kaybetme — metin olarak tekrar dene
           console.warn(`[TELEGRAM] Grafikli gönderim reddedildi (${err.code}: ${err.message}) — grafiksiz tekrar deneniyor`);
           item.photo = null;
-          queue.unshift(item);
+          requeue(item);
           continue;
         }
         if (err.code >= 400 && err.code < 500) {
@@ -274,7 +298,7 @@ async function pump() {
         item.attempts++;
         if (item.attempts < 4) {
           console.warn(`[TELEGRAM] Gönderim hatası (${err.message}) — ${5 * item.attempts} sn sonra tekrar (${item.attempts}/3)`);
-          queue.unshift(item);
+          requeue(item);
           await sleep(5000 * item.attempts);
         } else {
           stats.failed++;
@@ -652,5 +676,5 @@ module.exports = {
   sendPrivate, sendDocument, sendDocumentPrivate, onPrivateStart, isMember, getBotUsername: () => botUsername, setCommands, publishCommands, onCallback, isAdmin, getChatAdminIds, getGroupAdminIds, refreshGroupAdminIds, editMessage,
   getRecentDispatches: () => [...recentDispatches],
   isPolling: () => polling,
-  _internal: { handleUpdate, enqueue, get commands() { return commands; }, queue },
+  _internal: { handleUpdate, enqueue, requeue, get commands() { return commands; }, queue, MAX_QUEUE_LEN },
 };

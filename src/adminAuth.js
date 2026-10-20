@@ -7,6 +7,8 @@ const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const OTP_TTL_MS = 5 * 60 * 1000;
 const OTP_COOLDOWN_MS = 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
+// Oturum sahibinin hâlâ canlı grup yöneticisi olduğu bu sürede bir yeniden doğrulanır (GET istekleri).
+const SESSION_RECHECK_MS = 5 * 60 * 1000;
 
 function safeEqual(a, b) {
   const left = Buffer.from(String(a));
@@ -132,17 +134,22 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
     }
     otps.delete(id);
     const token = crypto.randomBytes(32).toString('base64url');
-    sessions.set(token, { userId: id, expiresAt: now() + SESSION_TTL_MS });
+    sessions.set(token, { userId: id, expiresAt: now() + SESSION_TTL_MS, verifiedAt: now() });
     return { token, userId: id, expiresAt: now() + SESSION_TTL_MS };
   }
 
-  function getSession(req) {
+  /**
+   * Oturum belirteci: Authorization: Bearer, x-session-token başlığı ya da HttpOnly çerez.
+   * URL'deki ?token= yalnızca allowQuery ile (giriş sonrası panel açılışı) kabul edilir;
+   * API isteklerinde URL belirteci loglara/Referer'a sızabileceği için reddedilir.
+   */
+  function getSession(req, { allowQuery = false } = {}) {
     const authHeader = req.headers?.authorization;
     const bearer = typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
     const headerToken = req.headers?.['x-session-token'];
-    const queryToken = req.query?.token || req.query?._token;
+    const queryToken = allowQuery ? (req.query?.token || req.query?._token) : null;
     const cookieToken = parseCookies(req.headers?.cookie)[COOKIE];
-    const token = bearer || headerToken || queryToken || cookieToken;
+    const token = [bearer, headerToken, queryToken, cookieToken].find(t => typeof t === 'string' && t);
     if (!token) return null;
     const session = sessions.get(token);
     if (!session) return null;
@@ -162,12 +169,48 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
     res.setHeader('Set-Cookie', parts.join('; '));
   }
 
-  function middleware(req, res, next) {
+  /**
+   * Yetki kontrolü: oturum sahibinin TELEGRAM_CHAT_ID grubunda hâlâ yönetici olduğunu doğrular.
+   * Her oturum için SESSION_RECHECK_MS'de bir (force ile hemen) Telegram'dan taze liste alınır.
+   * Yöneticilikten çıkarılan kullanıcının oturumu hemen iptal edilir.
+   * @returns {Promise<{ok:true}|{ok:false,status:number,error:string}>}
+   */
+  async function authorize(session, { force = false } = {}) {
+    const stored = sessions.get(session?.token);
+    if (!stored) return { ok: false, status: 401, error: 'Yönetici girişi gerekli.' };
+    if (!force && now() - (stored.verifiedAt || 0) < SESSION_RECHECK_MS) return { ok: true };
+    const ids = await adminIds();
+    if (ids === null) return { ok: false, status: 503, error: 'Telegram yönetici listesi doğrulanamadı; işlem güvenlik nedeniyle reddedildi.' };
+    if (!ids.includes(String(stored.userId))) {
+      sessions.delete(session.token);
+      return { ok: false, status: 403, error: 'Telegram grubundaki yöneticiliğiniz doğrulanamadı; oturum kapatıldı.' };
+    }
+    stored.verifiedAt = now();
+    return { ok: true };
+  }
+
+  async function middleware(req, res, next) {
     if (req.path.startsWith('/api/auth/')) return next();
-    const session = getSession(req);
+    const panelOpen = req.method === 'GET' && req.path === '/';
+    const session = getSession(req, { allowQuery: panelOpen });
     if (session) {
+      const mutating = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+      let verdict;
+      try {
+        verdict = await authorize(session, { force: mutating });
+      } catch (err) {
+        console.error('[AUTH] Yetki kontrolü başarısız:', err?.message || err);
+        verdict = { ok: false, status: 503, error: 'Yetki kontrolü yapılamadı.' };
+      }
+      if (!verdict.ok) {
+        res.setHeader('Cache-Control', 'no-store');
+        if (verdict.status === 403) clearCookie(res);
+        if (req.path.startsWith('/api/')) return res.status(verdict.status).json({ ok: false, error: verdict.error });
+        if (verdict.status === 403 && panelOpen) return res.status(200).type('html').send(loginPage());
+        return res.status(verdict.status).type('text').send(verdict.error);
+      }
       req.adminSession = session;
-      if (req.query?.token && req.query.token === session.token) {
+      if (panelOpen && req.query?.token && req.query.token === session.token) {
         setCookie(res, session.token);
       }
       return next();
@@ -186,14 +229,7 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
     clearCookie(res);
   }
 
-  function createQuickSession(userId = 'admin') {
-    const token = crypto.randomBytes(32).toString('base64url');
-    const session = { userId, expiresAt: now() + SESSION_TTL_MS };
-    sessions.set(token, session);
-    return { token, ...session };
-  }
-
-  return { requestCode, verifyCode, refreshAdminList, createQuickSession, getSession, setCookie, clearCookie, middleware, logout, _internal: { otps, sessions, cooldowns, adminIds } };
+  return { requestCode, verifyCode, refreshAdminList, authorize, getSession, setCookie, clearCookie, middleware, logout, _internal: { otps, sessions, cooldowns, adminIds } };
 }
 
-module.exports = { createAdminAuth, loginPage, parseCookies };
+module.exports = { createAdminAuth, loginPage, parseCookies, escapeHtml, safeEqual };
