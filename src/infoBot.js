@@ -176,6 +176,28 @@ async function runRecoveryCycle() {
   }
 }
 
+/** Panel için salt okunur akış sağlığı özeti (sayaçları değiştirmez). */
+function diagSummary(d, now = Date.now()) {
+  if (!d || !d.n) return { candles: 0, lagAvgMs: null, lagMaxMs: null, busyPct: null, windowMs: 0 };
+  const win = Math.max(1, (d.to ?? now) - d.from);
+  return { candles: d.n, lagAvgMs: Math.round(d.lagSum / d.n), lagMaxMs: Math.round(d.lagMax), busyPct: +(d.busyMs / win * 100).toFixed(1), windowMs: win };
+}
+
+function health(now = Date.now()) {
+  const stale = staleList(now);
+  return {
+    coins: series.size,
+    ready: readyCount(),
+    loading: busy.size,
+    seedFailed: failed.size,
+    stale: { count: stale.length, sample: stale.slice(0, 12) },
+    recovery: { blocked: recoveryBlocked.size, queued: recoveryQueue.size, sample: [...recoveryBlocked].slice(0, 12) },
+    latency: { current: diagSummary(diag, now), last5m: diagSummary(lastDiag, now) },
+    gapFill: { ...gapMetrics },
+    seed: { ...seedMetrics },
+  };
+}
+
 function diagText(d, now = Date.now()) {
   if (!d || !d.n) return 'veri yok';
   const win = Math.max(1, (d.to ?? now) - d.from);
@@ -745,4 +767,4 @@ async function main() {
   console.log('\n✅ Bilgi botu çalışıyor.\n');
 }
 
-module.exports = { main, _internal: { onPeakCandidate, series, settings, tracker, touches, drops, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, seedMany, checkCoverage, seedMetrics, runRecoveryCycle, scanStaleRecovery, queueRecovery, isFreshSymbol, recoveryBlocked, recoveryQueue, recoveryAttempts, recoveryNotBefore, gapMetrics, statusText, stats, busy, pending, details, getStore: () => store, getWeekly: () => weekly } };
+module.exports = { main, _internal: { onPeakCandidate, series, settings, tracker, touches, drops, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, seedMany, checkCoverage, seedMetrics, health, runRecoveryCycle, scanStaleRecovery, queueRecovery, isFreshSymbol, recoveryBlocked, recoveryQueue, recoveryAttempts, recoveryNotBefore, gapMetrics, statusText, stats, busy, pending, details, getStore: () => store, getWeekly: () => weekly } };

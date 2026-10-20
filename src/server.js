@@ -325,6 +325,7 @@ app.get('/api/status', (req, res) => {
     },
     websocket: wsStats,
     gapRecovery: internal.gapMetrics || {},
+    health: internal.health ? internal.health() : null,
     memory: {
       rssMb: Math.round(mem.rss / 1024 / 1024),
       heapUsedMb: Math.round(mem.heapUsed / 1024 / 1024),
@@ -666,6 +667,16 @@ app.get('/', (req, res) => {
               </div>
             </div>
           </div>
+
+          <div class="glass-panel p-4 rounded-lg space-y-3.5">
+            <div class="flex items-center justify-between border-b hairline-border pb-2.5">
+              <span class="text-xs font-bold text-white font-mono tracking-tight uppercase">Veri Akışı Sağlığı</span>
+              <span class="text-[10px] font-mono" id="hl-badge">—</span>
+            </div>
+            <div class="space-y-2 text-xs font-mono" id="health-rows">
+              <div class="text-slate-500">Yükleniyor…</div>
+            </div>
+          </div>
         </div>
 
       </div>
@@ -991,6 +1002,8 @@ def report_status(error_msg=None):
           }
         }
 
+        if (resStatus.ok) renderHealth(resStatus);
+
         if (resSettings.ok && resSettings.settings) {
           const s = resSettings.settings;
           document.getElementById('cfg-rsi').textContent = '≥ ' + s.rsiMin + ' (' + s.minTFs + '/3 TF)';
@@ -1181,6 +1194,31 @@ def report_status(error_msg=None):
           '<td class="py-2.5 px-3 text-right text-slate-500">' + timeStr + '</td>' +
         '</tr>';
       }).join('');
+    }
+
+    function renderHealth(st) {
+      const box = document.getElementById('health-rows');
+      const badge = document.getElementById('hl-badge');
+      const h = st.health;
+      if (!box) return;
+      if (!h) { box.innerHTML = '<div class="text-slate-500">Motor henüz başlamadı.</div>'; return; }
+      const ws = st.websocket || {};
+      const sec = ms => ms == null ? '—' : (ms / 1000).toFixed(1) + ' sn';
+      const lat = (h.latency.last5m && h.latency.last5m.candles) ? h.latency.last5m : h.latency.current;
+      const g = h.gapFill || {}, sd = h.seed || {};
+      const row = (label, value, cls) => '<div class="flex justify-between gap-3 py-1 border-b border-slate-800/40"><span class="text-slate-400">' + escapeHtml(label) +
+        '</span><span class="font-semibold tabular text-right ' + (cls || 'text-white') + '">' + escapeHtml(value) + '</span></div>';
+      const bad = h.stale.count > 0 || h.recovery.blocked > 0 || (ws.connections && ws.open < ws.connections);
+      if (badge) { badge.textContent = bad ? '⚠ Dikkat' : '● Sağlıklı'; badge.className = 'text-[10px] font-mono ' + (bad ? 'text-amber-400' : 'text-emerald-400'); }
+      box.innerHTML =
+        row('WebSocket:', (ws.open ?? 0) + '/' + (ws.connections ?? 0) + ' bağlı · ' + (ws.streams ?? 0) + ' stream', ws.connections && ws.open < ws.connections ? 'text-rose-400' : 'text-emerald-400') +
+        row('Yeniden bağlanma:', String(ws.reconnects ?? 0), ws.reconnects ? 'text-amber-400' : 'text-slate-300') +
+        row('1m mum gecikmesi (ort / maks):', sec(lat.lagAvgMs) + ' / ' + sec(lat.lagMaxMs), lat.lagMaxMs > 60000 ? 'text-rose-400' : (lat.lagMaxMs > 20000 ? 'text-amber-400' : 'text-slate-200')) +
+        row('Hazır / izlenen coin:', h.ready + ' / ' + h.coins + (h.loading ? ' · ' + h.loading + ' yükleniyor' : '')) +
+        row('Geride (3 dk mum yok):', h.stale.count + (h.stale.count ? ' · ' + h.stale.sample.slice(0, 4).join(', ') : ''), h.stale.count ? 'text-amber-400' : 'text-emerald-400') +
+        row('Kurtarmada (sinyal kilidi):', String(h.recovery.blocked), h.recovery.blocked ? 'text-amber-400' : 'text-emerald-400') +
+        row('Son boşluk doldurma:', g.runs ? (g.lastRecoveredCandles + ' mum · ' + (g.lastIncomplete || 0) + ' eksik · ' + (g.lastStale || 0) + ' eski · ' + (g.lastFailures || 0) + ' hata') : 'yok', (g.lastIncomplete || g.lastStale || g.lastFailures) ? 'text-amber-400' : 'text-slate-300') +
+        row('Son tohumlama:', sd.runs ? (sd.lastSymbols + ' coin · ' + Math.round((sd.lastDurationMs || 0) / 1000) + ' sn · ' + (sd.lastFailures || 0) + ' hata') : 'yok', sd.lastFailures ? 'text-amber-400' : 'text-slate-300');
     }
 
     function renderSettings(s, defs) {
