@@ -47,7 +47,7 @@ const DEFS = [
   { key: 'dirGrade3Pct', short: 'Yön 🔴🔴🔴 %', label: 'Hacim 🔴🔴🔴: yön uyumu (alış/satış) ≥ %', type: 'int', min: 50, max: 95, step: 1 },
   { key: 'windowMin', short: 'Pencere dk', label: 'Sayaç penceresi (dk)', type: 'int', min: 15, max: 200, step: 15 },
   { key: 'shortWindowMin', short: 'Kısa dk', label: 'Kısa pencere (dk)', type: 'int', min: 5, max: 60, step: 5 },
-  { key: 'resetRsi', short: 'Sıfırlama RSI', label: 'Kart no. sıfırlama (5m RSI <)', type: 'int', min: 40, max: 95, step: 1 },
+  { key: 'resetRsi', short: 'Sıfırlama RSI', label: 'Kart no. sıfırlama (15m RSI <)', type: 'int', min: 40, max: 95, step: 1 },
   { key: 'seriesBursts', short: 'Seri patlama', label: 'Seri içi patlama (5m RSI ≥ seriesMinRsi5m)', type: 'bool' },
   { key: 'sepATR', short: 'Ayrışma ATR', label: 'EMA21 ayrışma (ATR)', type: 'num', min: 0, max: 5, step: 0.1 },
   { key: 'sepRequired', short: 'Ayrışma şartı', label: 'Ayrışma şartı', type: 'bool' },

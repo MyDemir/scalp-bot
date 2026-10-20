@@ -42,7 +42,7 @@ Detay'da 🎯 hedef: 3m EMA21 ve 5m EMA21 uzaklığı. **Derece (en fazla 11 pua
 Eşikler `/ayarlar`: `strongRsi`, `rsiEntryMax`, `confRsi`, `confluencePct`, `sepPct2/5/10`, `grade2Min`, `grade3Min`, `grade4Min`.
 Hacim/⚡ daireleri: 1 temel · 2 hacim ≥ 3× · 3 + yön uyumu ≥ %65; renk yönü gösterir (🟢 alış/yükseliş · 🔴 satış/düşüş · ⚪ nötr).
 
-**Seri içi patlama:** bir coinde kart gittikten sonra seri sürerken (kapanmış 5m RSI 75'in altına inmeden)
+**Seri içi patlama:** bir coinde kart gittikten sonra seri sürerken (kapanmış 15m RSI 75'in altına inmeden)
 gelen hacimli 1m mum, o an **5m RSI ≥ 85** ise (`seriesMinRsi5m`) şart aranmadan kart olur (`#SERI`). 5m RSI 85'in altına
 inmişse (sert satış mumu RSI'ı düşürdüyse) kart gelmez — sürekli hacim bildirimi olmasın diye. `/ayarlar` → "Seri patlama" ile kapatılabilir.
 
@@ -61,7 +61,7 @@ Kırılımdan sonraki **6 mum (30 dk)** içinde bir 5m mum seviyenin **altında 
 **≥ %0.5** aşıp gövdesi **≥ %0.2 altında** kapanırsa ve mumun hacmi önceki 20 mumun ortalamasının üstündeyse (fitil türü) — kart gelir.
 Kartta 🔔 satırı `⚠️ Sahte kırılım` (ya da `⚠️ Sahte kırılım (fitil)`), altındaki satır ayrıntı (başlık tekrarlanmaz) ve daireler hep 🔴: `⚠️ Sahte kırılım: 30 günlük tepe 0.7646 · 20 dk önce üstüne çıktı, şimdi altında kapandı`
 · `#SAHTEKIRILIM`. Derece kontrol listesinden. Aynı coinde bir SFP kartından sonra 30 dk yeni SFP kartı gelmez.
-Aynı coinde kartlar **#1, #2 …** diye numaralanır; kapanmış 5m RSI 75'in altına inince numara sıfırlanır.
+Aynı coinde kartlar **#1, #2 …** diye numaralanır; kapanmış 15m RSI 75'in altına inince numara sıfırlanır.
 
 ### Kartın içeriği
 Hızlı okunsun diye kısa ve her şey açıkta (açılır kutu yok):

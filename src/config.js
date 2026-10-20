@@ -43,7 +43,7 @@ module.exports = {
     dirGrade3Pct:  65,
     windowMin:     60,
     shortWindowMin: 15,
-    resetRsi:      75,
+    resetRsi:      75,      // kart no. sıfırlama: kapanmış 15m RSI bunun altına inince
 
     seriesBursts:  true,
     seriesMinRsi5m: 85,      // YENİ: seri içi için 5m RSI ≥ 85

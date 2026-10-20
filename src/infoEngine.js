@@ -560,8 +560,8 @@ function createTracker() {
   };
 
   return {
-    observe5m(sym, rsi5mClosed, s) {
-      if (rsi5mClosed == null || rsi5mClosed >= s.resetRsi) return;
+    observe15m(sym, rsi15mClosed, s) {
+      if (rsi15mClosed == null || rsi15mClosed >= s.resetRsi) return;
       const m = mem.get(sym);
       if (m && m.seq) { m.seq = 0; m.last = null; }
     },
@@ -673,7 +673,7 @@ function createTracker() {
 function step(series, closedTfs, s, tracker, ctx = {}) {
   if (!series.ready()) return null;
   const sym = series.symbol;
-  if (closedTfs.has('5m')) tracker.observe5m(sym, ta.rsiLast(series.col('5m', 'c', false), s.rsiPeriod), s);
+  if (closedTfs.has('15m')) tracker.observe15m(sym, ta.rsiLast(series.col('15m', 'c', false), s.rsiPeriod), s);
 
   const tfs = RSI_TFS.filter(tf => closedTfs.has(tf));
   const burst = detectBurst(series, s);
