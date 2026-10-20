@@ -69,15 +69,26 @@ async function main() {
     // ── CSRF: farklı kaynaktan yazma isteği reddedilir ───────────────────
     const csrf = await req('/api/logs/clear', { method: 'POST', headers: { cookie: 'scalp_admin_session=' + token, origin: 'https://evil.example' } });
     assert.strictEqual(csrf.status, 403, 'cross-origin POST is rejected');
-    const same = await req('/api/logs/clear', { method: 'POST', token, headers: { origin: base } });
-    assert.strictEqual(same.status, 200, 'same-origin POST is accepted');
+    // ── Panel salt okunur: oturumlu kullanıcı da ayar/durum değiştiremez ────────
+    for (const [method, path] of [['POST', '/api/settings'], ['POST', '/api/logs/clear'], ['POST', '/api/run-tests'], ['POST', '/api/notify-panel'],
+      ['POST', '/api/external-bots/register'], ['DELETE', '/api/external-bots/x'], ['PUT', '/api/settings']]) {
+      const r = await req(path, { method, token, headers: { origin: base }, body: method === 'DELETE' ? undefined : { rsiMin: 1 } });
+      assert.strictEqual(r.status, 405, `${method} ${path} must be read-only (got ${r.status})`);
+    }
+    const settings = await (await req('/api/settings', { token })).json();
+    assert(settings.ok && settings.settings && Array.isArray(settings.defs), 'settings are readable for the mirror view');
+    const dash = await (await req('/', { token })).text();
+    for (const gone of ['saveSettings(', 'clearLogs(', 'runTests(', 'openAddBotModal(', 'notifyTelegramPanel(', 'data-delete-bot', 'refreshTelegramAdmins(']) {
+      assert(!dash.includes(gone), `dashboard must not expose write control ${gone}`);
+    }
 
     // ── Girdi temizliği / stored XSS ─────────────────────────────────────
     const xss = '<img src=x onerror=alert(1)>';
-    const reg = await req('/api/external-bots/register', { method: 'POST', token, body: { id: 'bad"id<script>', name: xss } });
+    const botKey = { 'x-bot-key': process.env.EXTERNAL_BOT_KEY };
+    const reg = await req('/api/external-bots/heartbeat', { method: 'POST', headers: botKey, body: { id: 'bad"id<script>', name: xss } });
     assert.strictEqual(reg.status, 400, 'bot id with HTML metacharacters is rejected');
     const big = { id: 'xss-bot', name: xss + 'A'.repeat(500), lastSignal: { nested: true }, status: '<b>', metrics: Object.fromEntries(Array.from({ length: 40 }, (_, i) => ['k' + i, { evil: i }])) };
-    assert.strictEqual((await req('/api/external-bots/heartbeat', { method: 'POST', token, body: big })).status, 200);
+    assert.strictEqual((await req('/api/external-bots/heartbeat', { method: 'POST', headers: botKey, body: big })).status, 200);
     const bots = (await (await req('/api/external-bots', { token })).json()).bots;
     const stored = bots.find(b => b.id === 'xss-bot');
     assert(stored.name.length <= 80, 'name is length-limited');
@@ -85,10 +96,11 @@ async function main() {
     assert.strictEqual(stored.status, 'online', 'unknown status is not stored');
     assert.deepStrictEqual(stored.metrics, {}, 'object metric values are discarded');
     assert.strictEqual(stored.type, 'remote', 'remote bot cannot claim local type');
-    assert.strictEqual((await req('/api/external-bots/heartbeat', { method: 'POST', token, body: { id: 'scalp-primary', name: 'x' } })).status, 400, 'local bot cannot be spoofed');
+    assert.strictEqual((await req('/api/external-bots/heartbeat', { method: 'POST', headers: botKey, body: { id: 'scalp-primary', name: 'x' } })).status, 400, 'local bot cannot be spoofed');
 
     // ── Harici bot anahtarı ────────────────────────────────────────────
-    assert.strictEqual((await req('/api/external-bots/heartbeat', { method: 'POST', body: { id: 'key-bot' } })).status, 401, 'heartbeat without key/session is rejected');
+    assert.strictEqual((await req('/api/external-bots/heartbeat', { method: 'POST', body: { id: 'key-bot' } })).status, 401, 'heartbeat without key is rejected');
+    assert.strictEqual((await req('/api/external-bots/heartbeat', { method: 'POST', token, body: { id: 'key-bot' } })).status, 401, 'admin session alone cannot write bot state');
     assert.strictEqual((await req('/api/external-bots/heartbeat', { method: 'POST', body: { id: 'key-bot' }, headers: { 'x-bot-key': 'wrong-key-0123456789' } })).status, 401, 'wrong bot key rejected');
     assert.strictEqual((await req('/api/external-bots/heartbeat', { method: 'POST', body: { id: 'key-bot', name: 'Anahtar' }, headers: { 'x-bot-key': process.env.EXTERNAL_BOT_KEY } })).status, 200, 'valid bot key may heartbeat');
     assert.strictEqual((await req('/api/external-bots', { headers: { 'x-bot-key': process.env.EXTERNAL_BOT_KEY } })).status, 401, 'bot key grants nothing beyond heartbeat');
@@ -101,8 +113,9 @@ async function main() {
 
     // ── Yetki: yöneticilikten çıkarılan kullanıcının oturumu yazma işleminde iptal edilir ──
     admins = ['87654321'];
-    const revoked = await req('/api/logs/clear', { method: 'POST', token });
-    assert.strictEqual(revoked.status, 403, 'removed admin cannot perform write actions');
+    app.locals.adminAuth._internal.sessions.get(token).verifiedAt = 0;   // periyodik yeniden doğrulama zamanı geldi
+    const revoked = await req('/api/status', { token });
+    assert.strictEqual(revoked.status, 403, 'removed admin is rejected on the next periodic recheck');
     assert.strictEqual((await req('/api/status', { token })).status, 401, 'revoked session can no longer read');
 
     // Telegram doğrulaması yapılamıyorsa yazma işlemi reddedilir (fail closed)
@@ -114,14 +127,16 @@ async function main() {
     const origErr = console.error; console.error = () => {};
     telegram.getGroupAdminIds = async () => { throw new Error('network down'); };
     try {
-      assert.strictEqual((await req('/api/logs/clear', { method: 'POST', token: token2 })).status, 503, 'write is refused when admin list cannot be verified');
       assert.strictEqual((await req('/api/status', { token: token2 })).status, 200, 'recently verified session can still read');
+      app.locals.adminAuth._internal.sessions.get(token2).verifiedAt = 0;
+      const failClosed = await req('/api/status', { token: token2 });
+      assert.strictEqual(failClosed.status, 503, 'recheck fails closed when Telegram admin list cannot be read');
     } finally {
       console.error = origErr;
       telegram.getGroupAdminIds = async () => admins;
     }
 
-    console.log('PASS: API auth, live admin authorization, CSRF, URL-token restriction, bot key, input sanitizing, non-resetting status reads');
+    console.log('PASS: read-only panel, API auth, live admin authorization, CSRF, URL-token restriction, bot key, input sanitizing, non-resetting status reads');
   } finally {
     server.close();
   }

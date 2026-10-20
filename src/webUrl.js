@@ -76,8 +76,7 @@ async function notifyWebPanelToAdmins(telegram, { note: rawNote = 'Dağıtım Ba
     `• Canlı Sinyal Akışı & RSI/SFP/Seviye Kartları\n` +
     `• Multi-Bot Hub (Tüm Telegram Botlarını Bağlama)\n` +
     `• Hata & Sistem Teşhis Havuzu (Anlık Filtreli)\n` +
-    `• Dinamik Motor & Parametre Ayarları\n` +
-    `• Tek Tıkla Otomatik Test Doğrulama\n\n` +
+    `• Motor Ayarları & Durum Görüntüleme (salt okunur)\n\n` +
     `<i>💡 İpucu: Telegram sohbetinde <code>/panel</code> yazarak bu adrese her an ulaşabilirsiniz.</i>`;
 
   let sentToGroup = false;
@@ -111,7 +110,7 @@ async function notifyWebPanelToAdmins(telegram, { note: rawNote = 'Dağıtım Ba
     `🕒 <b>Saat:</b> ${now} TSİ\n` +
     `📌 <b>Not:</b> ${note}\n` +
     `👤 <b>Tetikleyen:</b> ${triggeredBy}\n\n` +
-    `<i>Web paneli üzerinden canlı bot ayarlarını değiştirebilir, testleri çalıştırabilir veya diğer botlarınızın durumunu izleyebilirsiniz.</i>`;
+    `<i>Web paneli botunuzun canlı durumunu, sinyallerini, ayarlarını ve diğer botlarınızı salt okunur olarak yansıtır; ayarlar Telegram komutlarıyla değiştirilir.</i>`;
 
   const dmKeyboard = [[{ text: '🌐 Web Paneline Git', url: rawUrl }]];
 

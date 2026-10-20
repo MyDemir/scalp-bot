@@ -27,9 +27,10 @@ for (const token of [
   'escapeHtml(l.tag)',
   'escapeHtml(t.symbol)',
   'escapeHtml(t.name)',
-  `data-delete-bot="' + escapeHtml(b.id) + '"`,
+  'escapeHtml(label)',
+  'escapeHtml(shown)',
 ]) {
   assert(source.includes(token), `dashboard must escape untrusted field: ${token}`);
 }
-assert(!source.includes('onclick="deleteBot('), 'external bot IDs must not be injected into inline JavaScript');
-console.log('PASS: dashboard HTML escaping and safe external-bot delete binding');
+assert(!source.includes('deleteBot('), 'read-only dashboard must not offer bot deletion');
+console.log('PASS: dashboard HTML escaping (bots, logs, cards, touches, read-only settings)');

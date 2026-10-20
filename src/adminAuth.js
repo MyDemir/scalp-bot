@@ -9,8 +9,6 @@ const OTP_COOLDOWN_MS = 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
 // Oturum sahibinin hâlâ canlı grup yöneticisi olduğu bu sürede bir yeniden doğrulanır (GET istekleri).
 const SESSION_RECHECK_MS = 5 * 60 * 1000;
-// Okuma isteklerinin periyodik yetki kontrolünde yönetici listesi en fazla bu kadar eski olabilir.
-const ADMIN_LIST_CACHE_MS = 30 * 1000;
 
 function safeEqual(a, b) {
   const left = Buffer.from(String(a));
@@ -81,13 +79,6 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
       return null;
     }
   }
-  let adminListCache = null;   // { ids, at } — yalnızca oturum yetki kontrolleri için
-  async function cachedAdminIds() {
-    if (adminListCache && now() - adminListCache.at < ADMIN_LIST_CACHE_MS) return adminListCache.ids;
-    const ids = await adminIds();
-    if (ids !== null) adminListCache = { ids, at: now() };
-    return ids;
-  }
   const hashCode = (userId, code, salt) => crypto.createHash('sha256').update(userId + ':' + code + ':' + salt).digest('hex');
 
   async function requestCode(userId) {
@@ -115,7 +106,6 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
   async function refreshAdminList(userId) {
     const id = String(userId || '');
     const ids = await adminIds({ refresh: true });
-    if (ids !== null) adminListCache = { ids, at: now() };
     if (ids === null) {
       return { ok: false, status: 503, error: 'Telegram yönetici listesi alınamadı. ' + (lastAdminLookupError || 'TELEGRAM_CHAT_ID ve botun grup erişimini kontrol edin.') };
     }
@@ -181,7 +171,7 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
 
   /**
    * Yetki kontrolü: oturum sahibinin TELEGRAM_CHAT_ID grubunda hâlâ yönetici olduğunu doğrular.
-   * Yazma işlemlerinde (force) her istekte, okumalarda SESSION_RECHECK_MS'de bir yapılır.
+   * Her oturum için SESSION_RECHECK_MS'de bir (force ile hemen) Telegram'dan taze liste alınır.
    * Yöneticilikten çıkarılan kullanıcının oturumu hemen iptal edilir.
    * @returns {Promise<{ok:true}|{ok:false,status:number,error:string}>}
    */
@@ -189,9 +179,7 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
     const stored = sessions.get(session?.token);
     if (!stored) return { ok: false, status: 401, error: 'Yönetici girişi gerekli.' };
     if (!force && now() - (stored.verifiedAt || 0) < SESSION_RECHECK_MS) return { ok: true };
-    // Yazma işlemleri Telegram'dan taze liste ister; okumalar 30 sn'lik önbelleği kullanabilir.
-    const ids = force ? await adminIds() : await cachedAdminIds();
-    if (force && ids !== null) adminListCache = { ids, at: now() };
+    const ids = await adminIds();
     if (ids === null) return { ok: false, status: 503, error: 'Telegram yönetici listesi doğrulanamadı; işlem güvenlik nedeniyle reddedildi.' };
     if (!ids.includes(String(stored.userId))) {
       sessions.delete(session.token);
