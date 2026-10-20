@@ -323,6 +323,20 @@ app.get('/api/logs/export', (req, res) => {
   res.type('application/x-ndjson').send(buf);
 });
 
+// Salt okunur raporlar — Telegram komutlarının çıktısı (ayar/durum değiştirmeyenler)
+app.get('/api/reports/:name', async (req, res) => {
+  const internal = infoBot._internal || {};
+  const name = String(req.params.name || '');
+  if (!internal.PANEL_REPORTS?.has(name)) return res.status(404).json({ ok: false, error: 'Bilinmeyen rapor.' });
+  try {
+    const out = await internal.runReport(name, cleanText(req.query.args, 60) || '');
+    res.json({ ok: true, name, text: out.text, image: out.photo ? 'data:image/png;base64,' + out.photo.toString('base64') : null });
+  } catch (err) {
+    console.error(`[PANEL] /api/reports/${name} hatası: ${err?.message || err}`);
+    res.status(500).json({ ok: false, error: 'Rapor hazırlanamadı.' });
+  }
+});
+
 // ── Scalp Bot API ──────────────────────────────────────────────────────────
 
 app.get('/api/status', (req, res) => {
@@ -546,6 +560,9 @@ app.get('/', (req, res) => {
         </button>
         <button onclick="switchTab('tab-settings')" id="nav-tab-settings" class="px-3.5 py-1.5 rounded text-xs font-semibold whitespace-nowrap shrink-0 flex items-center gap-1.5 transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent select-none cursor-pointer">
           <span>Motor Ayarları</span>
+        </button>
+        <button onclick="switchTab('tab-reports')" id="nav-tab-reports" class="px-3.5 py-1.5 rounded text-xs font-semibold whitespace-nowrap shrink-0 flex items-center gap-1.5 transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent select-none cursor-pointer">
+          <span>Raporlar & İstatistik</span>
         </button>
         <button onclick="switchTab('tab-logs')" id="nav-tab-logs" class="px-3.5 py-1.5 rounded text-xs font-semibold whitespace-nowrap shrink-0 flex items-center gap-1.5 transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent select-none cursor-pointer">
           <span>Hata & Olay Günlüğü</span>
@@ -818,6 +835,37 @@ app.get('/', (req, res) => {
       </div>
     </div>
 
+    <!-- ═══════════════ TAB 7: RAPORLAR (salt okunur Telegram raporları) ═══════════════ -->
+    <div id="tab-reports" class="hidden space-y-6">
+      <div class="glass-panel p-5 rounded-lg space-y-4">
+        <div>
+          <h2 class="text-sm font-bold text-white uppercase font-mono tracking-tight">Raporlar & İstatistik</h2>
+          <p class="text-xs text-slate-400 mt-1">Telegram komutlarıyla aynı raporlar, salt okunur. Hiçbiri botun ayarını ya da durumunu değiştirmez.</p>
+        </div>
+        <div class="flex flex-wrap items-end gap-2 text-xs font-mono">
+          <label class="flex flex-col gap-1"><span class="text-slate-500">Rapor</span>
+            <select id="report-name" onchange="reportArgsHint()" class="bg-obsidian-950 border hairline-border rounded px-2.5 py-1.5 text-slate-200">
+              <option value="istatistik">📊 Kart istatistiği (/istatistik)</option>
+              <option value="gecmis">🗂 Coin kart geçmişi (/gecmis)</option>
+              <option value="coin">🔎 Coin anlık durumu (/coin)</option>
+              <option value="seviye">📐 Seviye tepkisi (/seviye)</option>
+              <option value="kacan">🔻 Düşüş defteri (/kacan)</option>
+              <option value="teyit">✅ Short teyidi (/teyit)</option>
+              <option value="takip">⭐ Takip listesi (/takip)</option>
+              <option value="sessiz">🔕 Susturulanlar (/sessiz)</option>
+              <option value="durum">🟢 Motor durumu (/durum)</option>
+            </select>
+          </label>
+          <label class="flex flex-col gap-1"><span class="text-slate-500" id="report-args-label">Gün</span>
+            <input id="report-args" maxlength="40" class="w-44 bg-obsidian-950 border hairline-border rounded px-2.5 py-1.5 text-slate-200" placeholder="7">
+          </label>
+          <button onclick="runReport()" id="report-run" class="px-4 py-1.5 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold">Göster</button>
+        </div>
+        <div id="report-image" class="hidden"></div>
+        <div id="report-output" class="bg-obsidian-950 border hairline-border rounded p-4 font-mono text-xs text-slate-200 whitespace-pre-wrap leading-relaxed min-h-[120px]">Bir rapor seçip "Göster"e bas.</div>
+      </div>
+    </div>
+
     <!-- ═══════════════ TAB 6: API & WEBHOOK ═══════════════ -->
     <div id="tab-integration" class="hidden space-y-6">
       <div class="glass-panel p-6 rounded-lg space-y-5 max-w-4xl">
@@ -949,7 +997,7 @@ def report_status(error_msg=None):
     }
 
     function switchTab(tabId) {
-      const tabs = ['tab-hub', 'tab-terminal', 'tab-logs', 'tab-levels', 'tab-settings', 'tab-integration'];
+      const tabs = ['tab-hub', 'tab-terminal', 'tab-logs', 'tab-levels', 'tab-settings', 'tab-integration', 'tab-reports'];
       tabs.forEach(id => {
         const el = document.getElementById(id);
         if (el) el.classList.add('hidden');
@@ -1153,6 +1201,52 @@ def report_status(error_msg=None):
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       } catch (e) {
         showToast('Günlük indirilemedi: ' + e.message, 'error');
+      }
+    }
+
+    // Telegram HTML'i (yalnızca b/i/u/code/pre) güvenle gösterir: önce her şey kaçışlanır, sonra bu etiketler geri açılır.
+    function tgHtml(str) {
+      return escapeHtml(str)
+        .replace(/&lt;a\\s[\\s\\S]*?&gt;|&lt;\\/a&gt;/g, '')
+        .replace(/&lt;(\\/?)(b|i|u|code|pre)&gt;/g, '<$1$2>');
+    }
+
+    const REPORT_ARGS = {
+      istatistik: ['Gün', '7'], seviye: ['Gün ve seviye adı', '7 fib'], kacan: ['Gün', '7'], teyit: ['Gün', '7'],
+      gecmis: ['Coin ve adet', 'ETH 10'], coin: ['Coin', 'ETH'], takip: null, sessiz: null, durum: null,
+    };
+    function reportArgsHint() {
+      const name = document.getElementById('report-name').value;
+      const a = REPORT_ARGS[name];
+      const input = document.getElementById('report-args');
+      document.getElementById('report-args-label').textContent = a ? a[0] : '—';
+      input.placeholder = a ? a[1] : '';
+      input.disabled = !a;
+      if (!a) input.value = '';
+    }
+
+    async function runReport() {
+      const name = document.getElementById('report-name').value;
+      const args = document.getElementById('report-args').value.trim();
+      const out = document.getElementById('report-output');
+      const img = document.getElementById('report-image');
+      const btn = document.getElementById('report-run');
+      btn.disabled = true;
+      out.textContent = 'Hazırlanıyor…';
+      img.classList.add('hidden'); img.innerHTML = '';
+      try {
+        const r = await fetch('/api/reports/' + encodeURIComponent(name) + '?args=' + encodeURIComponent(args), { headers: getAuthHeaders(), credentials: 'same-origin' }).then(x => x.json());
+        if (!r.ok) throw new Error(r.error || 'Rapor alınamadı');
+        out.innerHTML = tgHtml(r.text || '—');
+        if (r.image && r.image.startsWith('data:image/png;base64,')) {
+          const el = document.createElement('img');
+          el.src = r.image; el.alt = name + ' grafik'; el.className = 'max-w-full rounded border hairline-border';
+          img.appendChild(el); img.classList.remove('hidden');
+        }
+      } catch (e) {
+        out.textContent = 'Hata: ' + e.message;
+      } finally {
+        btn.disabled = false;
       }
     }
 

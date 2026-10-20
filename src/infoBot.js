@@ -44,7 +44,21 @@ const enricher = createEnricher({ client: binance });
 const liqStream = createLiqStream();
 const drops    = createDropLedger({ ...cfg.events, enrich: (sym, o) => enricher.enrich(sym, o), orderBook: sym => enricher.orderBook(sym), onCandidate: (sr, e) => onPeakCandidate(sr, e) });
 let store = null;
-let weekly = null;            // haftalık rapor işi (main'de kurulur)
+let weekly = null;
+let telegramUi = null;        // installInfoTelegram dönüşü — panel salt okunur raporlar için komut tablosunu kullanır
+
+// Panelde gösterilebilen salt okunur komut raporları (hiçbiri ayar/durum değiştirmez).
+// takip ve sessiz yalnızca argümansız (liste) çağrılır; argümanlı takip ekle-çıkar yapar.
+const PANEL_REPORTS = new Set(['durum', 'istatistik', 'seviye', 'kacan', 'teyit', 'gecmis', 'coin', 'sessiz', 'takip']);
+async function runReport(name, args = '') {
+  if (!PANEL_REPORTS.has(name)) throw new Error('bilinmeyen rapor');
+  const fn = telegramUi?.commands?.[name];
+  if (typeof fn !== 'function') return { text: 'Bot motoru henüz hazır değil.' };
+  const safeArgs = name === 'takip' || name === 'sessiz' || name === 'durum' ? '' : String(args || '').slice(0, 60);
+  const out = await fn(safeArgs, { from: {}, chat: {} });
+  if (out && typeof out === 'object') return { text: String(out.text || ''), photo: Buffer.isBuffer(out.photo) ? out.photo : null };
+  return { text: String(out ?? '') };
+}            // haftalık rapor işi (main'de kurulur)
 
 const series  = new Map();
 const busy    = new Set();
@@ -707,7 +721,7 @@ async function main() {
 
   store = createCardStore();
   await telegram.start();
-  installInfoTelegram({ telegram, settings, tracker, store, details, getSeries: sym => series.get(sym), ctx: () => ctx, status: statusText, chartFor: (sym, level, levels = []) => {
+  telegramUi = installInfoTelegram({ telegram, settings, tracker, store, details, getSeries: sym => series.get(sym), ctx: () => ctx, status: statusText, chartFor: (sym, level, levels = []) => {
     const sr = series.get(sym), s0 = settings.get();
     if (!sr || !s0.chart) return null;
     return chartOf(sr, s0, level, levels, 'Anlık');
@@ -767,4 +781,4 @@ async function main() {
   console.log('\n✅ Bilgi botu çalışıyor.\n');
 }
 
-module.exports = { main, _internal: { onPeakCandidate, series, settings, tracker, touches, drops, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, seedMany, checkCoverage, seedMetrics, health, runRecoveryCycle, scanStaleRecovery, queueRecovery, isFreshSymbol, recoveryBlocked, recoveryQueue, recoveryAttempts, recoveryNotBefore, gapMetrics, statusText, stats, busy, pending, details, getStore: () => store, getWeekly: () => weekly } };
+module.exports = { main, _internal: { onPeakCandidate, series, settings, tracker, touches, drops, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, seedMany, checkCoverage, seedMetrics, health, runReport, PANEL_REPORTS, runRecoveryCycle, scanStaleRecovery, queueRecovery, isFreshSymbol, recoveryBlocked, recoveryQueue, recoveryAttempts, recoveryNotBefore, gapMetrics, statusText, stats, busy, pending, details, getStore: () => store, getWeekly: () => weekly } };

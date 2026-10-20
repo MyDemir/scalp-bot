@@ -62,6 +62,17 @@ const results = []; const ok = s => results.push('✅ ' + s);
   const seedCalls = rest.filter(h => h.startsWith('klines PUMPUSDT'));
   assert.deepStrictEqual(seedCalls.map(h => h.split(' ')[2]), ['1d', '4h', '1h', '15m', '5m', '3m', '1m'], 'seed sırası');
   for (const s of bot.series.values()) assert(s.ready(), s.symbol + ' hazır değil');
+  // Panel raporları: salt okunur Telegram komut çıktıları; takip argümanla çağrılsa da listeyi değiştirmez
+  { const before = bot.settings.followList().length;
+    const t = await bot.runReport('takip', 'BTC');
+    assert.strictEqual(bot.settings.followList().length, before, 'panel takip raporu listeyi değiştirmemeli');
+    assert(typeof t.text === 'string');
+    const st = await bot.runReport('istatistik', '7');
+    assert(/gün|kayıt/.test(st.text), 'istatistik raporu metin döner: ' + st.text.slice(0, 60));
+    const coin = await bot.runReport('coin', 'BTC');
+    assert(/BTCUSDT/.test(coin.text), 'coin raporu coin durumunu döner');
+    await assert.rejects(() => bot.runReport('ayar', 'rsiMin 50'), /bilinmeyen rapor/, 'ayar değiştiren komut panelden çalışmaz');
+    ok('panel raporları salt okunur'); }
   await waitFor(() => tg.sent.some(m => m.text.includes('Bilgi botu hazır')), 3000, 'hazır mesajı');
   ok(`Evren: hacim ≥ 5M ve stabil olmayanlar → ${syms.join(', ')} (LOW/NEW 1M evren dışı, USDC elendi); WS'te yalnızca izlenen 3 parite, tek bağlantı, coin başına yalnızca 1m akışı; tohum sırası 1d→…→1m; "hazır" mesajı gitti`);
 

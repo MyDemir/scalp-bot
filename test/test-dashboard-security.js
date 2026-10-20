@@ -28,9 +28,15 @@ for (const token of [
   'escapeHtml(t.symbol)',
   'escapeHtml(t.name)',
   'escapeHtml(label)',
+  'tgHtml(r.text',
   'escapeHtml(shown)',
 ]) {
   assert(source.includes(token), `dashboard must escape untrusted field: ${token}`);
 }
+const tgHelper = source.match(/function tgHtml\(str\) \{[\s\S]*?\n    \}/);
+assert(tgHelper, 'dashboard must define a Telegram-HTML sanitizer');
+// Kaynak sunucu tarafı şablon dizgesinde: tarayıcıya giden hâli için \\ → \ çevrilir.
+const tgHtml = vm.runInNewContext(helper[0] + ';(' + tgHelper[0].replace(/\\\\/g, '\\') + ')');
+assert.strictEqual(tgHtml('<b>RSI</b> <img src=x onerror=alert(1)> <a href="javascript:x">l</a>'), '<b>RSI</b> &lt;img src=x onerror=alert(1)&gt; l', 'only b/i/u/code/pre survive');
 assert(!source.includes('deleteBot('), 'read-only dashboard must not offer bot deletion');
 console.log('PASS: dashboard HTML escaping (bots, logs, cards, touches, read-only settings)');

@@ -80,6 +80,9 @@ async function main() {
     }
     assert.strictEqual((await req('/api/logs/history?day=../x', { token })).status, 400, 'log day parameter is validated');
     assert.strictEqual((await req('/api/logs/days', { token })).status, 200, 'log history is readable');
+    assert.strictEqual((await req('/api/reports/ayar?args=rsiMin%2050', { token })).status, 404, 'setting-changing commands are not exposed as reports');
+    assert.strictEqual((await req('/api/reports/istatistik', { token })).status, 200, 'read-only reports are available');
+    assert.strictEqual((await req('/api/reports/istatistik')).status, 401, 'reports require a session');
     // Diske yalnızca uyarı ve hata yazılır; "[UYARI] …" console.log satırı uyarı sayılır.
     console.log('[HEARTBEAT] sağlıklı'); console.log('[UYARI] 1m mum gecikmesi 45 sn'); console.error('[REST] ECONNRESET');
     const hist = await (await req('/api/logs/history', { token })).json();
@@ -92,6 +95,10 @@ async function main() {
     const settings = await (await req('/api/settings', { token })).json();
     assert(settings.ok && settings.settings && Array.isArray(settings.defs), 'settings are readable for the mirror view');
     const dash = await (await req('/', { token })).text();
+    // Tarayıcıya giden satır içi betikler sözdizimi hatası içermemeli (şablon dizgesi kaçışları).
+    for (const [, js] of dash.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
+      assert.doesNotThrow(() => new (require('vm').Script)(js), 'served dashboard script must parse');
+    }
     for (const gone of ['saveSettings(', 'clearLogs(', 'runTests(', 'openAddBotModal(', 'notifyTelegramPanel(', 'data-delete-bot', 'refreshTelegramAdmins(']) {
       assert(!dash.includes(gone), `dashboard must not expose write control ${gone}`);
     }
