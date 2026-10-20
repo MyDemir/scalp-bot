@@ -7,12 +7,13 @@
  *                  hacim katları, alış %, seviye, kontrol listesi, eksik şartlar …) + 5/15/60/240 dk sonrası
  *   kartlar.csv  : gönderilen kartlar + kart anındaki göstergeler + 15/60/240 dk sonrası
  *   temaslar.csv : seviye tepkisi (src/levelTouch.js) — dirence temas + 60 dk sonrası, dibin indiği EMA21
+ *   akis.csv     : spot/futures akış pencereleri (src/spotFlow.js) — 4h/1d/1w/1M toplam, alış, satış, net $, alış %, fiyat
  * Biçim: UTF-8 (BOM'lu), virgülle ayrılmış, ondalık nokta. Zamanlar ISO (UTC).
  *
  * Telegram: /disaaktar [gün] (yönetici) → dosyalar özelden gelir.
  * Komut satırı (Fly makinesinde):  node src/exportData.js --days 30 --out /data/export
  *   bilgisayara almak:  fly ssh sftp get /data/export/veri.zip
- * Çıktı zip (tepeler.csv · kartlar.csv · temaslar.csv) — haftalarca veride bile bellek şişmez.
+ * Çıktı zip (tepeler.csv · kartlar.csv · temaslar.csv · akis.csv) — haftalarca veride bile bellek şişmez.
  */
 
 const { rowToStat } = require('./cardStore');
@@ -31,11 +32,11 @@ function flatten(o, prefix = '', out = {}) {
 const colsOf = rows => { const set = new Set(); for (const r of rows) for (const k of Object.keys(r)) set.add(k); return [...set]; };
 
 /**
- * Tek zip: tepeler.csv · kartlar.csv · temaslar.csv (40 MB'ı aşarsa veri-…-2.zip …). Tepe adayları parça parça okunur.
+ * Tek zip: tepeler.csv · kartlar.csv · temaslar.csv · akis.csv (flow verilirse; 40 MB'ı aşarsa veri-…-2.zip …). Tepe adayları parça parça okunur.
  * @param {object} store  cardStore
  * @returns {Promise<{files:{name, buf, type}[], counts:{tepeler, kartlar, temaslar}}>}
  */
-async function buildExports(store, days = 30, now = Date.now(), { maxZipBytes = 40e6, base = 'veri' } = {}) {
+async function buildExports(store, days = 30, now = Date.now(), { maxZipBytes = 40e6, base = 'veri', flow = null } = {}) {
   const since = now - days * 86_400_000;
   const zip = createZipSet(base, { maxBytes: maxZipBytes });
   const counts = { tepeler: 0, kartlar: 0, temaslar: 0 };
@@ -47,7 +48,9 @@ async function buildExports(store, days = 30, now = Date.now(), { maxZipBytes = 
     return flatten({ ...rest, time: new Date(r.t).toISOString(), partial: partial ? 1 : 0 });
   });
   const tc = (store.touchesSince ? store.touchesSince(since) : []).map(r => flatten({ ...r, time: new Date(r.t).toISOString() }));
-  for (const [name, rows, key] of [['kartlar.csv', cards, 'kartlar'], ['temaslar.csv', tc, 'temaslar']]) {
+  const fl = flow && flow.enabled() ? flow.rowsSince(since) : null;
+  if (fl) counts.akis = 0;
+  for (const [name, rows, key] of [['kartlar.csv', cards, 'kartlar'], ['temaslar.csv', tc, 'temaslar'], ...(fl ? [['akis.csv', fl, 'akis']] : [])]) {
     const c = colsOf(rows), e = zip.entry(name, csvHeader(c));
     for (const r of rows) await e.write(csvLine(r, c));
     await e.end();
@@ -66,11 +69,12 @@ if (require.main === module) {
   const fs = require('fs');
   const { createCardStore } = require('./cardStore');
   const store = createCardStore({ recover: false });      // çalışan botun yarım takiplerine dokunma
+  const flow = require('./spotFlow').createSpotFlow();     // yalnız okunur (tick çağrılmaz)
   if (!store.enabled()) { console.error('Veritabanı açılamadı'); process.exit(1); }
   fs.mkdirSync(dir, { recursive: true });
-  buildExports(store, days).then(({ files, counts }) => {
+  buildExports(store, days, Date.now(), { flow }).then(({ files, counts }) => {
     for (const f of files) { fs.writeFileSync(require('path').join(dir, f.name), f.buf); console.log(`${f.name} → ${require('path').join(dir, f.name)}`); }
-    console.log(`tepeler ${counts.tepeler} · kartlar ${counts.kartlar} · temaslar ${counts.temaslar} satır`);
-    store.close();
+    console.log(`tepeler ${counts.tepeler} · kartlar ${counts.kartlar} · temaslar ${counts.temaslar} · akış ${counts.akis ?? 0} satır`);
+    store.close(); flow.close();
   }).catch(err => { console.error(err); process.exit(1); });
 }

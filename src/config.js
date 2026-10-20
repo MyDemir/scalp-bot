@@ -43,10 +43,10 @@ module.exports = {
     dirGrade3Pct:  65,
     windowMin:     60,
     shortWindowMin: 15,
-    resetRsi:      75,
+    resetRsi:      75,      // kart no. sıfırlama: kapanmış 15m RSI bunun altına inince
 
     seriesBursts:  true,
-    seriesMinRsi5m: 85,      // YENİ: seri içi için 5m RSI ≥ 85
+    seriesMinRsi15m: 85,     // seri içi için o an 15m RSI ≥ 85
 
     // EMA21 yüzde ayrışma (güven skoru kademeli)
     sepPct2:       2,
@@ -65,6 +65,18 @@ module.exports = {
     peakAlertPumpPct: 5,     // pompa (4 saatlik dipten) en az %
     peakAlertGapMin:  30,    // coin başına en fazla … dk'da bir
     peakAlertRsiOnly: false, // true: yalnız RSI kart şartı (rsiMin, minTFs) o an sağlanan coinlerde
+
+    // 🌊 Spot/futures akış takibi (src/spotFlow.js) — yalnız /akis komutu ve panel, kartı etkilemez
+    flowK:         6,       // etiket için son … pencere (fiyat eğimi + CVD)
+    flowCvdPct:    3,       // CVD (net akış / hacim) ±% eşiği
+    flowPricePct:  2,       // fiyat ±% altı = yatay
+    flowStrongX:   1.5,     // hacim katı ≥ → "güçlü"
+    flowWeakX:     0.7,     // hacim katı < → "zayıf hacim"
+    flowBuyPct:    55,      // son pencere alış ≥ % → 🟢
+    flowSellPct:   45,      // son pencere alış ≤ % → 🔴
+    // 🐋 büyük alım/satım (src/bigTrades.js): coin başına eşik = max(flowBigMinUsd, son günlük spot hacmi × flowBigPct / 100)
+    flowBigPct:    0.05,    // ör. 10M $ günlük hacim → 5K $, 100M $ → 50K $, 1B $ → 500K $
+    flowBigMinUsd: 5000,
 
     minVolumeM:    3,
     tradfi:        false, // kripto dışı kontratlar (hisse · ETF · emtia · döviz — Binance TRADIFI_PERPETUAL) izlensin mi

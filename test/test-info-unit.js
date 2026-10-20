@@ -53,11 +53,11 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   n = tr.news('X', snap({ hits: 3, rsi: { '3m': { v: 96 }, '5m': { v: 91 }, '15m': { v: 90 } }, macd: { '5m': { cross: 'down', crossKey: '5m:down:1' }, '15m': null }, stoch: { cross: 'down', crossKey: '5m:down:1' } }), { tfs: ['5m'], burst: { dir: 'sell', body: -1.3, volX: 3.2, taker: 30 } }, s);
   assert.deepStrictEqual(n, ['🔴 Hacimli düşen mum: −%1.3 · hacim 3.2 kat · satış %70', '5m MACD aşağı kesti', '5m Stoch RSI aşağı kesti']);
   assert.strictEqual(tr.log('X').length, 2);
-  tr.observe5m('X', 80, s); assert(tr.news('X', snap(), { tfs: [] }, s).length === 0 || true);
-  tr.observe5m('X', 74, s);
+  tr.observe15m('X', 80, s); assert(tr.news('X', snap(), { tfs: [] }, s).length === 0 || true);
+  tr.observe15m('X', 74, s);
   n = tr.news('X', snap(), { tfs: ['3m'] }, s); assert(n[0].startsWith('İlk kart'));
   assert.strictEqual(tr.commit('X', snap(), s), 1);
-  ok('Yenilik: değişiklik yoksa boş (kart yok); RSI dilim sayısı, 95↑, seviye kırılması/DİPTE, patlama, MACD/Stoch kesişimi yakalanıyor; 5m RSI < 75 kapanınca numara #1\'e dönüyor');
+  ok('Yenilik: değişiklik yoksa boş (kart yok); RSI dilim sayısı, 95↑, seviye kırılması/DİPTE, patlama, MACD/Stoch kesişimi yakalanıyor; 15m RSI < 75 kapanınca numara #1\'e dönüyor');
 }
 
 // ── Derece ──

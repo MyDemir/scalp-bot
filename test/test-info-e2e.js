@@ -10,7 +10,7 @@ for (const f of ['', '-wal', '-shm']) fs.rmSync(`${SP}/cards.db${f}`, { force: t
 Object.assign(process.env, {
   BOT_MODE: 'info', DB_PATH: `${SP}/info-e2e.db`, INFO_SETTINGS_PATH: SETF,
   TELEGRAM_BOT_TOKEN: 'TEST:TOKEN', TELEGRAM_CHAT_ID: CHAT, TELEGRAM_API_BASE: `http://127.0.0.1:${PT}`,
-  BINANCE_REST_BASE_URL: `http://127.0.0.1:${PR}`, BINANCE_WS_MARKET_URL: `ws://127.0.0.1:${PW}/market/stream`, LIQ_STREAM: '0', BINANCE_SPOT_BASE_URL: `http://127.0.0.1:${PR}`,
+  BINANCE_REST_BASE_URL: `http://127.0.0.1:${PR}`, BINANCE_WS_MARKET_URL: `ws://127.0.0.1:${PW}/market/stream`, LIQ_STREAM: '0', SPOT_FLOW: '0', BINANCE_SPOT_BASE_URL: `http://127.0.0.1:${PR}`,   // akış takibi ayrı testte (test-spot-flow)
   BINANCE_REST_WEIGHT_PER_MIN: '600000',
 });
 delete process.env.TELEGRAM_ADMIN_IDS;
@@ -140,9 +140,9 @@ const results = []; const ok = s => results.push('✅ ' + s);
   assert(det(burstCard).replace(/<[^>]+>/g, '').includes('Hacimli mum (1 saat): 1 alış · 1 satış'), 'sayaç: kurulum öncesi satış (yalnızca sayaç) + kart anındaki alım');
   const pre = cards.filter(c => c.text.includes('Hacimli düşen mum') && !c.text.includes('Seri sürüyor (şart dışı)'));
   assert.strictEqual(pre.length, 0, 'seri başlamadan (RSI düşükken) olan satış patlaması kart üretmemeli');
-  // Seri içi satış mumu: 5m RSI seriesMinRsi5m (85) altına inmişse artık kart yok (sürekli hacim bildirimi olmasın)
+  // Seri içi satış mumu: 15m RSI seriesMinRsi15m (85) altına inmişse artık kart yok (sürekli hacim bildirimi olmasın)
   const serCard = cards.find(c => c.text.includes('🔔: Seri sürüyor (şart dışı)'));
-  assert(!serCard || /RSI 5dk: (8[5-9]|9\d|100)/.test(serCard.text), 'seri içi kart yalnız 5m RSI ≥ 85 iken: ' + (serCard && serCard.text));
+  assert(!serCard || /RSI 15dk: (8[5-9]|9\d|100)/.test(serCard.text), 'seri içi kart yalnız 15m RSI ≥ 85 iken: ' + (serCard && serCard.text));
   const kb = cards[0].reply_markup.inline_keyboard;
   assert(kb[0][0].url.includes('BINANCE:PUMPUSDT.P') && kb[0][1].url.includes('/futures/PUMPUSDT'));
   assert.deepStrictEqual(kb[1].map(b => b.callback_data.split(':')[0]), ['d', 'm', 'f']);
@@ -182,7 +182,7 @@ const results = []; const ok = s => results.push('✅ ' + s);
   assert(cards.every(c => c.method === 'sendPhoto' && c.photoBytes > 20000), 'kartlar grafikli (sendPhoto) gitmeli');
   const vis = t => t.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').length;
   assert(cards.every(c => vis(c.text) <= 1024), 'açıklama 1024 sınırında: ' + cards.map(c => vis(c.text) + (c.text.includes('blockquote') ? 'D' : '')).join(','));
-  ok(`Kartlar: ${cards.length} PUMP kartı (#1…#${nums.at(-1)}), BTC/CALM kart yok; ilk kart "İlk kart", RSI düşükken olan satış patlaması yalnızca sayaca yazıldı (kart yok), kurulum içindeki alım patlaması ayrı kart + #HACIM, seri içi satış mumu 5m RSI 85 altına inince kart yok; butonlar (TradingView/Binance/Özet/Sustur/Takip) ve açılır detay bloğu var; ${silentN} sessiz / ${cards.length - silentN} sesli`);
+  ok(`Kartlar: ${cards.length} PUMP kartı (#1…#${nums.at(-1)}), BTC/CALM kart yok; ilk kart "İlk kart", RSI düşükken olan satış patlaması yalnızca sayaca yazıldı (kart yok), kurulum içindeki alım patlaması ayrı kart + #HACIM, seri içi satış mumu 15m RSI 85 altına inince kart yok; butonlar (TradingView/Binance/Özet/Sustur/Takip) ve açılır detay bloğu var; ${silentN} sessiz / ${cards.length - silentN} sesli`);
   console._log('\n--- örnek kart (patlama) ---\n' + require(`${REPO}/src/infoCard`).toPlain(burstCard.text) + '\n---');
   console._log('haberler:\n' + cards.map(c => c.text.split('\n')[1]).join('\n'));
   const skipped = logs.filter(l => l.includes('[HEARTBEAT]')).map(l => Number((l.match(/(\d+) ara güncelleme atlandı/) || [])[1] || 0)).reduce((a, b) => a + b, 0);
