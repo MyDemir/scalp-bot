@@ -45,7 +45,7 @@ assert.strictEqual(classify(rows(20, { buy: 0.52 }), '4h', { flowCvdPct: 5 }).ke
 ok('Sınıflandırma: Toplanıyor / Dağıtım / Trend teyitli (alım·satış) / Nötr, veri az, hacim katı (güçlü / zayıf), ayar eşiği');
 
 // ── Canlı akış: sahte spot + futures ──
-const TF_MS = { '4h': 4 * HOUR, '1d': DAY, '1w': 7 * DAY };
+const TF_MS = { '1h': HOUR, '4h': 4 * HOUR, '1d': DAY, '1w': 7 * DAY };
 const span = (tf, t) => (tf === '1M' ? Date.UTC(new Date(t).getUTCFullYear(), new Date(t).getUTCMonth() + 1, 1) - t : TF_MS[tf]);
 let now = Date.UTC(2026, 9, 21, 12, 5);                          // 4s penceresi 12:00'de kapandı, 5 dk geçti
 // Spot 4s: 21.10 00:00'dan itibaren satış ağırlıklı (%44), öncesi alış (%56); futures hep alış
@@ -81,7 +81,9 @@ const flow = createSpotFlow({ file: path.join(dir, 'flow.db'), fetchFn, futuresK
   assert.deepStrictEqual(r.changed, []);
   assert(reqs.spot.includes(`ETHUSDT 4h ${HISTORY['4h'] + 1}`) && reqs.spot.includes('ETHUSDT 1M 13'));
   assert(reqs.spot.includes('PEPEUSDT 1d 61'), '1000PEPE → spot PEPE');
-  assert.strictEqual(reqs.futures.length, 3 * 4);
+  assert.strictEqual(reqs.futures.length, 3 * 5);
+  assert(reqs.spot.includes(`ETHUSDT 1h ${HISTORY['1h'] + 1}`));
+  assert.strictEqual(flow.rowsOf('ETHUSDT', 'spot', '1h', 500).length, HISTORY['1h']);
   // Devam eden pencere kaydedilmez: 4s'te 120 kapanmış satır
   assert.strictEqual(flow.rowsOf('ETHUSDT', 'spot', '4h', 500).length, HISTORY['4h']);
   assert.strictEqual(flow.rowsOf('ETHUSDT', 'spot', '1M', 500).length, HISTORY['1M']);
@@ -91,7 +93,7 @@ const flow = createSpotFlow({ file: path.join(dir, 'flow.db'), fetchFn, futuresK
   assert.strictEqual(sm['4h'].main, 'spot'); assert.strictEqual(sm['4h'].spot.key, 'notr');   // son 6: 3 alış + 3 satış
   assert.strictEqual(sm['1d'].spot.key, 'birikim'); assert.strictEqual(sm['4h'].futures.key, 'birikim');
   assert.strictEqual(flow.summary('NOSPOTUSDT')['1d'].main, 'futures');
-  ok(`İlk yükleme: coin başına 4 pencere geçmişi (spot ${reqs.spot.length} + futures ${reqs.futures.length} istek), devam eden pencere yok, 1000PEPE → PEPE spot, spotu olmayan coin hatırlanıyor`);
+  ok(`İlk yükleme: coin başına 5 pencere geçmişi (1s dahil) (spot ${reqs.spot.length} + futures ${reqs.futures.length} istek), devam eden pencere yok, 1000PEPE → PEPE spot, spotu olmayan coin hatırlanıyor`);
 
   // Aynı pencere içinde tekrar tur: istek yok
   const n0 = reqs.spot.length + reqs.futures.length;
@@ -105,10 +107,10 @@ const flow = createSpotFlow({ file: path.join(dir, 'flow.db'), fetchFn, futuresK
   assert.deepStrictEqual(r.due, []);
   now = Date.UTC(2026, 9, 21, 16, 2);
   r = await flow.tick();
-  assert.deepStrictEqual(r.due, ['4h']);
-  assert(reqs.spot.slice(-2).every(x => x.endsWith(' 4h 3')));
+  assert.deepStrictEqual(r.due, ['1h', '4h']);
+  assert.deepStrictEqual(reqs.spot.slice(-2), ['PEPEUSDT 1h 6', 'PEPEUSDT 4h 3']);   // 1s: 12:00'dan beri 4 pencere kaçtı → 4 + 2
   assert.strictEqual(flow.rowsOf('ETHUSDT', 'spot', '4h', 500).length, HISTORY['4h'] + 1);
-  ok('Kapanış güncellemesi: aynı pencerede istek yok, kapanıştan 90 sn sonra yalnız biten pencere (son 3 mum, upsert)');
+  ok('Kapanış güncellemesi: aynı pencerede istek yok, kapanıştan 90 sn sonra yalnız biten pencereler (son 3 mum, kaçan 1s pencereleri dahil, upsert)');
 
   // 12:00 penceresi de satışla kapandı → son 6: 2 alış + 4 satış → CVD −%4 → Dağıtım
   assert(r.changed.some(c => c.symbol === 'ETHUSDT' && c.tf === '4h' && c.old === 'notr' && c.new === 'dagitim'));
@@ -130,7 +132,7 @@ const flow = createSpotFlow({ file: path.join(dir, 'flow.db'), fetchFn, futuresK
   assert(!txt2.includes('Spot:') && txt2.includes('spotu yok') && txt2.includes('Henüz etiket değişikliği yok'));
   assert(changesText(flow.changes({ since: 0 })).includes('<b>ETHUSDT</b> 4s:'));
   assert(changesText([]).includes('değişen coin yok'));
-  ok('Metin: /akis ETH (4 pencere, spot/futures satırı, güncellemeler), spotsuz coin, argümansız değişiklik listesi');
+  ok('Metin: /akis ETH (5 pencere, spot/futures satırı, güncellemeler), spotsuz coin, argümansız değişiklik listesi');
 
   // Evrenden çıkan coin yeniden eklenince geçmişi tekrar yüklenir
   syms = ['ETHUSDT'];

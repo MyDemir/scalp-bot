@@ -273,10 +273,10 @@ Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı kon
 
 ### 🌊 Alım-satım akışı (/akis)
 Kartı etkilemez; yalnız `/akis` komutu, panel (Raporlar → Alım-satım akışı, `/api/flow`) ve `/disaaktar` (`akis.csv`).
-Botun hacim filtresinden (3M $) **bağımsız**: spotta USDT paritesi olan tüm USDT perpetual'lar (`1000PEPEUSDT` ↔ `PEPEUSDT` gibi eşleşmeyle; stabil coinler hariç, liste saatte bir yenilenir). Her parite için **spot ve futures** taker alış/satış dengesi **4s / günlük / haftalık / aylık** kapanmış pencerelerde
+Botun hacim filtresinden (3M $) **bağımsız**: spotta USDT paritesi olan tüm USDT perpetual'lar (`1000PEPEUSDT` ↔ `PEPEUSDT` gibi eşleşmeyle; stabil coinler hariç, liste saatte bir yenilenir). Her parite için **spot ve futures** taker alış/satış dengesi **1s / 4s / günlük / haftalık / aylık** kapanmış pencerelerde
 `/data/flow.db`'ye yazılır (`src/spotFlow.js`). Kaynak Binance klines: toplam quote hacmi ve taker alış hacmi
 (satış = toplam − alış); 1m mum biriktirilmez. İlk açılışta (mum tohumlamasından sonra) coin başına geçmiş yüklenir
-(4s 120 · günlük 60 · haftalık 30 · aylık 12 pencere), sonra her pencere kapanışından ~90 sn sonra güncellenir. 4s satırları 180 gün tutulur.
+(1s 168 · 4s 120 · günlük 60 · haftalık 30 · aylık 12 pencere), sonra her pencere kapanışından ~90 sn sonra güncellenir. 1s satırları 30, 4s satırları 180 gün tutulur.
 
 Etiket son `flowK` (6) pencerede fiyat değişimi ile CVD'nin (net akış / hacim %) birlikte okunmasıdır:
 
@@ -288,7 +288,7 @@ Etiket son `flowK` (6) pencerede fiyat değişimi ile CVD'nin (net akış / haci
 
 Son pencerenin hacmi önceki pencerelerin ortalamasının ≥ 1.5 katıysa "güçlü", 0.7'den azsa "zayıf hacim"; spot ve futures
 CVD'si ters yöndeyse "⚠️ spot/futures ayrışması". Etiket değişince (ör. günlük Nötr → Toplanıyor) kayda geçer:
-`/akis` (argümansız) son 24 saatin değişikliklerini, `/akis ETH` coinin 4 penceresini ve son değişikliklerini gösterir
+`/akis` (argümansız) son 24 saatin değişikliklerini, `/akis ETH` coinin 5 penceresini ve son değişikliklerini gösterir
 (ayrı bildirim gönderilmez). Eşikler `/ayarlar → 🌊 Akış`: `flowK`, `flowCvdPct`, `flowPricePct`, `flowStrongX`, `flowWeakX`,
 `flowBuyPct`, `flowSellPct`. Kapatmak için `SPOT_FLOW=0`.
 
@@ -298,7 +298,7 @@ dinlenir; tek market emri coinin eşiğini geçerse alış ya da satış olarak 
 1B $ → 500K $). Sayaçlar saat başına `flow_big` tablosuna yazılır; `/akis`, panel ve `akis.csv` pencere toplamlarını gösterir.
 Binance geçmiş büyük işlem listesi vermediği için sayım botun açılışından başlar. Kapatmak için `BIG_TRADES=0`.
 
-**Panel → Alım-Satım Akışı sekmesi:** tüm pariteler tek tabloda (günlük hacim, alış-satış %, değişim %, 4s/günlük/haftalık/aylık
+**Panel → Alım-Satım Akışı sekmesi:** tüm pariteler tek tabloda (günlük hacim, alış-satış %, değişim %, 1s/4s/günlük/haftalık/aylık
 etiket, bugünkü 🐋 alım/satım), coin arama ve günlük etiket filtresi; satıra tıklayınca pencere ayrıntısı (spot + futures) ve spot 4s
 geçmişi, yanda son 7 günün etiket güncellemeleri. Taker alış "piyasa emriyle alan" demektir; etiket yorumdur, mal toplamanın kanıtı değildir.
 
@@ -311,7 +311,7 @@ geçmişi, yanda son 7 günün etiket güncellemeleri. Taker alış "piyasa emri
 | `/sustur ETH [dk]` · `/ac ETH` · `/sessiz` | yönetici / herkes | susturma |
 | `/takip [ETH]` | liste herkes, ekle-çıkar yönetici | takipteki coinlerin kartları her zaman sesli |
 | `/gecmis ETH [adet]` · `/istatistik [gün]` | herkes | kart geçmişi ve sınıf istatistiği |
-| `/akis [ETH]` | herkes | spot/futures alım-satım akışı (4s/günlük/haftalık/aylık) ve Toplanıyor/Dağıtım etiketi; argümansız: son etiket değişiklikleri |
+| `/akis [ETH]` | herkes | spot/futures alım-satım akışı (1s/4s/günlük/haftalık/aylık) ve Toplanıyor/Dağıtım etiketi; argümansız: son etiket değişiklikleri |
 | `/kacan [gün]` | herkes | tepe defteri: pompa tepesinden düşüşler, kartlı/kartsız, kartsızlarda eksik şart |
 | `/teyit [gün]` | herkes | short teyidi: hangi koşul varken tepe adayları daha sık düştü (varken / yokken) |
 | `/disaaktar [gün]` | yönetici | istatistik verisi CSV olarak özelden (tepeler, kartlar, temaslar, akış) |
@@ -374,7 +374,7 @@ src/
 ├── eventLog.js       # Tepe defteri: pompa tepe adayı → düştü/devam/yatay, kartlı/kartsız, /kacan, /teyit (canlı + backtest ortak)
 ├── peakFeatures.js   # Tepe adayı ek özellikleri: CVD, mum yapısı, Bollinger, hız, piyasa, zaman, coin geçmişi
 ├── marketData.js     # Binance ek verisi: açık pozisyon, long/short, emir defteri, spot, baz, likidasyon akışı
-├── spotFlow.js       # Spot/futures alım-satım akışı (4s/günlük/haftalık/aylık) → flow.db, Toplanıyor/Dağıtım etiketi, /akis
+├── spotFlow.js       # Spot/futures alım-satım akışı (1s/4s/günlük/haftalık/aylık) → flow.db, Toplanıyor/Dağıtım etiketi, /akis
 ├── bigTrades.js      # Spot büyük alım/satım sayacı (aggTrade akışı, coin başına eşik) → flow.db
 ├── exportData.js     # CSV dışa aktarma (/disaaktar ve komut satırı)
 ├── marketSnap.js     # 1m–4h göstergeleri, VWAP seti, tepki/destek seviyesi eşleştirme (istatistik kaydı)

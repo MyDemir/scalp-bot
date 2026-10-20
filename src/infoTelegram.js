@@ -216,7 +216,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
 /sessiz — susturulanlar
 /takip [ETH] — takip listesi / ekle-çıkar (takip edilenlerin kartları sesli gelir)
 /gecmis ETH [adet] — coinin son kartları ve sonrasında fiyat
-/akis [ETH] — spot/futures alım-satım akışı 4s/günlük/haftalık/aylık ve Toplanıyor/Dağıtım etiketi · argümansız: son etiket değişiklikleri
+/akis [ETH] — spot/futures alım-satım akışı 1s/4s/günlük/haftalık/aylık ve Toplanıyor/Dağıtım etiketi · argümansız: son etiket değişiklikleri
 /istatistik [gün] — kart sınıfları ve sonrasında fiyat (varsayılan 7 gün)
 /seviye [gün] [ad] — dirence alttan temastan sonraki 60 dk: geri çekilme, 3dk EMA21'e dönüş, kırılım (ör. <code>/seviye 7 fib</code>)
 /kacan [gün] — düşüş defteri: pompa tepesinden düşüşler, kartlı/kartsız, kartsızlarda eksik şart

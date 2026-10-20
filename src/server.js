@@ -438,7 +438,7 @@ app.get('/api/touches', (req, res) => {
 
 
 
-// Spot/futures akış (src/spotFlow.js): ?symbol=ETH → 4 pencere özeti + son değişiklikler · symbol yoksa tüm coinlerde son değişiklikler
+// Spot/futures akış (src/spotFlow.js): ?symbol=ETH → 5 pencere özeti + son değişiklikler · symbol yoksa tüm coinlerde son değişiklikler
 app.get('/api/flow', (req, res) => {
   const flow = (infoBot._internal || {}).getFlow?.();
   if (!flow || !flow.enabled()) return res.json({ ok: true, enabled: false, changes: [] });
@@ -455,7 +455,7 @@ app.get('/api/flow', (req, res) => {
   }
 });
 
-// Panel akış tablosu: evrendeki tüm coinler (günlük spot özeti, 4 pencerenin etiketi, bugünkü büyük işlemler)
+// Panel akış tablosu: evrendeki tüm coinler (günlük spot özeti, 5 pencerenin etiketi, bugünkü büyük işlemler)
 app.get('/api/flow/table', (req, res) => {
   const flow = (infoBot._internal || {}).getFlow?.();
   if (!flow || !flow.enabled()) return res.json({ ok: true, enabled: false, rows: [] });
@@ -850,6 +850,7 @@ app.get('/', (req, res) => {
                 <th class="py-2.5 px-3 text-right">Hacim (gün)</th>
                 <th class="py-2.5 px-3 text-right">Alış-Satış %</th>
                 <th class="py-2.5 px-3 text-right">Değişim %</th>
+                <th class="py-2.5 px-3">1s</th>
                 <th class="py-2.5 px-3">4s</th>
                 <th class="py-2.5 px-3">Günlük</th>
                 <th class="py-2.5 px-3">Haftalık</th>
@@ -858,7 +859,7 @@ app.get('/', (req, res) => {
               </tr>
             </thead>
             <tbody id="flow-table-body" class="divide-y divide-slate-800/40">
-              <tr><td colspan="9" class="py-8 text-center text-slate-500">Akış verisi yükleniyor…</td></tr>
+              <tr><td colspan="10" class="py-8 text-center text-slate-500">Akış verisi yükleniyor…</td></tr>
             </tbody>
           </table>
         </div>
@@ -1525,7 +1526,7 @@ def report_status(error_msg=None):
     // ── Alım-satım akışı sekmesi ──
     const FLOW_LABEL = { birikim: ['Toplanıyor', 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30'], dagitim: ['Dağıtım', 'text-rose-300 bg-rose-500/10 border-rose-500/30'],
       trendUp: ['Trend ↑', 'text-sky-300 bg-sky-500/10 border-sky-500/30'], trendDown: ['Trend ↓', 'text-orange-300 bg-orange-500/10 border-orange-500/30'], notr: ['Nötr', 'text-slate-400 bg-slate-500/10 border-slate-600/40'] };
-    const FLOW_TF = { '4h': '4s', '1d': 'Günlük', '1w': 'Haftalık', '1M': 'Aylık' };
+    const FLOW_TF = { '1h': '1s', '4h': '4s', '1d': 'Günlük', '1w': 'Haftalık', '1M': 'Aylık' };
     let flowRows = [], flowLoadedAt = 0, flowSelected = null;
     const fUsd = v => { if (v == null || !isFinite(v)) return '—'; const a = Math.abs(v), s = v < 0 ? '−' : ''; return s + (a >= 1e9 ? (a / 1e9).toFixed(2) + 'B' : a >= 1e6 ? (a / 1e6).toFixed(2) + 'M' : a >= 1e3 ? (a / 1e3).toFixed(1) + 'K' : a.toFixed(0)); };
     const fPct = v => (v == null ? '—' : (v > 0 ? '+' : '') + Number(v).toFixed(2));
@@ -1549,9 +1550,9 @@ def report_status(error_msg=None):
             + '<button class="text-amber-300 hover:underline" data-s="' + escapeHtml(x.symbol) + '" onclick="showFlow(this.dataset.s)">' + escapeHtml(x.symbol) + '</button>'
             + '<span class="text-slate-400">' + escapeHtml(FLOW_TF[x.tf] || x.tf) + ':</span><span class="text-slate-500">' + escapeHtml(o[0]) + '</span>→' + flowBadge({ key: x.new }) + '</div>';
         }).join('') : '<span class="text-slate-500">Henüz etiket değişikliği yok.</span>';
-        if (t && t.enabled === false) document.getElementById('flow-table-body').innerHTML = '<tr><td colspan="9" class="py-8 text-center text-slate-500">Akış takibi kapalı.</td></tr>';
+        if (t && t.enabled === false) document.getElementById('flow-table-body').innerHTML = '<tr><td colspan="10" class="py-8 text-center text-slate-500">Akış takibi kapalı.</td></tr>';
       } catch (e) {
-        document.getElementById('flow-table-body').innerHTML = '<tr><td colspan="9" class="py-8 text-center text-rose-400">Akış verisi alınamadı.</td></tr>';
+        document.getElementById('flow-table-body').innerHTML = '<tr><td colspan="10" class="py-8 text-center text-rose-400">Akış verisi alınamadı.</td></tr>';
       }
     }
     function renderFlowTable() {
@@ -1560,7 +1561,7 @@ def report_status(error_msg=None):
       const list = flowRows.filter(r => (!q || r.symbol.includes(q)) && (!lb || (r.windows['1d'] && r.windows['1d'].key === lb)));
       document.getElementById('flow-count').textContent = list.length + ' parite';
       const body = document.getElementById('flow-table-body');
-      if (!list.length) { body.innerHTML = '<tr><td colspan="9" class="py-8 text-center text-slate-500">' + (flowRows.length ? 'Eşleşen parite yok.' : 'Akış verisi henüz yüklenmedi (ilk açılışta birkaç dakika sürer).') + '</td></tr>'; return; }
+      if (!list.length) { body.innerHTML = '<tr><td colspan="10" class="py-8 text-center text-slate-500">' + (flowRows.length ? 'Eşleşen parite yok.' : 'Akış verisi henüz yüklenmedi (ilk açılışta birkaç dakika sürer).') + '</td></tr>'; return; }
       body.innerHTML = list.slice(0, 400).map(r => {
         const sell = r.buyPct == null ? null : 100 - r.buyPct;
         const bp = r.buyPct == null ? '—' : '<span class="' + (r.buyPct >= 55 ? 'text-emerald-300' : r.buyPct <= 45 ? 'text-rose-300' : 'text-slate-300') + '">%' + r.buyPct.toFixed(2) + '</span> - ' + sell.toFixed(2);
@@ -1570,7 +1571,7 @@ def report_status(error_msg=None):
           + '<td class="py-2 px-3 text-right text-slate-300">' + fUsd(r.vol) + '</td>'
           + '<td class="py-2 px-3 text-right">' + bp + '</td>'
           + '<td class="py-2 px-3 text-right ' + (r.chg > 0 ? 'text-emerald-300' : r.chg < 0 ? 'text-rose-300' : 'text-slate-300') + '">' + fPct(r.chg) + '</td>'
-          + ['4h', '1d', '1w', '1M'].map(tf => '<td class="py-2 px-3">' + flowBadge(r.windows[tf]) + '</td>').join('')
+          + ['1h', '4h', '1d', '1w', '1M'].map(tf => '<td class="py-2 px-3">' + flowBadge(r.windows[tf]) + '</td>').join('')
           + '<td class="py-2 px-3 text-right">' + (b ? '<span class="text-emerald-300">' + b.buyN + '</span> <span class="text-slate-500">(' + fUsd(b.buyUsd) + ')</span> / <span class="text-rose-300">' + b.sellN + '</span> <span class="text-slate-500">(' + fUsd(b.sellUsd) + ')</span>' : '<span class="text-slate-600">—</span>') + '</td>'
           + '</tr>';
       }).join('');
@@ -1589,7 +1590,7 @@ def report_status(error_msg=None):
             + '<td class="py-1.5 px-2 text-right">' + fPct(c.priceChg) + '</td><td class="py-1.5 px-2 text-right">' + fPct(c.cvdPct) + '</td>'
             + '<td class="py-1.5 px-2 text-right">' + (m === 'spot' && x.big ? x.big.buyN + ' / ' + x.big.sellN : '—') + '</td></tr>'; };
         const head = '<tr class="text-slate-500 border-b hairline-border"><th class="py-1.5 px-2 text-left">Pencere</th><th class="py-1.5 px-2 text-left">Piyasa</th><th class="py-1.5 px-2 text-left">Etiket</th><th class="py-1.5 px-2 text-right">Hacim</th><th class="py-1.5 px-2 text-right">Alış</th><th class="py-1.5 px-2 text-right">Net</th><th class="py-1.5 px-2 text-right">Fiyat %</th><th class="py-1.5 px-2 text-right">CVD %</th><th class="py-1.5 px-2 text-right">🐋 A/S</th></tr>';
-        const win = ['4h', '1d', '1w', '1M'].map(tf => row(tf, 'spot', r.windows[tf]) + row(tf, 'futures', r.windows[tf])).join('');
+        const win = ['1h', '4h', '1d', '1w', '1M'].map(tf => row(tf, 'spot', r.windows[tf]) + row(tf, 'futures', r.windows[tf])).join('');
         const hist = (r.history || []).map(h => '<tr><td class="py-1 px-2 text-right">' + fUsd(h.vol) + '</td><td class="py-1 px-2 text-right">%' + (h.buyPct ?? '—') + '</td><td class="py-1 px-2 text-right">' + (h.close == null ? '—' : Number(h.close).toPrecision(5)) + '</td><td class="py-1 px-2 text-right">' + (h.big ? h.big.buyN + ' / ' + h.big.sellN : '—') + '</td><td class="py-1 px-2 text-right text-slate-500">' + new Date(h.t).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + '</td></tr>').join('');
         el.innerHTML = '<div class="overflow-x-auto"><table class="w-full text-xs font-mono">' + head + win + '</table></div>'
           + '<p class="text-slate-500 mt-2">🐋 eşiği bu parite için ' + fUsd(r.bigThreshold) + ' $ (tek market emri) · sayım botun açılışından itibaren.</p>'

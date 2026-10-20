@@ -8,7 +8,7 @@
  *   Eşik   : coin başına getThreshold(futuresSembol) — spotFlow.bigThreshold: max(flowBigMinUsd, günlük spot hacmi × flowBigPct %).
  *            Eşik kayıt anında uygulanır; değiştirmek geçmiş sayıları değiştirmez.
  *   Kayıt  : coin + saat başına sayaç (alış adedi / $, satış adedi / $); dakikada bir flow.db'ye eklenir (flow_big).
- *            4s / günlük / haftalık / aylık toplamlar okunurken saatlerden toplanır.
+ *            1s / 4s / günlük / haftalık / aylık toplamlar okunurken saatlerden toplanır.
  *   Geçmiş : akış canlıdır; sayım botun açıldığı andan başlar (Binance geçmiş büyük işlem listesi vermez).
  *            Kopuşta kaçan süre sayılmaz (yeniden bağlanınca devam eder).
  */
