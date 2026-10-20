@@ -271,6 +271,28 @@ Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı kon
 3. `/konu` listeyi gösterir, `/konu sil kart` kaldırır. Bağlanmamış tür genel akışa gider; konu silinirse mesajlar
    kaybolmaz, genel akışa düşer. Komut yanıtları, komutun yazıldığı konuya gelir.
 
+### 🌊 Alım-satım akışı (/akis)
+Kartı etkilemez; yalnız `/akis` komutu, panel (Raporlar → Alım-satım akışı, `/api/flow`) ve `/disaaktar` (`akis.csv`).
+İzlenen her coin için **spot ve futures** taker alış/satış dengesi **4s / günlük / haftalık / aylık** kapanmış pencerelerde
+`/data/flow.db`'ye yazılır (`src/spotFlow.js`). Kaynak Binance klines: toplam quote hacmi ve taker alış hacmi
+(satış = toplam − alış); 1m mum biriktirilmez. İlk açılışta (mum tohumlamasından sonra) coin başına geçmiş yüklenir
+(4s 120 · günlük 60 · haftalık 30 · aylık 12 pencere), sonra her pencere kapanışından ~90 sn sonra güncellenir. 4s satırları 180 gün tutulur.
+Spotu olmayan coinde yalnız futures akışı gösterilir.
+
+Etiket son `flowK` (6) pencerede fiyat değişimi ile CVD'nin (net akış / hacim %) birlikte okunmasıdır:
+
+| Fiyat \ CVD | artıyor (≥ +%3) | yatay | düşüyor (≤ −%3) |
+|---|---|---|---|
+| yukarı (≥ +%2) | 📈 Trend teyitli (alım) | ⚪ Nötr | 🔴 Dağıtım |
+| yatay | 🟢 Toplanıyor | ⚪ Nötr | 🔴 Dağıtım |
+| aşağı (≤ −%2) | 🟢 Toplanıyor | ⚪ Nötr | 📉 Trend teyitli (satış) |
+
+Son pencerenin hacmi önceki pencerelerin ortalamasının ≥ 1.5 katıysa "güçlü", 0.7'den azsa "zayıf hacim"; spot ve futures
+CVD'si ters yöndeyse "⚠️ spot/futures ayrışması". Etiket değişince (ör. günlük Nötr → Toplanıyor) kayda geçer:
+`/akis` (argümansız) son 24 saatin değişikliklerini, `/akis ETH` coinin 4 penceresini ve son değişikliklerini gösterir
+(ayrı bildirim gönderilmez). Eşikler `/ayarlar → 🌊 Akış`: `flowK`, `flowCvdPct`, `flowPricePct`, `flowStrongX`, `flowWeakX`,
+`flowBuyPct`, `flowSellPct`. Kapatmak için `SPOT_FLOW=0`. Taker alış "piyasa emriyle alan" demektir; etiket yorumdur, mal toplamanın kanıtı değildir.
+
 ### Telegram komutları
 | Komut | Kim | |
 |---|---|---|
@@ -280,9 +302,10 @@ Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı kon
 | `/sustur ETH [dk]` · `/ac ETH` · `/sessiz` | yönetici / herkes | susturma |
 | `/takip [ETH]` | liste herkes, ekle-çıkar yönetici | takipteki coinlerin kartları her zaman sesli |
 | `/gecmis ETH [adet]` · `/istatistik [gün]` | herkes | kart geçmişi ve sınıf istatistiği |
+| `/akis [ETH]` | herkes | spot/futures alım-satım akışı (4s/günlük/haftalık/aylık) ve Toplanıyor/Dağıtım etiketi; argümansız: son etiket değişiklikleri |
 | `/kacan [gün]` | herkes | tepe defteri: pompa tepesinden düşüşler, kartlı/kartsız, kartsızlarda eksik şart |
 | `/teyit [gün]` | herkes | short teyidi: hangi koşul varken tepe adayları daha sık düştü (varken / yokken) |
-| `/disaaktar [gün]` | yönetici | istatistik verisi CSV olarak özelden (tepeler, kartlar, temaslar) |
+| `/disaaktar [gün]` | yönetici | istatistik verisi CSV olarak özelden (tepeler, kartlar, temaslar, akış) |
 | `/haftalik` | yönetici | haftalık dosyaların (MD + zip) ön izlemesi özelden (silmez); asıl dosyalar Pazartesi 03:01'de gruba gider |
 | `/seviye [gün] [ad]` | herkes | seviye tepkisi: temastan sonra çekilme / 3dk EMA21'e dönüş / kırılım (ör. `/seviye 7 fib`) |
 | `/konu [ad]` · `/konu sil ad` | liste herkes, bağlama yönetici | konulu grupta yönlendirme |
@@ -342,6 +365,7 @@ src/
 ├── eventLog.js       # Tepe defteri: pompa tepe adayı → düştü/devam/yatay, kartlı/kartsız, /kacan, /teyit (canlı + backtest ortak)
 ├── peakFeatures.js   # Tepe adayı ek özellikleri: CVD, mum yapısı, Bollinger, hız, piyasa, zaman, coin geçmişi
 ├── marketData.js     # Binance ek verisi: açık pozisyon, long/short, emir defteri, spot, baz, likidasyon akışı
+├── spotFlow.js       # Spot/futures alım-satım akışı (4s/günlük/haftalık/aylık) → flow.db, Toplanıyor/Dağıtım etiketi, /akis
 ├── exportData.js     # CSV dışa aktarma (/disaaktar ve komut satırı)
 ├── marketSnap.js     # 1m–4h göstergeleri, VWAP seti, tepki/destek seviyesi eşleştirme (istatistik kaydı)
 ├── weeklyReport.js   # Haftalık MD + zip (CSV'ler; Pazartesi 03:01 TSİ) → gruba, sonra veritabanından silme

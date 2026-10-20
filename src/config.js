@@ -66,6 +66,15 @@ module.exports = {
     peakAlertGapMin:  30,    // coin başına en fazla … dk'da bir
     peakAlertRsiOnly: false, // true: yalnız RSI kart şartı (rsiMin, minTFs) o an sağlanan coinlerde
 
+    // 🌊 Spot/futures akış takibi (src/spotFlow.js) — yalnız /akis komutu ve panel, kartı etkilemez
+    flowK:         6,       // etiket için son … pencere (fiyat eğimi + CVD)
+    flowCvdPct:    3,       // CVD (net akış / hacim) ±% eşiği
+    flowPricePct:  2,       // fiyat ±% altı = yatay
+    flowStrongX:   1.5,     // hacim katı ≥ → "güçlü"
+    flowWeakX:     0.7,     // hacim katı < → "zayıf hacim"
+    flowBuyPct:    55,      // son pencere alış ≥ % → 🟢
+    flowSellPct:   45,      // son pencere alış ≤ % → 🔴
+
     minVolumeM:    3,
     tradfi:        false, // kripto dışı kontratlar (hisse · ETF · emtia · döviz — Binance TRADIFI_PERPETUAL) izlensin mi
     moveAlertPct:  2,

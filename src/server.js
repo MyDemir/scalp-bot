@@ -438,6 +438,22 @@ app.get('/api/touches', (req, res) => {
 
 
 
+// Spot/futures akış (src/spotFlow.js): ?symbol=ETH → 4 pencere özeti + son değişiklikler · symbol yoksa tüm coinlerde son değişiklikler
+app.get('/api/flow', (req, res) => {
+  const flow = (infoBot._internal || {}).getFlow?.();
+  if (!flow || !flow.enabled()) return res.json({ ok: true, enabled: false, changes: [] });
+  try {
+    const raw = (cleanText(req.query.symbol, 20) || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const limit = Math.max(1, Math.min(Math.floor(Number(req.query.limit) || 50), 200));
+    if (!raw) return res.json({ ok: true, enabled: true, changes: flow.changes({ since: Date.now() - 7 * 86_400_000, limit }) });
+    const symbol = raw.endsWith('USDT') ? raw : raw + 'USDT';
+    res.json({ ok: true, enabled: true, symbol, hasSpot: flow.hasSpot(symbol), windows: flow.summary(symbol), changes: flow.changes({ symbol, limit }) });
+  } catch (err) {
+    console.error(`[PANEL] /api/flow hatası: ${err?.message || err}`);
+    res.status(500).json({ ok: false, error: 'Akış verisi okunamadı.' });
+  }
+});
+
 // ── HTML Dashboard ─────────────────────────────────────────────────────────
 
 app.get('/', (req, res) => {
@@ -848,6 +864,7 @@ app.get('/', (req, res) => {
               <option value="istatistik">📊 Kart istatistiği (/istatistik)</option>
               <option value="gecmis">🗂 Coin kart geçmişi (/gecmis)</option>
               <option value="coin">🔎 Coin anlık durumu (/coin)</option>
+              <option value="akis">🌊 Alım-satım akışı (/akis)</option>
               <option value="seviye">📐 Seviye tepkisi (/seviye)</option>
               <option value="kacan">🔻 Düşüş defteri (/kacan)</option>
               <option value="teyit">✅ Short teyidi (/teyit)</option>
@@ -1213,7 +1230,7 @@ def report_status(error_msg=None):
 
     const REPORT_ARGS = {
       istatistik: ['Gün', '7'], seviye: ['Gün ve seviye adı', '7 fib'], kacan: ['Gün', '7'], teyit: ['Gün', '7'],
-      gecmis: ['Coin ve adet', 'ETH 10'], coin: ['Coin', 'ETH'], takip: null, sessiz: null, durum: null,
+      gecmis: ['Coin ve adet', 'ETH 10'], coin: ['Coin', 'ETH'], akis: ['Coin (boş = son değişiklikler)', 'ETH'], takip: null, sessiz: null, durum: null,
     };
     function reportArgsHint() {
       const name = document.getElementById('report-name').value;

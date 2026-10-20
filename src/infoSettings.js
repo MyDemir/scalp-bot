@@ -70,6 +70,13 @@ const DEFS = [
   { key: 'peakAlertPumpPct', short: 'Tepe pompa %', label: 'Tepe reddi: pompa en az % (4s dipten)', type: 'num', min: 3, max: 30, step: 1 },
   { key: 'peakAlertRsiOnly', short: 'Tepe: RSI şartı', label: 'Tepe reddi: yalnız RSI kart şartı sağlanan coinlerde', type: 'bool' },
   { key: 'peakAlertGapMin', short: 'Tepe aralık dk', label: 'Tepe reddi: coin başına en fazla … dk\'da bir', type: 'int', min: 5, max: 240, step: 5 },
+  { key: 'flowK', short: 'Akış pencere', label: 'Akış etiketi: son … pencere', type: 'int', min: 2, max: 30, step: 1 },
+  { key: 'flowCvdPct', short: 'Akış CVD %', label: 'Akış: CVD (net akış / hacim) eşiği ±%', type: 'num', min: 0.5, max: 20, step: 0.5 },
+  { key: 'flowPricePct', short: 'Akış fiyat %', label: 'Akış: fiyat yatay sayılır (±%)', type: 'num', min: 0.5, max: 20, step: 0.5 },
+  { key: 'flowStrongX', short: 'Akış güçlü ×', label: 'Akış: hacim katı ≥ → güçlü', type: 'num', min: 1, max: 5, step: 0.1 },
+  { key: 'flowWeakX', short: 'Akış zayıf ×', label: 'Akış: hacim katı < → zayıf hacim', type: 'num', min: 0.1, max: 1, step: 0.1 },
+  { key: 'flowBuyPct', short: 'Akış alış %', label: 'Akış: alış ≥ % → 🟢', type: 'int', min: 50, max: 90, step: 1 },
+  { key: 'flowSellPct', short: 'Akış satış %', label: 'Akış: alış ≤ % → 🔴', type: 'int', min: 10, max: 50, step: 1 },
   { key: 'minVolumeM', short: 'Hacim M$', label: 'Evren: 24s hacim ≥ (milyon $)', type: 'num', min: 0, max: 500, step: 1 },
   { key: 'tradfi', short: 'Hisse/emtia', label: 'Evren: kripto dışı kontratlar (hisse · ETF · altın/gümüş · döviz) izlensin', type: 'bool' },
 ];

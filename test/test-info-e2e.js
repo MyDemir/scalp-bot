@@ -10,7 +10,7 @@ for (const f of ['', '-wal', '-shm']) fs.rmSync(`${SP}/cards.db${f}`, { force: t
 Object.assign(process.env, {
   BOT_MODE: 'info', DB_PATH: `${SP}/info-e2e.db`, INFO_SETTINGS_PATH: SETF,
   TELEGRAM_BOT_TOKEN: 'TEST:TOKEN', TELEGRAM_CHAT_ID: CHAT, TELEGRAM_API_BASE: `http://127.0.0.1:${PT}`,
-  BINANCE_REST_BASE_URL: `http://127.0.0.1:${PR}`, BINANCE_WS_MARKET_URL: `ws://127.0.0.1:${PW}/market/stream`, LIQ_STREAM: '0', BINANCE_SPOT_BASE_URL: `http://127.0.0.1:${PR}`,
+  BINANCE_REST_BASE_URL: `http://127.0.0.1:${PR}`, BINANCE_WS_MARKET_URL: `ws://127.0.0.1:${PW}/market/stream`, LIQ_STREAM: '0', SPOT_FLOW: '0', BINANCE_SPOT_BASE_URL: `http://127.0.0.1:${PR}`,   // akış takibi ayrı testte (test-spot-flow)
   BINANCE_REST_WEIGHT_PER_MIN: '600000',
 });
 delete process.env.TELEGRAM_ADMIN_IDS;

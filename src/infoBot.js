@@ -22,10 +22,12 @@ const path = require('path');
 const chart = require('./chart');
 const { createSettings } = require('./infoSettings');
 const { installInfoTelegram } = require('./infoTelegram');
+const { createSpotFlow } = require('./spotFlow');
 
 const SEED_ORDER = ['1d', '4h', '1h', '15m', '5m', '3m', '1m'];
 const PREMIUM_EVERY_MS  = 5 * 60_000;
 const UNIVERSE_EVERY_MS = 60 * 60_000;
+const FLOW_EVERY_MS     = 60_000;
 const OI_CACHE_MS       = 2 * 60_000;
 const GAP_FILL_MAX_MIN  = 200;
 const GAP_FILL_CONCURRENCY = Math.max(1, Math.min(4, Math.floor(Number(process.env.GAP_FILL_CONCURRENCY) || 4)));
@@ -44,12 +46,13 @@ const enricher = createEnricher({ client: binance });
 const liqStream = createLiqStream();
 const drops    = createDropLedger({ ...cfg.events, enrich: (sym, o) => enricher.enrich(sym, o), orderBook: sym => enricher.orderBook(sym), onCandidate: (sr, e) => onPeakCandidate(sr, e) });
 let store = null;
+let flow = null;              // spot/futures akış takibi (src/spotFlow.js) — main'de kurulur
 let weekly = null;
 let telegramUi = null;        // installInfoTelegram dönüşü — panel salt okunur raporlar için komut tablosunu kullanır
 
 // Panelde gösterilebilen salt okunur komut raporları (hiçbiri ayar/durum değiştirmez).
 // takip ve sessiz yalnızca argümansız (liste) çağrılır; argümanlı takip ekle-çıkar yapar.
-const PANEL_REPORTS = new Set(['durum', 'istatistik', 'seviye', 'kacan', 'teyit', 'gecmis', 'coin', 'sessiz', 'takip']);
+const PANEL_REPORTS = new Set(['durum', 'istatistik', 'seviye', 'kacan', 'teyit', 'gecmis', 'coin', 'akis', 'sessiz', 'takip']);
 async function runReport(name, args = '') {
   if (!PANEL_REPORTS.has(name)) throw new Error('bilinmeyen rapor');
   const fn = telegramUi?.commands?.[name];
@@ -695,7 +698,7 @@ function heartbeat() {
     ` | son ${mins}dk: ${closes} 1m kapanış, ${ws?.skipped ?? 0} ara güncelleme atlandı, ${cards} kart, ${peaks} tepe reddi` +
     ` | coin: ${readyCount()}/${series.size} hazır${busy.size ? `, ${busy.size} yükleniyor` : ''}${stale.length ? `, ${stale.length} GERİDE` : ''}` +
     ` | ${dTxt}` +
-    ` | takipte ${store?.openCount() ?? 0} kart, ${touches.openCount()} seviye teması, ${drops.openCount()} tepe adayı · ek veri ${enricher.stats.ok} (atlanan ${enricher.stats.skipped}) · likidasyon mesajı ${liqStream.stats().messages}` +
+    ` | takipte ${store?.openCount() ?? 0} kart, ${touches.openCount()} seviye teması, ${drops.openCount()} tepe adayı · ek veri ${enricher.stats.ok} (atlanan ${enricher.stats.skipped}) · likidasyon mesajı ${liqStream.stats().messages}${flow?.enabled() ? ` · akış ${flow.stats.rows} satır/${flow.stats.changes} değişim` : ''}` +
     ` | telegram: ${tg.sent} gönderildi, ${tg.queued} kuyrukta${tg.failed ? `, ${tg.failed} BAŞARISIZ` : ''}` +
     ` | bellek: ${mem} MB`,
   );
@@ -720,8 +723,11 @@ async function main() {
   console.log(`[AYAR] RSI ≥ ${s.rsiMin} (${s.minTFs}/3) · seviye ≤ %${s.levelMaxPct}${s.levelRequired ? ' (zorunlu)' : ''} · patlama %${s.burstPct1}/%${s.burstPct2} × hacim ${s.volMult} · evren ≥ ${s.minVolumeM}M $`);
 
   store = createCardStore();
+  if (process.env.SPOT_FLOW !== '0') {
+    flow = createSpotFlow({ futuresKlines: (sym, tf, limit) => binance.fetchKlines(sym, tf, limit), getSymbols: () => [...series.keys()], getSettings: () => settings.get() });
+  }
   await telegram.start();
-  telegramUi = installInfoTelegram({ telegram, settings, tracker, store, details, getSeries: sym => series.get(sym), ctx: () => ctx, status: statusText, chartFor: (sym, level, levels = []) => {
+  telegramUi = installInfoTelegram({ telegram, settings, tracker, store, details, flow: () => flow, getSeries: sym => series.get(sym), ctx: () => ctx, status: statusText, chartFor: (sym, level, levels = []) => {
     const sr = series.get(sym), s0 = settings.get();
     if (!sr || !s0.chart) return null;
     return chartOf(sr, s0, level, levels, 'Anlık');
@@ -764,6 +770,13 @@ async function main() {
   seedingAll = false;
 
   setInterval(() => runRecoveryCycle().catch(err => console.error('[KURTARMA]', err?.stack || err)), RECOVERY_EVERY_MS);
+  // Akış takibi mum tohumlamasından SONRA başlar (ilk tur coin başına geçmişi yükler; REST kuyruğunu tohumlamayla paylaşmasın)
+  if (flow?.enabled()) {
+    const runFlow = () => flow.tick().then(r => { if (r?.changed?.length) console.log(`[AKIŞ] ${r.changed.length} etiket değişti`); })
+      .catch(err => console.error('[AKIŞ]', err?.message || err));
+    setInterval(runFlow, FLOW_EVERY_MS).unref?.();
+    runFlow();
+  }
   runRecoveryCycle().catch(err => console.error('[KURTARMA]', err?.stack || err));
   setInterval(() => refreshUniverse().catch(err => console.error('[EVREN]', err?.message || err)), UNIVERSE_EVERY_MS);
   settings.onChange((key) => {
@@ -781,4 +794,4 @@ async function main() {
   console.log('\n✅ Bilgi botu çalışıyor.\n');
 }
 
-module.exports = { main, _internal: { onPeakCandidate, series, settings, tracker, touches, drops, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, seedMany, checkCoverage, seedMetrics, health, runReport, PANEL_REPORTS, runRecoveryCycle, scanStaleRecovery, queueRecovery, isFreshSymbol, recoveryBlocked, recoveryQueue, recoveryAttempts, recoveryNotBefore, gapMetrics, statusText, stats, busy, pending, details, getStore: () => store, getWeekly: () => weekly } };
+module.exports = { main, _internal: { onPeakCandidate, series, settings, tracker, touches, drops, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, seedMany, checkCoverage, seedMetrics, health, runReport, PANEL_REPORTS, runRecoveryCycle, scanStaleRecovery, queueRecovery, isFreshSymbol, recoveryBlocked, recoveryQueue, recoveryAttempts, recoveryNotBefore, gapMetrics, statusText, stats, busy, pending, details, getStore: () => store, getFlow: () => flow, getWeekly: () => weekly } };

@@ -12,6 +12,7 @@ const { dropText, teyitText, createTeyitAcc, slimDrop } = require('./eventLog');
 const { buildExports } = require('./exportData');
 const { buildWeekly } = require('./weeklyReport');
 const cfgAll = require('./config');
+const { flowText, changesText } = require('./spotFlow');
 
 const HOUR = 3_600_000;
 
@@ -30,7 +31,7 @@ function normSym(x) {
   return s.endsWith('USDT') ? s : s + 'USDT';
 }
 
-function installInfoTelegram({ telegram, settings, tracker, store = null, details = null, getSeries, ctx, status, chartFor = null }) {
+function installInfoTelegram({ telegram, settings, tracker, store = null, details = null, getSeries, ctx, status, chartFor = null, flow = null }) {
   const defs = settings.defs;
 
   const DEF = Object.fromEntries(defs.map(d => [d.key, d]));
@@ -51,6 +52,8 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
       sum: v => `kart ${v.cardSound ? 'sesli' : 'sessiz'}` },
     { id: 'cht', title: '🖼 Grafik', keys: ['chart', 'chartTf', 'chartFib', 'chartIchi', 'chartMinTouches'],
       sum: v => (v.chart ? `${v.chartTf}${v.chartIchi ? ' · Ichimoku' : ''}${v.chartFib ? ' · Fibonacci' : ''}` : 'kapalı') },
+    { id: 'flw', title: '🌊 Akış (/akis)', keys: ['flowK', 'flowCvdPct', 'flowPricePct', 'flowStrongX', 'flowWeakX', 'flowBuyPct', 'flowSellPct'],
+      sum: v => `son ${v.flowK} pencere · CVD ±%${v.flowCvdPct} · fiyat ±%${v.flowPricePct}` },
     { id: 'uni', title: '🌐 İzlenen coinler', keys: ['minVolumeM', 'tradfi'],
       sum: v => `24s hacim ≥ ${v.minVolumeM}M $ · hisse/emtia ${v.tradfi ? 'açık' : 'kapalı'}` },
   ];
@@ -213,11 +216,12 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
 /sessiz — susturulanlar
 /takip [ETH] — takip listesi / ekle-çıkar (takip edilenlerin kartları sesli gelir)
 /gecmis ETH [adet] — coinin son kartları ve sonrasında fiyat
+/akis [ETH] — spot/futures alım-satım akışı 4s/günlük/haftalık/aylık ve Toplanıyor/Dağıtım etiketi · argümansız: son etiket değişiklikleri
 /istatistik [gün] — kart sınıfları ve sonrasında fiyat (varsayılan 7 gün)
 /seviye [gün] [ad] — dirence alttan temastan sonraki 60 dk: geri çekilme, 3dk EMA21'e dönüş, kırılım (ör. <code>/seviye 7 fib</code>)
 /kacan [gün] — düşüş defteri: pompa tepesinden düşüşler, kartlı/kartsız, kartsızlarda eksik şart
 /teyit [gün] — teyit adayları: her pompa tepe adayında hangi durum varken daha sık düştü (varken / yokken düşüş oranı)
-/disaaktar [gün] — (yönetici) istatistik verisi CSV olarak özelden: düşüşler, kartlar, temaslar
+/disaaktar [gün] — (yönetici) istatistik verisi CSV olarak özelden: düşüşler, kartlar, temaslar, akış
 /haftalik — (yönetici) haftalık dosyanın ön izlemesi özelden (silmez). Asıl dosya her Pazartesi 03:01'de gruba gider ve veritabanı temizlenir
 /konu [ad] — konulu grupta yönlendirme (konunun içinde yaz: /konu kart · /konu sistem · /konu kart3 · /konu backtest · /konu rapor)
 /durum — bot durumu
@@ -297,6 +301,18 @@ Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesin
       return settings.toggleFollow(sym) ? `⭐ ${esc(sym)} takibe alındı.` : `☆ ${esc(sym)} takipten çıkarıldı.`;
     },
 
+    akis: (args) => {
+      const f = typeof flow === 'function' ? flow() : flow;
+      if (!f || !f.enabled()) return 'Akış takibi kapalı ya da henüz başlamadı.';
+      const x = String(args || '').trim();
+      if (!x) return changesText(f.changes({ since: Date.now() - 24 * HOUR, limit: 30 }), 24);
+      const sym = normSym(x);
+      if (!sym) return 'Kullanım: /akis ETH';
+      const sm = f.summary(sym);
+      if (!Object.values(sm).some(v => v.spot || v.futures)) return `${esc(sym)} için akış verisi yok (izlenmiyor ya da henüz yüklenmedi).`;
+      return flowText(esc(sym), sm, f.changes({ symbol: sym, limit: 8 }), settings.get(), f.hasSpot(sym));
+    },
+
     gecmis: (args) => {
       if (!store || !store.enabled()) return 'Kart geçmişi kapalı (veritabanı açılamadı).';
       const [x, nArg] = args.split(/\s+/);
@@ -373,15 +389,15 @@ ${mv.join('\n')}` : ''}`.slice(0, 4000);
       if (!store || !store.enabled()) return 'Kart geçmişi kapalı (veritabanı açılamadı).';
       const days = Math.max(1, Math.min(90, Number(String(args).trim()) || 30));
       const uid = msg.from?.id;
-      const { files, counts } = await buildExports(store, days, Date.now(), { base: `veri-son${days}gun` });
+      const { files, counts } = await buildExports(store, days, Date.now(), { base: `veri-son${days}gun`, flow: typeof flow === 'function' ? flow() : flow });
       for (const [k, f] of files.entries()) {
-        const ok = await telegram.sendDocumentPrivate(uid, f.name, f.buf, k === 0 ? `📤 son ${days} gün · tepeler ${counts.tepeler} · kartlar ${counts.kartlar} · temaslar ${counts.temaslar} satır (zip içinde CSV)` : null, f.type);
+        const ok = await telegram.sendDocumentPrivate(uid, f.name, f.buf, k === 0 ? `📤 son ${days} gün · tepeler ${counts.tepeler} · kartlar ${counts.kartlar} · temaslar ${counts.temaslar} · akış ${counts.akis ?? 0} satır (zip içinde CSV)` : null, f.type);
         if (!ok) {
           const bot = telegram.getBotUsername?.();
           return `❌ Özelden gönderemedim. Önce bota özelden bir kez /start yaz${bot ? `: https://t.me/${bot}` : ''} — sonra tekrar /disaaktar.`;
         }
       }
-      return `📤 ${files.length} zip özelden gönderildi (son ${days} gün): tepeler.csv ${counts.tepeler} · kartlar.csv ${counts.kartlar} · temaslar.csv ${counts.temaslar}`;
+      return `📤 ${files.length} zip özelden gönderildi (son ${days} gün): tepeler.csv ${counts.tepeler} · kartlar.csv ${counts.kartlar} · temaslar.csv ${counts.temaslar} · akis.csv ${counts.akis ?? 0}`;
     })),
 
     haftalik: adminOnly((args, msg) => heavy(async () => {
@@ -493,6 +509,7 @@ ${mv.join('\n')}` : ''}`.slice(0, 4000);
     ['yardim', 'Komutlar ve derece dairelerinin anlamı'],
     ['durum', 'Bot durumu: izlenen coin, bağlantı, kart sayısı'],
     ['gecmis', 'Coinin son kartları ve sonrasında fiyat · örn. /gecmis ETH'],
+    ['akis', 'Spot/futures alım-satım akışı ve Toplanıyor/Dağıtım etiketi · örn. /akis ETH'],
     ['istatistik', 'Kart sınıfları ve kart sonrası fiyat · örn. /istatistik 7'],
     ['seviye', 'Seviye tepkisi: temastan sonra çekilme / EMA21 / kırılım · örn. /seviye 7 fib'],
     ['kacan', 'Düşüş defteri: pompa tepesinden düşüşler, kartlı / kartsız · örn. /kacan 7'],
