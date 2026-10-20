@@ -6,6 +6,9 @@
 const assert = require('assert');
 process.env.NODE_ENV = 'test';
 process.env.EXTERNAL_BOT_KEY = 'test-bot-key-0123456789';
+const LOG_DIR = require('path').join(__dirname, '.tmp', 'api-logs');
+require('fs').rmSync(LOG_DIR, { recursive: true, force: true });
+process.env.LOG_DIR = LOG_DIR;
 
 const telegram = require('../src/telegram');
 let admins = ['12345678'];
@@ -77,6 +80,15 @@ async function main() {
     }
     assert.strictEqual((await req('/api/logs/history?day=../x', { token })).status, 400, 'log day parameter is validated');
     assert.strictEqual((await req('/api/logs/days', { token })).status, 200, 'log history is readable');
+    // Diske yalnızca uyarı ve hata yazılır; "[UYARI] …" console.log satırı uyarı sayılır.
+    console.log('[HEARTBEAT] sağlıklı'); console.log('[UYARI] 1m mum gecikmesi 45 sn'); console.error('[REST] ECONNRESET');
+    const hist = await (await req('/api/logs/history', { token })).json();
+    const tags = hist.entries.map(e => e.tag + ':' + e.level);
+    assert(tags.includes('UYARI:warn') && tags.includes('REST:error'), 'warnings and errors are persisted: ' + tags);
+    assert(!tags.some(t => t.startsWith('HEARTBEAT')), 'info lines are not persisted');
+    const live = await (await req('/api/logs', { token })).json();
+    assert(live.logs.some(l => l.tag === 'HEARTBEAT'), 'info lines still appear in the live stream');
+
     const settings = await (await req('/api/settings', { token })).json();
     assert(settings.ok && settings.settings && Array.isArray(settings.defs), 'settings are readable for the mirror view');
     const dash = await (await req('/', { token })).text();
@@ -141,6 +153,7 @@ async function main() {
     console.log('PASS: read-only panel, API auth, live admin authorization, CSRF, URL-token restriction, bot key, input sanitizing, non-resetting status reads');
   } finally {
     server.close();
+    require('fs').rmSync(LOG_DIR, { recursive: true, force: true });
   }
 }
 

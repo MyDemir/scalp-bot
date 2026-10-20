@@ -94,7 +94,7 @@ const MAX_LOGS = 500;
 let errorCount = 0;
 let warnCount = 0;
 
-// Kayıtlar ayrıca diske yazılır (bkz. logStore.js) — yeniden başlatmadan sonra da incelenebilir.
+// Uyarı ve hatalar ayrıca diske yazılır (bkz. logStore.js) — yeniden başlatmadan sonra da incelenebilir.
 // Testlerde LOG_DIR verilmedikçe diske yazılmaz.
 const { createLogStore, dayOf } = require('./logStore');
 const logStore = createLogStore({ disabled: process.env.NODE_ENV === 'test' && !process.env.LOG_DIR });
@@ -115,6 +115,9 @@ function addLog(level, args) {
 
   const tagMatch = msg.match(/^\[([\p{L}\p{N}#_.-]+)\]/u);
   const tag = tagMatch ? tagMatch[1] : (level === 'error' ? 'HATA' : (level === 'warn' ? 'UYARI' : 'SİSTEM'));
+  // Bot bazı uyarıları console.log ile "[UYARI] …" / "[HATA] …" biçiminde yazar; seviyeyi etiketten düzelt.
+  if (level === 'info' && /^UYARI$/i.test(tag)) level = 'warn';
+  if (level === 'info' && /^HATA$/i.test(tag)) level = 'error';
 
   if (level === 'error') errorCount++;
   if (level === 'warn') warnCount++;
@@ -122,7 +125,8 @@ function addLog(level, args) {
   const entry = { id: Date.now() + Math.random(), t: Date.now(), level, tag, message: msg };
   logsBuffer.unshift(entry);
   if (logsBuffer.length > MAX_LOGS) logsBuffer.pop();
-  logStore.append(entry);
+  // Diske yalnızca uyarı ve hatalar yazılır; sistem/bilgi satırları yalnızca canlı akışta kalır.
+  if (level === 'error' || level === 'warn') logStore.append(entry);
 }
 
 // Konsol çıktılarını dinle ve log havuzuna aktar
@@ -1109,7 +1113,7 @@ def report_status(error_msg=None):
         if (!r.ok || !sel) return;
         const keep = sel.value;
         sel.innerHTML = '<option value="">Canlı (son kayıtlar)</option>' + (r.days || []).map(d =>
-          '<option value="' + escapeHtml(d.day) + '">' + escapeHtml(d.day + ' · ' + d.errors + ' hata · ' + d.warnings + ' uyarı · ' + d.total + ' kayıt') + '</option>').join('');
+          '<option value="' + escapeHtml(d.day) + '">' + escapeHtml(d.day + ' · ' + d.errors + ' hata · ' + d.warnings + ' uyarı') + '</option>').join('');
         sel.value = keep;
         if (!r.persistent) sel.title = 'Kalıcı kayıt kapalı (disk yazılamıyor)';
       } catch (e) {}

@@ -1,8 +1,8 @@
 'use strict';
 
 /**
- * Kalıcı olay günlüğü — panelin "Hata & Olay Günlüğü" kayıtlarını diske yazar ki bot yeniden
- * başlasa da hatalar sonradan incelenebilsin.
+ * Kalıcı hata günlüğü — panelin "Hata & Olay Günlüğü"ndeki uyarı ve hataları diske yazar ki bot
+ * yeniden başlasa da sonradan incelenebilsin (sistem/bilgi satırları yazılmaz, bkz. server.js addLog).
  *
  *   Dosya : <DB_PATH klasörü>/logs/events-YYYY-MM-DD.jsonl  (Fly'da /data → deploy sonrası korunur)
  *   Biçim : satır başına bir JSON { t, level, tag, message }
