@@ -25,7 +25,7 @@ Kontrol anı: **3m / 5m / 15m mum kapanışları** + **hacimli her 1m mum kapan�
 | Seviye (zorunlu) | fiyatın üstünde en fazla **%2.5** uzakta bir seviye: 4h MA200 · 4h EMA200 · 1d MA200 · 1d EMA200 · 30 günlük tepe (son 30 **kapanmış** günün en yüksek 3 tepesinin ortalaması) · **7 / 30 günlük en yüksek** (gerçek tepe) · **1h / 4h tepe** (salınım tepesi: iki yanındaki 3 mumdan yüksek) · **Haftalık bölge** (günlük mumlar Binance haftasına — Pazartesi 00:00 UTC — toplanır; haftalık pivot tepe/diplerden %2 içinde ≥ 2 temas; `levelsWeeklyZone`) · **Günlük bölge** (son ~1 yılın günlük tepe/dip noktalarından ≥ 3 temas alan bölge — `zoneTouches`, menüden 2–6; eski destekler dahil; değer = bölgenin alt kenarı) · **Günlük trend çizgisi** (en yüksek günlük tepeden sonraki tepelere log ölçekte çizilen düşen çizgi, bugüne uzatılmış; kapanışlar üstüne çıkınca kırılmış sayılır) · **Fib 0.236 / 0.382 / 0.5 / 0.618 / 0.786** (1 SAATLİK geniş bacak: son ~2 haftanın 1h en yüksek tepesi ↔ en düşük dibi, yön otomatik — kart grafiğindeki Fib ile aynı). Birbirine %0.3'ten yakın seviyeler tek sayılır (çakışma Detay'da yazar). Yakında direnç yoksa bkz. **Fiyat keşfi** |
 | Yeni veri | önceki karttan bu yana: RSI dilim sayısı değişti · bir dilim 95'i geçti · hacimli mum · seviye/bölge değişti (⭐ Dirençte'ye girdi, seviye kırıldı) · MACD ya da Stoch RSI kesişimi · 1m/3m negatif tepe arttı. **Yeni veri yoksa kart gitmez.** |
 
-**Kurulum kontrol listesi ve derece** (Detay'da ✅/▫️, başlıkta daireler). 9 madde, puanla; yalnızca bilgi (kartı engellemez):
+**Kurulum kontrol listesi** (Detay'da ✅/▫️). 9 madde, puanla; yalnızca bilgi — kartı engellemez, varsayılan derece hesabında da kullanılmaz (bkz. Derece):
 
 1. Günlük / haftalık direnç yakın (1d MA200 / 1d EMA200 / 30 günlük tepe / 7–30 günlük en yüksek / günlük–haftalık bölge, üstte ≤ %2.5) — 1 puan
 2. Çakışan direnç (başka bir seviye %0.5 içinde) — 1 puan
@@ -53,7 +53,7 @@ Aynı veride 3m/5m RSI eşikleri, tetik TF'si, günlük/çakışan direnç, nega
 (kontrol listesi skoru 3 → %47). Veri iki günlük; yeni dışa aktarmayla yeniden bakılmalı.
 **`gradeBy = liste`** eski hesap: kontrol listesi puanı 🔴 0–2 · 🔴🔴 3–4 · 🔴🔴🔴 5–6 · 🔴🔴🔴🔴 7+
 (`grade2Min` / `grade3Min` / `grade4Min`, `/ayarlar` → Derece). 🔴🔴🔴 ve 🔴🔴🔴🔴 sesli (kart sesi kapalıyken bile) ve `/konu kart3`'e gider.
-Eşikler `/ayarlar`: `strongRsi`, `rsiEntryMax`, `confRsi`, `confluencePct`, `sepPct2/5/10`, `grade2Min`, `grade3Min`, `grade4Min`.
+Eşikler `/ayarlar → 🏅 Derece ve kontrol listesi`: `gradeBy`, `gradeRsi1h`, `gradeRsi15m`, `strongRsi`, `rsiEntryMax`, `confRsi`, `confluencePct`, `sepPct2/5/10`, `grade2Min`, `grade3Min`, `grade4Min`.
 Hacim/⚡ daireleri: 1 temel · 2 hacim ≥ 3× · 3 + yön uyumu ≥ %65; renk yönü gösterir (🟢 alış/yükseliş · 🔴 satış/düşüş · ⚪ nötr).
 
 **Seri içi patlama:** bir coinde kart gittikten sonra seri sürerken (kapanmış 15m RSI 75'in altına inmeden)
@@ -80,7 +80,7 @@ Aynı coinde kartlar **#1, #2 …** diye numaralanır; kapanmış 15m RSI 75'in 
 ### Kartın içeriği
 Hızlı okunsun diye kısa ve her şey açıkta (açılır kutu yok):
 ```
-🔴🔴 #CVXUSDT — RSI                 ← daire sayısı = derece (kontrol skoru), rengi = son 15 dk yön (🟢 yükseliş · 🔴 düşüş)
+🔴🔴 #CVXUSDT — RSI                 ← daire sayısı = derece (1 + sağlanan şart), rengi = son 15 dk yön (🟢 yükseliş · 🔴 düşüş)
 🔔: RSI 85+ · Kart 3 · ⭐ Dirençte   ← neden geldi (sahte kırılımda "⚠️ Sahte kırılım", seri içinde "Seri sürüyor (şart dışı)")
 ⚠️ Sahte kırılım: … / 🚀 Fiyat keşfi: …   ← yalnız özel olay varsa (en fazla 2 satır)
 RSI 3dk: 86.1
@@ -104,7 +104,8 @@ başlatmamış kullanıcıda buton botla özel sohbeti açar (bir kez **Başlat*
 - 📊 **Hacim ve alış–satış** — 15 dk / 1 saat / 4 saat / 24 saat: USDT hacim · normaline oranı (15 dk ve 1 saat için son 24 saat,
   4 ve 24 saat için son 7 gün ortalaması) · alış % / satış % (taker) · net (alış − satış $) · hacimli mum sayısı (1 saat) ·
   `Bugün 1 dk ≥ %2: ▲ 5 · ▼ 3 · fark +2`; kartı 1 dk hareket doğurduysa onun ayrıntısı
-- 🎯 **Kontrol x/8** — sağlanan maddeler değerleriyle, eksikler tek satırda, varsa ⚠️ uyarı
+- 🏅 **Derece x/4** — üç şartın durumu: `✅ EMA21 ayrışma · ✅ 1s RSI ≥ 80 · ▫️ 15dk RSI ≥ 85` (`gradeBy = liste` iken yok)
+- 🎯 **Kontrol x/9** — sağlanan maddeler değerleriyle, eksikler tek satırda, varsa ⚠️ uyarı
 - 📏 **Hedef** (3dk/5dk EMA21) · 3dk EMA21 durumu (izliyor / koptu / serbest) · fiyat keşfinde kırılan seviye, sonraki direnç, Fib uzantı
 - 🧭 **Diğer** — açık pozisyon (1 saat), BTC (1 saat) · MACD 5dk, Stoch RSI, VWAP · üstteki dirençler
 Ayrıntılar bellekte tutulur (son 3000 kart); bot yeniden başlayınca eski kartların Detay'ı "artık yok" der.
@@ -114,7 +115,7 @@ Ayrıntılar bellekte tutulur (son 3000 kart); bot yeniden başlayınca eski kar
   ("2–3 tepe negatif yapıp çakarsa"). Son tepe 6 mumdan eskiyse sayılmaz. ≥2 ise `#NEGTEPE`.
 - **Hacim sayacı** (60 dk ve 15 dk): 1m gövde ≥ %1 / ≥ %1.5 ve hacim ≥ 2× (önceki 20 mum ortalaması);
   taker alış > %55 → alım, < %45 → satış, arası nötr. Art arda gelen patlama mumları tek patlama sayılır.
-- Hashtag'ler (Detay mesajında; dokununca o sınıftaki tüm kartlar listelenir): `#COIN #DERECE1/2/3 #DIRENCTE/#YAKLASIYOR #HACIM #SERI #SAHTEKIRILIM #FIYATKESFI #NEGTEPE #AYRISMA #TAKIP`
+- Hashtag'ler (Detay mesajında; dokununca o sınıftaki tüm kartlar listelenir): `#COIN #DERECE1/2/3/4 #DIRENCTE/#YAKLASIYOR #HACIM #SERI #SAHTEKIRILIM #FIYATKESFI #NEGTEPE #AYRISMA #TAKIP`
 - **Bildirim:** her yeni kart sesli gelir (`/ayarlar` → "Kart sesli" kapatılırsa yalnız 🔴🔴🔴 ve takipteki coinler sesli).
 
 ### Grafik
@@ -276,9 +277,9 @@ likidasyonu, funding, spot prim, piyasa geneli …): o koşul **varken / yokken*
 (📈 varken daha sık düşüyor · 📉 varken daha az — devam riski) + 5dk teyit mumu oranları. Her koşul en az 5 örnekle;
 ilk günlerde az örnek olur, backtest hemen geçmiş veriden verir.
 
-`/disaaktar [gün]` (yönetici) — tek **zip** **özelden** gelir (önce bota özelden bir kez /start yaz); içinde 3 CSV:
+`/disaaktar [gün]` (yönetici) — tek **zip** **özelden** gelir (önce bota özelden bir kez /start yaz); içinde 4 CSV:
 `tepeler.csv` (tüm tepe adayları + `outcome`, tüm göstergeler), `kartlar.csv` (kartlar + kart anı göstergeleri + 5/15/30/60/240 dk sonrası),
-`temaslar.csv` (seviye tepkisi). UTF-8, virgülle ayrılmış, ondalık nokta → Google Sheets / Excel / Python (pandas).
+`temaslar.csv` (seviye tepkisi), `akis.csv` (alım-satım akışı pencereleri + 🐋 büyük işlem sayıları; akış kapalıysa yok). UTF-8, virgülle ayrılmış, ondalık nokta → Google Sheets / Excel / Python (pandas).
 Zip 40 MB'ı aşarsa (Telegram sınırı 50 MB) kalan satırlar `…-2.zip`'e geçer (`tepeler-2.csv`).
 Komut satırından: `fly ssh console` → `cd /app && node src/exportData.js --days 30` → `/data/export/veri.zip`,
 bilgisayara: `fly ssh sftp get /data/export/veri.zip`.
@@ -331,7 +332,7 @@ geçmişi, yanda son 7 günün etiket güncellemeleri. Taker alış "piyasa emri
 ### Telegram komutları
 | Komut | Kim | |
 |---|---|---|
-| `/ayarlar` | herkes görür, yöneticiler değiştirir | ana sayfa: bölümler + özet değerler (RSI kartı · Direnç · Derece · Hacimli mum · ⚡ Hareket · Bildirim · Grafik · İzlenen coinler) → bölüm: her ayar bir buton (aç-kapa ayarları tek dokunuşla) → sayısal ayar: kendi sayfasında −5/−1/+1/+5 adım ve ↺ Varsayılan |
+| `/ayarlar` | herkes görür, yöneticiler değiştirir | ana sayfa: bölümler + özet değerler (RSI kartı · Direnç · Derece · Hacimli mum · ⚡ Hareket · 🔻 Tepe reddi · Bildirim · Grafik · 🌊 Akış · İzlenen coinler) → bölüm: her ayar bir buton (aç-kapa ayarları tek dokunuşla) → sayısal ayar: kendi sayfasında −5/−1/+1/+5 adım ve ↺ Varsayılan |
 | `/ayar anahtar değer` · `/ayar sifirla` | yönetici | ör. `/ayar rsiMin 95`, `/ayar levelMaxPct 2` |
 | `/coin ETH` | herkes | coinin anlık durumu (şart aranmadan) |
 | `/sustur ETH [dk]` · `/ac ETH` · `/sessiz` | yönetici / herkes | susturma |
