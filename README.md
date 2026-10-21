@@ -37,7 +37,7 @@ Kontrol anı: **3m / 5m / 15m mum kapanışları** + **hacimli her 1m mum kapan�
 8. 1m ya da 3m'de ≥ 2 negatif tepe — 1 puan
 9. 3m ya da 5m MACD sat (aşağı) kesişimi — 1 puan
 
-Detay'da 🎯 hedef: 3m EMA21 ve 5m EMA21 uzaklığı. Kontrol listesi Detay'da bilgi olarak durur.
+Detay'da 📏 hedef: 3m EMA21 ve 5m EMA21 uzaklığı. Kontrol listesi Detay'da bilgi olarak durur.
 
 **Derece (varsayılan `gradeBy = sart3`):** daireler hep 🔴 (short olgunluğu); 1 + sağlanan şart sayısı — EMA21 ayrışma (3m ve 5m ≥ `sepPct2`) ·
 1s RSI `gradeRsi1h`–`gradeRsi1hMax` (80–88) · 15dk RSI ≥ `gradeRsi15m` (85) · 5dk ATR ≥ `gradeAtr5Pct` (%1.2; tepe reddiyle aynı eşik) — en fazla 4. **🚀 Kaçak pompa** (1s RSI ≥ 88 ya da 4s RSI ≥ `gradeRsi4hMax` 80):
@@ -109,14 +109,22 @@ Funding: −%0.0050 · 40dk sonra       ← funding oranı ve sonraki ödemeye k
 **Butonlar:** 📈 TradingView · 🟡 Binance / **📋 Detay** · 🔕 1s sustur · ☆ Takip.
 **📋 Detay** yalnızca **basan kişiye özel mesajla** gelir; grupta hiçbir şey görünmez. Botu daha önce özel sohbette
 başlatmamış kullanıcıda buton botla özel sohbeti açar (bir kez **Başlat**), Detay hemen gelir; sonrakiler doğrudan gelir.
-Özel sohbette yalnızca bu istek kabul edilir ve yalnızca grup üyelerine gönderilir. Detay'ın bölümleri:
+Özel sohbette yalnızca bu istek kabul edilir ve yalnızca grup üyelerine gönderilir. Detay'ın bölümleri (bu sırayla; boş bölüm yazılmaz):
+- 📋 başlık — coin · kart no · saat · fiyat
+- 🆕 **Son karttan beri** (ilk kartta **Durum**) — kartta görünmeyen yenilikler: RSI eşik geçişleri, derece değişimi, negatif tepe,
+  MACD/Stoch kesişimi, yeni / kırılan direnç. Seri içinde atlanan kapanışların değişiklikleri de burada birikir
+- 🏅 **Derece x/4** — her şart kendi satırında, değeriyle: `✅ EMA21 ayrışma: 3dk +%3.1 · 5dk +%4.2 (≥ %2)` · `✅ 1s RSI 84.9 (80–88)` ·
+  `✅ 15dk RSI 94.5 (≥ 85)` · `▫️ 5dk ATR %0.85 (≥ %1.2)`; tavan varsa başlıkta (kaçak pompa / direnç yok), kaçak pompada 🚀 satırı
+- 📈 **Momentum** — son 15 dk yön (▲/▼), 🔥 3dk/5dk RSI ≥ 95, MACD 3/5/15dk, 5dk Stoch RSI, negatif tepe sayısı, 3dk EMA21 durumu
+  (izliyor / koptu / serbest), günlük VWAP uzaklığı
+- 🎯 **Direnç ve hedef** — direnç, kaç kez denendiği, çakışma, bölge / trend çizgisi / Fib bacağı, fiyat keşfinde kırılan seviye,
+  sonraki direnç ve Fib uzantı, üstteki dirençler, 📏 hedef (3dk/5dk EMA21)
 - 📊 **Hacim ve alış–satış** — 15 dk / 1 saat / 4 saat / 24 saat: USDT hacim · normaline oranı (15 dk ve 1 saat için son 24 saat,
   4 ve 24 saat için son 7 gün ortalaması) · alış % / satış % (taker) · net (alış − satış $) · hacimli mum sayısı (1 saat) ·
   `Bugün 1 dk ≥ %2: ▲ 5 · ▼ 3 · fark +2`; kartı 1 dk hareket doğurduysa onun ayrıntısı
-- 🏅 **Derece x/4** — üç şartın durumu: `✅ EMA21 ayrışma · ✅ 1s RSI ≥ 80 · ▫️ 15dk RSI ≥ 85` (`gradeBy = liste` iken yok)
-- 🎯 **Kontrol x/9** — sağlanan maddeler değerleriyle, eksikler tek satırda, varsa ⚠️ uyarı
-- 📏 **Hedef** (3dk/5dk EMA21) · 3dk EMA21 durumu (izliyor / koptu / serbest) · fiyat keşfinde kırılan seviye, sonraki direnç, Fib uzantı
-- 🧭 **Diğer** — açık pozisyon (1 saat), BTC (1 saat) · MACD 5dk, Stoch RSI, VWAP · üstteki dirençler
+- 🧭 **Piyasa** — açık pozisyon (1 saat), funding, BTC (1 saat)
+- ⚠️ **Short'a karşı** — 4s gizli PU, günlük golden cross (varsa)
+- 📝 **Kontrol listesi x/9** — bilgi; sağlanan maddeler değerleriyle, eksikler tek satırda, varsa ⚠️ uyarı
 Ayrıntılar bellekte tutulur (son 3000 kart); bot yeniden başlayınca eski kartların Detay'ı "artık yok" der.
 
 - **EMA21** 3m/5m: fiyata uzaklığı (%) ve ATR cinsinden ayrışma (geri çekilme hedefleri)

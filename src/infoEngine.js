@@ -630,9 +630,10 @@ function createTracker() {
       if (s.rsiMin2 > s.rsiMin) line(`RSI ${s.rsiMin2} üstüne çıktı`, RSI_TFS.filter(tf => snap.rsi[tf].v >= s.rsiMin2 && !(L.above2 || []).includes(tf)));
       line(`RSI ${s.strongRsi} üstüne çıktı`, RSI_TFS.filter(tf => snap.rsi[tf].v >= s.strongRsi && !L.strong.includes(tf)));
       const sc = snap.check?.score, psc = L.score;
+      const liste = s.gradeBy === 'liste';   // sart3'te kontrol listesi dereceye girmez → yenilik sayılmaz
       if (snap.grade !== (L.grade ?? snap.grade)) {
-        out.push(`Derece ${snap.grade > L.grade ? 'yükseldi' : 'düştü'}: ${circles(snap.grade)}${sc != null ? ` (kontrol ${sc}/${snap.check.total})` : ` (${GRADE_TXT[snap.grade]})`}`);
-      } else if (sc != null && psc != null && sc !== psc) {
+        out.push(`Derece ${snap.grade > L.grade ? 'yükseldi' : 'düştü'}: ${L.grade} → ${snap.grade}${liste ? (sc != null ? ` (kontrol ${sc}/${snap.check.total})` : ` (${GRADE_TXT[snap.grade]})`) : ''}`);
+      } else if (liste && sc != null && psc != null && sc !== psc) {
         out.push(`Kontrol listesi ${psc}/${snap.check.total} → ${sc}/${snap.check.total}`);
       }
       const dKey = snap.discovery ? lvKey(snap.discovery.broken) : null;

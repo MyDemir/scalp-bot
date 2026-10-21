@@ -132,7 +132,7 @@ const results = []; const ok = s => results.push('✅ ' + s);
   assert(!cards.some(c => c.text.includes('Sahte kırılım') && /RSI 3dk: (\d+)/.test(c.text) && false));
   { const vis = h => { const t = h.replace(/\r\n/g, '\n').replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'); return t.length + (t.match(/\n/g) || []).length; };
     for (const c of cards.filter(c => c.method === 'sendPhoto')) {
-      assert(vis(c.text) <= 1024 && det(c).includes('🎯 <b>Kontrol'), 'fotoğraf açıklaması ≤1024 ve Detay hazır: ' + vis(c.text));
+      assert(vis(c.text) <= 1024 && det(c).includes('📝 <b>Kontrol listesi'), 'fotoğraf açıklaması ≤1024 ve Detay hazır: ' + vis(c.text));
     } }
   // Saat hizasına göre alış patlaması ya kartın yeniliği olur ya da ilk karttan hemen önce gelip yalnız sayaca yazılır
   const burstCard = cards.find(c => c.text.includes('Hacimli yükselen mum')) || cards[0];
@@ -151,7 +151,7 @@ const results = []; const ok = s => results.push('✅ ' + s);
     tg.click(CHAT, USER, kb[1][0].callback_data, 4242);
     await waitFor(() => tg.privates.length > p0 && tg.answers.length > a0, 3000, 'detay');
     const d = tg.privates.at(-1);
-    assert(Number(d.chat_id) === USER && d.text.includes('📊 <b>Hacim ve alış–satış</b>') && /1 saat: .* \$ · ort\. [\d.]+ katı · alış %\d+ \/ satış %\d+ · net/.test(d.text) && d.text.includes('🎯 <b>Kontrol'), 'detay mesajı: ' + d.text.slice(0, 500));
+    assert(Number(d.chat_id) === USER && d.text.includes('📊 <b>Hacim ve alış–satış</b>') && /1 saat: .* \$ · ort\. [\d.]+ katı · alış %\d+ \/ satış %\d+ · net/.test(d.text) && d.text.includes('📝 <b>Kontrol listesi'), 'detay mesajı: ' + d.text.slice(0, 500));
     assert(/özel mesajla/.test(tg.answers.at(-1).text));
     await sleep(300);
     assert.strictEqual(tg.sent.length, n0, 'grupta mesaj olmamalı');
