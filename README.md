@@ -63,7 +63,7 @@ Hacim/⚡ daireleri: 1 temel · 2 hacim ≥ 3× · 3 + yön uyumu ≥ %65; renk 
 **Seri içinde yeni kart** (`seriesCards`, varsayılan `derece`): bir coinde ilk karttan sonra seri sürerken (kapanmış 15m RSI 75'in altına
 inmeden) 3m/5m/15m kapanışından gelen yeni kart **yalnız derece serideki en yüksek dereceyi geçince** gönderilir; RSI, MACD, negatif tepe,
 direnç değişiklikleri sonraki karta birikir. Sahte kırılım, hacimli mum ve ⚡ hareket her zaman kart olur. 18–20.10 verisinde
-769 kart → 196 (seri başına medyan 3 → 1); atlanan kartlar yeni bir şey söylemiyordu (aynı derecede 60 dk sonra aşağıda oranı ilk kartla aynı).
+769 kart → 196 (seri başına medyan 3 → 1); atlanan kartlar dereceyi değiştirmeyen tekrarlardı.
 `/ayarlar → 📊 RSI kartı → Seri kartı` → `hepsi` eski davranış (her yeni bilgide kart).
 
 **Seri içi patlama:** bir coinde kart gittikten sonra seri sürerken (kapanmış 15m RSI 75'in altına inmeden)
