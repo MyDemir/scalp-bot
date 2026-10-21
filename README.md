@@ -39,8 +39,12 @@ Kontrol anı: **3m / 5m / 15m mum kapanışları** + **hacimli her 1m mum kapan�
 
 Detay'da 🎯 hedef: 3m EMA21 ve 5m EMA21 uzaklığı. Kontrol listesi Detay'da bilgi olarak durur.
 
-**Derece (varsayılan `gradeBy = sart3`):** 1 + sağlanan şart sayısı — EMA21 ayrışma (3m ve 5m ≥ `sepPct2`) ·
-1s RSI ≥ `gradeRsi1h` (80) · 15dk RSI ≥ `gradeRsi15m` (85). 18–20.10 verisinde (769 kart, 60 dk sonra fiyat kart anının altında):
+**Derece (varsayılan `gradeBy = sart3`):** daireler hep 🔴 (short olgunluğu); 1 + sağlanan şart sayısı — EMA21 ayrışma (3m ve 5m ≥ `sepPct2`) ·
+1s RSI `gradeRsi1h`–`gradeRsi1hMax` (80–88) · 15dk RSI ≥ `gradeRsi15m` (85). **🚀 Kaçak pompa** (1s RSI ≥ 88 ya da 4s RSI ≥ `gradeRsi4hMax` 80):
+en fazla `gradeRunawayMax` (2) daire — bu durumda tepe çoğu zaman sürdü (60 dk sonra %27–39 aşağıda, önce medyan +%11–12).
+Direnç yoksa (fiyat keşfi) en fazla `gradeNoLevelMax` (3) daire. 🔔 satırında son 15 dk yönü (▲/▼) ve 3dk/5dk RSI ≥ 95 ise `🔥 RSI 95+`
+(dereceye girmez: tek başına sonucu ayırmadı). Bu kurallarla aynı veride: 🔴 %14 · 🔴🔴 %29 · 🔴🔴🔴 %63 · 🔴🔴🔴🔴 %82 aşağıda
+(eski liste: 🔴 %27 · 🔴🔴 %50 · 🔴🔴🔴 %30). Tavansız ilk sürüm: 18–20.10 verisinde (769 kart, 60 dk sonra fiyat kart anının altında):
 
 | Sağlanan şart | Kart | 60 dk sonra aşağıda | Medyan dip (60 dk) |
 |---|---|---|---|

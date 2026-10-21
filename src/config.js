@@ -14,6 +14,10 @@ module.exports = {
     gradeBy:       'sart3',
     gradeRsi1h:    80,
     gradeRsi15m:   85,
+    gradeRsi1hMax: 88,      // sart3: 1s RSI bu ve üstü ya da 4s RSI ≥ gradeRsi4hMax → kaçak pompa (0 = kapalı)
+    gradeRsi4hMax: 80,
+    gradeRunawayMax: 2,     // kaçak pompada en fazla bu kadar daire
+    gradeNoLevelMax: 3,     // sart3: %2.5 içinde direnç yoksa (fiyat keşfi) en fazla bu kadar daire
     grade2Min:     3,
     grade3Min:     5,
     grade4Min:     7,

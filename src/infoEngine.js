@@ -175,20 +175,33 @@ function checklist(snap, s) {
 }
 
 /** Derece şartları (gradeBy 'sart3'): EMA21 ayrışma · 1s RSI · 15m RSI — 18–20.10 kart verisinde sonucu ayıran üçü */
+/**
+ * Kaçak pompa: 1s RSI ≥ gradeRsi1hMax (88) ya da 4s RSI ≥ gradeRsi4hMax (80). 18–20.10'da 3 şartlı kartlarda bu durumda
+ * 60 dk sonra yalnız %27–39 aşağıdaydı (60 dk'da önce medyan +%11–12); 1s 80–88 ve 4s < 70 iken %85.
+ */
 function gradeConds(snap, s) {
-  const r15 = snap.rsi?.['15m']?.v, h1 = snap.conf?.h1;
+  const r15 = snap.rsi?.['15m']?.v, h1 = snap.conf?.h1, h4 = snap.conf?.h4;
+  const h1Max = s.gradeRsi1hMax ?? 88, h4Max = s.gradeRsi4hMax ?? 80;
+  const runaway = (h1Max > 0 && Number.isFinite(h1) && h1 >= h1Max) || (h4Max > 0 && Number.isFinite(h4) && h4 >= h4Max);
   return {
     sep: Boolean(snap.sepOk),
-    h1: Number.isFinite(h1) && h1 >= (s.gradeRsi1h ?? 80),
+    h1: Number.isFinite(h1) && h1 >= (s.gradeRsi1h ?? 80) && !(h1Max > 0 && h1 >= h1Max),
     r15: Number.isFinite(r15) && r15 >= (s.gradeRsi15m ?? 85),
+    runaway,
   };
 }
 
-/** RSI şartından bağımsız derece (1–4) */
-function gradeOf(snap, s) {
+/**
+ * RSI şartından bağımsız derece (1–4).
+ * sart3: direnç yoksa (fiyat keşfi) en fazla gradeNoLevelMax (3) — 18–20.10'da direnç yokken 3 şart %60 aşağıda ve
+ * 60 dk'da önce medyan +%5.6 yükseldi (direnç varken %77 / +%1.3). SFP kartında kırılan seviye direnç sayılır.
+ */
+function gradeOf(snap, s, { sfp = false } = {}) {
   if ((s.gradeBy ?? 'sart3') !== 'liste') {
     const c = gradeConds(snap, s);
-    return 1 + c.sep + c.h1 + c.r15;
+    let g = 1 + c.sep + c.h1 + c.r15;
+    if (c.runaway) g = Math.min(g, s.gradeRunawayMax ?? 2);
+    return !sfp && !snap.level ? Math.min(g, s.gradeNoLevelMax ?? 3) : g;
   }
   const sc = snap.check ? snap.check.score : 0;
   if (sc >= (s.grade4Min ?? 7)) return 4;
@@ -740,7 +753,7 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
     if (!sfp && !seriesBurst && !moveCard) return null;
     if (!snap.rsiOk) snap = evaluate(series, s, ctx, true);
     inSeries = seriesBurst;
-    if (sfp && !(snap.grade > 0)) snap.grade = gradeOf(snap, s);
+    if (sfp && !(snap.grade > 0)) snap.grade = gradeOf(snap, s, { sfp: true });
   }
   if (ctx.isMuted && ctx.isMuted(sym, snap.t)) return null;
 

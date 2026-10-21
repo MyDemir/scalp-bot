@@ -92,9 +92,16 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   assert.strictEqual(eng.rsiGrade({ hits: 1, check: { score: 8 } }, L), 0);
   // Varsayılan (sart3): 1 + ayrışma + 1s RSI ≥ 80 + 15m RSI ≥ 85; kontrol listesi skoru dereceyi etkilemez
   const G3 = { ...g, gradeBy: 'sart3', gradeRsi1h: 80, gradeRsi15m: 85 };
-  const sn = (sep, h1, r15) => ({ hits: 2, sepOk: sep, conf: { h1 }, rsi: rsi(90, 90, r15), check: { score: 9 } });
+  const sn = (sep, h1, r15, level = { name: '4h tepe' }, h4 = 60) => ({ hits: 2, sepOk: sep, conf: { h1, h4 }, rsi: rsi(90, 90, r15), check: { score: 9 }, level });
   assert.deepStrictEqual([sn(false, 70, 80), sn(true, 70, 80), sn(true, 81, 80), sn(true, 81, 86), sn(false, 85, 90)].map(x => eng.rsiGrade(x, G3)), [1, 2, 3, 4, 3]);
   assert.strictEqual(eng.rsiGrade({ ...sn(true, 90, 90), hits: 1 }, G3), 0, 'RSI kart şartı yoksa derece 0');
+  assert.strictEqual(eng.rsiGrade(sn(true, 81, 86, null), G3), 3, 'direnç yok (fiyat keşfi) → en fazla 3');
+  assert.strictEqual(eng.rsiGrade(sn(true, 81, 86, null), { ...G3, gradeNoLevelMax: 4 }), 4, 'tavan ayarlanabilir');
+  assert.strictEqual(eng.gradeOf(sn(true, 81, 86, null), G3, { sfp: true }), 4, 'SFP: kırılan seviye direnç sayılır');
+  assert.strictEqual(eng.rsiGrade(sn(true, 88.2, 86, undefined, 86.5), G3), 2, 'kaçak pompa (1s 88 · 4s 86) → en fazla 2');
+  assert.strictEqual(eng.rsiGrade(sn(true, 84, 86, undefined, 81), G3), 2, '4s ≥ 80 → kaçak');
+  assert(eng.gradeConds(sn(true, 90, 86), G3).runaway && !eng.gradeConds(sn(true, 90, 86), G3).h1, '1s ≥ 88 şart sayılmaz');
+  assert.strictEqual(eng.rsiGrade(sn(true, 90, 86, undefined, 86), { ...G3, gradeRsi1hMax: 0, gradeRsi4hMax: 0 }), 4, 'kaçak kapalı (0)');
   assert.strictEqual(eng.rsiGrade({ hits: 2, rsi: rsi(90, 90, null), conf: {} }, G3), 1, 'eksik RSI → şart sayılmaz');
   ck = eng.checklist({ ...base, rsi: rsi(90, 90, 90), levels: [{ name: '4h EMA200', value: 101, dist: -1 }], level: { name: '4h EMA200', value: 101, dist: -1, zone: 'near' } }, g);
   assert(!ck.items[0].ok && ck.items[0].text.includes('içinde yok'));   // yalnız 4h seviye → günlük madde yok
