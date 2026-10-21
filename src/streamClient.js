@@ -124,6 +124,7 @@ function createStreamClient({ symbols, timeframes, onKline, onGap = () => {}, op
       takerBuyQuote: +k.Q,
       final:     k.x === true,
       interval:  k.i,
+      eventTime: Number(d.E) || null,   // Binance'in mesajı ürettiği an — gecikmeyi Binance / yerel diye ayırmak için
     };
     if (kline.final) counters.finals[k.i] = (counters.finals[k.i] || 0) + 1;
 

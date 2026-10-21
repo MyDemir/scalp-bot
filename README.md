@@ -345,7 +345,7 @@ geçmişi, yanda son 7 günün etiket güncellemeleri. Taker alış "piyasa emri
 | `/haftalik` | yönetici | haftalık dosyaların (MD + zip) ön izlemesi özelden (silmez); asıl dosyalar Pazartesi 03:01'de gruba gider |
 | `/seviye [gün] [ad]` | herkes | seviye tepkisi: temastan sonra çekilme / 3dk EMA21'e dönüş / kırılım (ör. `/seviye 7 fib`) |
 | `/konu [ad]` · `/konu sil ad` | liste herkes, bağlama yönetici | konulu grupta yönlendirme |
-| `/durum` · `/benkimim` · `/yardim` | herkes | `/durum`: izlenen/hazır coin, **geride kalan coinler** (son 3 dk'da 1m mumu gelmeyen), son 5 dk'da işlenen mum sayısı, **gecikme** (mum kapanışı → bot işledi; ort / en fazla) ve işlem yükü. Gecikme 20 sn'yi aşarsa ya da geride coin varsa `fly logs`'ta `[UYARI]` |
+| `/durum` · `/benkimim` · `/yardim` | herkes | `/durum`: izlenen/hazır coin, **geride kalan coinler** (son 3 dk'da 1m mumu gelmeyen), son 5 dk'da işlenen mum sayısı, **gecikme** (mum kapanışı → bot işledi; ort / en fazla, Binance ve yerel kısım ayrı) ve işlem yükü. Heartbeat ayrıca CPU %, steal % (paylaşımlı CPU kotası) ve event loop gecikmesini yazar. Gecikme 20 sn'yi aşarsa ya da geride coin varsa `fly logs`'ta `[UYARI]` |
 
 Yönetici: `TELEGRAM_ADMIN_IDS` (virgüllü kullanıcı ID'leri; `/benkimim` ile öğrenilir) tanımlıysa o liste,
 değilse **grubun yöneticileri**. Ayarlar `/data/info-settings.json`'a yazılır → deploy sonrası korunur.
@@ -507,7 +507,7 @@ def report_to_hub(error_msg=None):
 * **Deterministik Docker Derlemesi:** `package-lock.json` ile `COPY package*.json ./` ve `npm ci` kullanılır.
 * **Panel API Güvenliği:** Tüm `/api/*` uçları Telegram OTP oturumu ister; kullanıcının grupta hâlâ yönetici olduğu 5 dakikada bir canlı doğrulanır (çıkarılan yöneticinin oturumu iptal edilir), panel salt okunurdur, farklı kaynaktan gelen yazma istekleri (CSRF) reddedilir, URL'deki `?token=` yalnızca panel açılışında kabul edilir. Harici bot alanları tür/uzunluk sınırıyla saklanır ve panelde HTML kaçışıyla gösterilir.
 * **Sert Kuyruk Sınırı:** Telegram 429 sonrası yeniden deneme de `TELEGRAM_MAX_QUEUE_LEN` sınırını aşamaz.
-* **Kontrollü Backfill:** Tohumlama (`SEED_CONCURRENCY`, varsayılan 4) ve boşluk doldurma (`GAP_FILL_CONCURRENCY`, en fazla 4) sınırlı paralellikle, REST weight bütçesi (`BINANCE_REST_WEIGHT_PER_MIN`) içinde çalışır. Her coin için doldurma sonrası eksik 1m mum ve son mum yaşı kontrol edilir; delik ya da eski veri kalırsa coin sinyalleri durdurulup kurtarma kuyruğuna alınır.
+* **Kontrollü Backfill:** Tohumlama (`SEED_CONCURRENCY`, varsayılan 4) ve boşluk doldurma (`GAP_FILL_CONCURRENCY`, varsayılan 8, en fazla 16) sınırlı paralellikle, REST weight bütçesi (`BINANCE_REST_WEIGHT_PER_MIN`) içinde çalışır. Her coin için doldurma sonrası eksik 1m mum ve son mum yaşı kontrol edilir; delik ya da eski veri kalırsa coin sinyalleri durdurulup kurtarma kuyruğuna alınır.
 * **Otomatik Test Paketi:** 26 adet kapsamlı test (`npm test`) ve GitHub Actions CI iş akışı (`.github/workflows/test.yml`).
 
 ---

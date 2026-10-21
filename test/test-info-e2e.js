@@ -258,7 +258,7 @@ const results = []; const ok = s => results.push('✅ ' + s);
   tg.command(CHAT, USER, '/durum');
   await waitFor(() => tg.sent.some(m => m.text.includes('izleniyor ·')), 3000, '/durum');
   { const dm = tg.sent.find(m => m.text.includes('izleniyor ·'));
-    assert(/Son 5 dk: \d+ mum · WS gecikme ort [\d.]+ sn, en fazla [\d.]+ sn · kuyruk ort [\d.]+ sn · işlem yükü %[\d.]+/.test(dm.text) && /(Tüm hazır coinlerde son 3 dk mumu var|Geride \(son 3 dk mum yok\))/.test(dm.text), '/durum yetişme satırları: ' + dm.text);
+    assert(/Son 5 dk: \d+ mum · WS gecikme ort [\d.]+ sn, en fazla [\d.]+ sn( \(Binance ort [\d.]+ \/ yerel ort [\d.]+, en fazla [\d.]+ sn\))? · kuyruk ort [\d.]+ sn · işlem yükü %[\d.]+/.test(dm.text) && /(Tüm hazır coinlerde son 3 dk mumu var|Geride \(son 3 dk mum yok\))/.test(dm.text), '/durum yetişme satırları: ' + dm.text);
     console._log('\n' + dm.text.replace(/<[^>]+>/g, '').split('\n').slice(0, 4).join('\n')); }
 
   // ── Evren yenileme: NEW eklenir, CALM düşer ──

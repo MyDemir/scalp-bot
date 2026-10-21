@@ -31,7 +31,7 @@ function rawCandles(startT, count) {
 
 async function main() {
   const originalFetch = binance.fetchKlines;
-  const symbols = Array.from({ length: 8 }, (_, i) => `GAPTEST${i}USDT`);
+  const symbols = Array.from({ length: 12 }, (_, i) => `GAPTEST${i}USDT`);
   const now = Math.floor(Date.now() / MIN) * MIN;
   const lastT = now - 5 * MIN;
   let active = 0;
@@ -57,7 +57,7 @@ async function main() {
     await internal.backfillGap(symbols, Date.now() - 2 * MIN);
 
     assert(peak > 1, `backfill should perform bounded concurrent requests; observed ${peak}`);
-    assert(peak <= 4, `backfill concurrency must never exceed 4; observed ${peak}`);
+    assert(peak <= 8, `backfill concurrency must never exceed 8 (default GAP_FILL_CONCURRENCY); observed ${peak}`);
     for (const sym of symbols) {
       const sr = internal.series.get(sym);
       assert.strictEqual(sr.lastT('1m'), lastT + expectedCandles * MIN, `${sym} should recover all missing candles`);
