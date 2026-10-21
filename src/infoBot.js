@@ -19,6 +19,8 @@ const { createEnricher, createLiqStream } = require('./marketData');
 const ta = require('./ta');
 const { createWeeklyJob } = require('./weeklyReport');
 const path = require('path');
+const fs = require('fs');
+const { monitorEventLoopDelay } = require('perf_hooks');
 const chart = require('./chart');
 const { createSettings } = require('./infoSettings');
 const { installInfoTelegram } = require('./infoTelegram');
@@ -31,7 +33,8 @@ const UNIVERSE_EVERY_MS = 60 * 60_000;
 const FLOW_EVERY_MS     = 60_000;
 const OI_CACHE_MS       = 2 * 60_000;
 const GAP_FILL_MAX_MIN  = 200;
-const GAP_FILL_CONCURRENCY = Math.max(1, Math.min(4, Math.floor(Number(process.env.GAP_FILL_CONCURRENCY) || 4)));
+// Boşluk doldurma ağ gecikmesine bağlı (Frankfurt → Binance ≈ 0,35 sn/istek); weight bütçesini binanceClient korur.
+const GAP_FILL_CONCURRENCY = Math.max(1, Math.min(16, Math.floor(Number(process.env.GAP_FILL_CONCURRENCY) || 8)));
 // Başlangıç/yeniden tohumlama da sınırlı paralellikle çalışır. Her istek binanceClient'taki
 // weight bütçesinden (BINANCE_REST_WEIGHT_PER_MIN) geçtiği için paralellik dakikalık sınırı aşmaz,
 // yalnızca ağ gecikmesini örter.
@@ -85,7 +88,9 @@ const MAX_COVERAGE_REPORT = 50;   // panelde gösterilen sorunlu coin sayısı
 let startedAt = 0;
 let seedingAll = false;
 
-const newDiag = () => ({ from: Date.now(), n: 0, lagSum: 0, lagMax: 0, busyMs: 0, queueWaitMs: 0, queueWaitN: 0 });
+// lag = alış − mum kapanışı; bunun binSum/binMax kısmı Binance'te (olay zamanı E − kapanış), locSum/locMax kısmı
+// ağ + bizim süreçte (alış − E) geçen süre. Yerel kısım büyükse event loop / CPU yetişemiyor demektir.
+const newDiag = () => ({ from: Date.now(), n: 0, lagSum: 0, lagMax: 0, eN: 0, binSum: 0, binMax: 0, locSum: 0, locMax: 0, busyMs: 0, queueWaitMs: 0, queueWaitN: 0 });
 let diag = newDiag(), lastDiag = null;
 const STALE_MS = 3 * 60_000;
 
@@ -199,7 +204,8 @@ async function runRecoveryCycle() {
 function diagSummary(d, now = Date.now()) {
   if (!d || !d.n) return { candles: 0, lagAvgMs: null, lagMaxMs: null, busyPct: null, windowMs: 0 };
   const win = Math.max(1, (d.to ?? now) - d.from);
-  return { candles: d.n, lagAvgMs: Math.round(d.lagSum / d.n), lagMaxMs: Math.round(d.lagMax), busyPct: +(d.busyMs / win * 100).toFixed(1), windowMs: win };
+  return { candles: d.n, lagAvgMs: Math.round(d.lagSum / d.n), lagMaxMs: Math.round(d.lagMax), busyPct: +(d.busyMs / win * 100).toFixed(1), windowMs: win,
+    binanceAvgMs: d.eN ? Math.round(d.binSum / d.eN) : null, localAvgMs: d.eN ? Math.round(d.locSum / d.eN) : null, localMaxMs: d.eN ? Math.round(d.locMax) : null };
 }
 
 function health(now = Date.now()) {
@@ -220,7 +226,9 @@ function health(now = Date.now()) {
 function diagText(d, now = Date.now()) {
   if (!d || !d.n) return 'veri yok';
   const win = Math.max(1, (d.to ?? now) - d.from);
-  return `${d.n} mum · WS gecikme ort ${(d.lagSum / d.n / 1000).toFixed(1)} sn, en fazla ${(d.lagMax / 1000).toFixed(1)} sn · kuyruk ort ${(d.queueWaitN ? d.queueWaitMs / d.queueWaitN / 1000 : 0).toFixed(2)} sn · işlem yükü %${(d.busyMs / win * 100).toFixed(1)}`;
+  const sec = ms => (ms / 1000).toFixed(1);
+  const split = d.eN ? ` (Binance ort ${sec(d.binSum / d.eN)} / yerel ort ${sec(d.locSum / d.eN)}, en fazla ${sec(d.locMax)} sn)` : '';
+  return `${d.n} mum · WS gecikme ort ${sec(d.lagSum / d.n)} sn, en fazla ${sec(d.lagMax)} sn${split} · kuyruk ort ${(d.queueWaitN ? d.queueWaitMs / d.queueWaitN / 1000 : 0).toFixed(2)} sn · işlem yükü %${(d.busyMs / win * 100).toFixed(1)}`;
 }
 
 // ── Değerlendirme bağlamı ─────────────────────────────────────────────────
@@ -423,8 +431,14 @@ function onKline(symbol, tf, k, isFinal) {
     pending.get(symbol).push(c);
     return;
   }
-  const lag = Math.max(0, Date.now() - (c.t + 60_000));
+  const lag = Math.max(0, c._receivedAt - (c.t + 60_000));
   diag.n++; diag.lagSum += lag; if (lag > diag.lagMax) diag.lagMax = lag;
+  if (k.eventTime) {
+    const bin = Math.max(0, k.eventTime - (c.t + 60_000)), loc = Math.max(0, c._receivedAt - k.eventTime);
+    diag.eN++; diag.binSum += bin; diag.locSum += loc;
+    if (bin > diag.binMax) diag.binMax = bin;
+    if (loc > diag.locMax) diag.locMax = loc;
+  }
   if (busy.has(symbol)) pending.get(symbol)?.push(c);
   else processCandle(sr, c, true);
 }
@@ -681,6 +695,40 @@ Hareket: ${s.moveAlertPct > 0 ? `1 dk ≥ %${s.moveAlertPct} → RSI kartına ek
 Bellek: ${mem} MB`;
 }
 
+// Süreç yükü: event loop gecikmesi, CPU kullanımı ve (Fly gibi paylaşımlı makinelerde CPU kotası
+// dolunca görülen) steal oranı. Mum gecikmesinin "yerel" kısmı büyükse sebep buradan okunur.
+const loopDelay = monitorEventLoopDelay({ resolution: 20 });
+loopDelay.enable();
+function readSteal() {
+  try {
+    const f = fs.readFileSync('/proc/stat', 'utf8').split('\n', 1)[0].trim().split(/\s+/).slice(1).map(Number);
+    return { total: f.reduce((a, b) => a + b, 0), steal: f[7] || 0 };
+  } catch { return null; }
+}
+let lastLoad = { at: Date.now(), cpu: process.cpuUsage(), stat: readSteal() };
+function takeLoad() {
+  const now = Date.now(), cpu = process.cpuUsage(), stat = readSteal();
+  const wallUs = Math.max(1, (now - lastLoad.at) * 1000);
+  const cpuPct = (cpu.user - lastLoad.cpu.user + cpu.system - lastLoad.cpu.system) / wallUs * 100;
+  const dt = stat && lastLoad.stat ? stat.total - lastLoad.stat.total : 0;
+  const stealPct = dt > 0 ? (stat.steal - lastLoad.stat.steal) / dt * 100 : null;
+  const out = { cpuPct, stealPct, loopP99Ms: loopDelay.percentile(99) / 1e6, loopMaxMs: loopDelay.max / 1e6 };
+  loopDelay.reset();
+  lastLoad = { at: now, cpu, stat };
+  return out;
+}
+function loadText(l) {
+  return `CPU %${l.cpuPct.toFixed(0)}${l.stealPct != null ? ` (steal %${l.stealPct.toFixed(0)})` : ''} · event loop p99 ${Math.round(l.loopP99Ms)} ms, en fazla ${(l.loopMaxMs / 1000).toFixed(1)} sn`;
+}
+
+// Kümülatif sayaçlar (akış satırı, büyük işlem, likidasyon) heartbeat'te son pencerenin farkı olarak yazılır.
+const prevCum = {};
+function delta(key, v) {
+  const d = v - (prevCum[key] ?? 0);
+  prevCum[key] = v;
+  return d;
+}
+
 let lastCloses = 0;
 function heartbeat() {
   const ws  = binance.takeWsStats();
@@ -696,13 +744,15 @@ function heartbeat() {
   drops.sweep();
   lastDiag = { ...diag, to: Date.now() };
   const dTxt = diagText(diag), stale = staleList();
+  const load = takeLoad();
   diag = newDiag();
   console.log(
     `[HEARTBEAT] WS ${ws?.open ?? 0}/${ws?.connections ?? 0} bağlı (${ws?.streams ?? 0} stream)` +
     ` | son ${mins}dk: ${closes} 1m kapanış, ${ws?.skipped ?? 0} ara güncelleme atlandı, ${cards} kart, ${peaks} tepe reddi` +
     ` | coin: ${readyCount()}/${series.size} hazır${busy.size ? `, ${busy.size} yükleniyor` : ''}${stale.length ? `, ${stale.length} GERİDE` : ''}` +
     ` | ${dTxt}` +
-    ` | takipte ${store?.openCount() ?? 0} kart, ${touches.openCount()} seviye teması, ${drops.openCount()} tepe adayı · ek veri ${enricher.stats.ok} (atlanan ${enricher.stats.skipped}) · likidasyon mesajı ${liqStream.stats().messages}${flow?.enabled() ? ` · akış ${flow.stats.rows} satır/${flow.stats.changes} değişim` : ''}${bigTrades ? ` · 🐋 ${bigTrades.stats.big} büyük işlem (${bigTrades.stats.messages} mesaj)` : ''}` +
+    ` | ${loadText(load)}` +
+    ` | takipte ${store?.openCount() ?? 0} kart, ${touches.openCount()} seviye teması, ${drops.openCount()} tepe adayı · ek veri ${delta('enrOk', enricher.stats.ok)} (atlanan ${delta('enrSkip', enricher.stats.skipped)}) · likidasyon mesajı ${delta('liq', liqStream.stats().messages)}${flow?.enabled() ? ` · akış ${delta('flowRows', flow.stats.rows)} satır/${delta('flowChg', flow.stats.changes)} değişim` : ''}${bigTrades ? ` · 🐋 ${delta('big', bigTrades.stats.big)} büyük işlem (${delta('bigMsg', bigTrades.stats.messages)} mesaj)` : ''}` +
     ` | telegram: ${tg.sent} gönderildi, ${tg.queued} kuyrukta${tg.failed ? `, ${tg.failed} BAŞARISIZ` : ''}` +
     ` | bellek: ${mem} MB`,
   );
@@ -710,7 +760,12 @@ function heartbeat() {
     console.warn(`[UYARI] Son ${mins} dakikada hiç 1m kapanışı işlenmedi — veri akışı kontrol edilmeli`);
   }
   if (stale.length) console.warn(`[UYARI] ${stale.length} coinde son 3 dk'da 1m mumu yok: ${stale.slice(0, 15).join(', ')}${stale.length > 15 ? '…' : ''}`);
-  if (lastDiag.n && lastDiag.lagMax > 20_000) console.warn(`[UYARI] 1m mum gecikmesi ${Math.round(lastDiag.lagMax / 1000)} sn'ye çıktı — bot yetişemiyor olabilir`);
+  if (lastDiag.n && lastDiag.lagMax > 20_000) {
+    const why = !lastDiag.eN ? 'bot yetişemiyor olabilir'
+      : lastDiag.locSum >= lastDiag.binSum ? `gecikmenin çoğu yerel (en fazla ${Math.round(lastDiag.locMax / 1000)} sn) — ${load.stealPct >= 10 ? `CPU kotası dolmuş görünüyor (steal %${load.stealPct.toFixed(0)})` : 'süreç/event loop yetişemiyor'}`
+      : 'gecikme Binance tarafında (mesaj geç üretilmiş)';
+    console.warn(`[UYARI] 1m mum gecikmesi ${Math.round(lastDiag.lagMax / 1000)} sn'ye çıktı — ${why}`);
+  }
   if (ws && ws.reconnects > 0) console.warn(`[UYARI] Son ${mins} dakikada ${ws.reconnects} WebSocket yeniden bağlanması`);
 }
 

@@ -1488,6 +1488,7 @@ def report_status(error_msg=None):
         row('WebSocket:', (ws.open ?? 0) + '/' + (ws.connections ?? 0) + ' bağlı · ' + (ws.streams ?? 0) + ' stream', ws.connections && ws.open < ws.connections ? 'text-rose-400' : 'text-emerald-400') +
         row('Yeniden bağlanma:', String(ws.reconnects ?? 0), ws.reconnects ? 'text-amber-400' : 'text-slate-300') +
         row('1m mum gecikmesi (ort / maks):', sec(lat.lagAvgMs) + ' / ' + sec(lat.lagMaxMs), lat.lagMaxMs > 60000 ? 'text-rose-400' : (lat.lagMaxMs > 20000 ? 'text-amber-400' : 'text-slate-200')) +
+        (lat.localAvgMs != null ? row('  ↳ Binance / yerel (ort):', sec(lat.binanceAvgMs) + ' / ' + sec(lat.localAvgMs), lat.localAvgMs > 5000 ? 'text-amber-400' : 'text-slate-300') : '') +
         row('Hazır / izlenen coin:', h.ready + ' / ' + h.coins + (h.loading ? ' · ' + h.loading + ' yükleniyor' : '')) +
         row('Geride (3 dk mum yok):', h.stale.count + (h.stale.count ? ' · ' + h.stale.sample.slice(0, 4).join(', ') : ''), h.stale.count ? 'text-amber-400' : 'text-emerald-400') +
         row('Kurtarmada (sinyal kilidi):', String(h.recovery.blocked), h.recovery.blocked ? 'text-amber-400' : 'text-emerald-400') +
