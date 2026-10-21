@@ -179,7 +179,19 @@ function createSettings({ file = defaultFile(), defaults = cfg.info, persist = t
     defaults: () => defaults,
     defs: DEFS,
     onChange: fn => listeners.push(fn),
-    reset() { values = { ...defaults }; save(); },
+    /** Verilen anahtarları (yoksa tümünü) varsayılana döndürür; değişen anahtar sayısı */
+    reset(keys = null) {
+      const list = keys || Object.keys(defaults);
+      const changed = [];
+      for (const k of list) {
+        if (!(k in defaults) || values[k] === defaults[k]) continue;
+        changed.push([k, values[k]]);
+        values[k] = defaults[k];
+      }
+      save();
+      for (const [k, prev] of changed) listeners.forEach(fn => { try { fn(k, values[k], prev); } catch { /* yok */ } });
+      return changed.length;
+    },
 
     isMuted(sym, now = Date.now()) {
       const u = mutes[sym];

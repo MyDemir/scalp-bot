@@ -73,7 +73,22 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
   function menu() {
     const v = settings.get();
     const text = `⚙️ <b>Bilgi botu ayarları</b>\n\n${SECTIONS.map(x => `<b>${x.title}</b>\n${esc(x.sum(v))}`).join('\n\n')}\n\n${ADMIN_NOTE}`;
-    return { text, keyboard: pairs(SECTIONS.map(x => ({ text: x.title, callback_data: `g:${x.id}` }))) };
+    return { text, keyboard: [...pairs(SECTIONS.map(x => ({ text: x.title, callback_data: `g:${x.id}` }))), [{ text: '↺ Tümünü varsayılana döndür', callback_data: 'r:all' }]] };
+  }
+
+  /** Varsayılana döndürme onayı: id = 'all' ya da bölüm */
+  function resetMenu(id) {
+    const x = id === 'all' ? null : SEC[id];
+    const keys = x ? x.keys : Object.keys(settings.defaults());
+    const v = settings.get(), def = settings.defaults();
+    const diff = keys.filter(k => k in def && v[k] !== def[k]);
+    const name = x ? x.title : 'tüm ayarlar';
+    const back = { text: '↩️ Vazgeç', callback_data: x ? `g:${x.id}` : 'g:main' };
+    if (!diff.length) return { text: `⚙️ <b>${esc(name)}</b> zaten varsayılan değerlerde.`, keyboard: [[back]] };
+    const lines = diff.slice(0, 25).map(k => `• ${esc(DEF[k]?.short || k)}: ${esc(val(DEF[k] || {}, v[k]))} → <b>${esc(val(DEF[k] || {}, def[k]))}</b>`);
+    const more = diff.length > 25 ? `\n… ve ${diff.length - 25} ayar daha` : '';
+    return { text: `↺ <b>${esc(name)}</b> varsayılana dönsün mü?\n\nDeğişecek ${diff.length} ayar:\n${lines.join('\n')}${more}\n\n<i>Susturulan ve takipteki coinler, konu bağlantıları etkilenmez.</i>`,
+      keyboard: [[{ text: '✅ Evet, varsayılana döndür', callback_data: `r:${id}:ok` }, back]] };
   }
 
   function sectionMenu(id) {
@@ -90,7 +105,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
         ? { text: `${v[k] ? '✅' : '▫️'} ${d.short}`, callback_data: `t:${k}` }
         : { text: `${d.short}: ${v[k]}`, callback_data: `e:${k}` };
     });
-    return { text, keyboard: [...pairs(btns), [{ text: '↩️ Ayarlar', callback_data: 'g:main' }]] };
+    return { text, keyboard: [...pairs(btns), [{ text: '↺ Bu bölümü varsayılana döndür', callback_data: `r:${id}` }, { text: '↩️ Ayarlar', callback_data: 'g:main' }]] };
   }
 
   function editMenu(key) {
@@ -98,7 +113,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
     if (!d || d.type === 'bool') return sectionMenu(secOf(key)?.id);
     const x = secOf(key);
     const v = settings.get()[key], def = settings.defaults()[key];
-    const back = [{ text: `↺ Varsayılan (${def})`, callback_data: `d:${key}` }, { text: `↩️ ${x ? x.title : 'Ayarlar'}`, callback_data: x ? `g:${x.id}` : 'g:main' }];
+    const back = [{ text: `↺ Varsayılan (${def})`, callback_data: `z:${key}` }, { text: `↩️ ${x ? x.title : 'Ayarlar'}`, callback_data: x ? `g:${x.id}` : 'g:main' }];
     if (d.type === 'enum') {
       const text = `⚙️ ${x ? `${x.title} › ` : ''}<b>${esc(d.label)}</b>\n\nŞu an: <b>${esc(v)}</b> · varsayılan ${esc(def)}\n\n${ADMIN_NOTE}`;
       return { text, keyboard: [d.options.map(o => ({ text: o === v ? `✓ ${o}` : o, callback_data: `v:${key}:${o}` })), back] };
@@ -185,10 +200,18 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
       const on = settings.toggleFollow(a);
       return { text: on ? `⭐ ${a} takipte — kartları her zaman sesli gelir.` : `☆ ${a} takipten çıkarıldı.` };
     }
-    if (kind === 's' || kind === 't' || kind === 'd' || kind === 'v') {
+    if (kind === 'r') {
+      if (b !== 'ok') { await show(cq, resetMenu(a)); return null; }
+      const x = a === 'all' ? null : SEC[a];
+      const n = settings.reset(x ? x.keys : null);
+      console.log(`[AYAR] ${x ? x.title : 'tüm ayarlar'} varsayılana döndü (${n} ayar, kullanıcı ${uid})`);
+      await show(cq, x ? sectionMenu(x.id) : menu());
+      return { text: n ? `↺ ${n} ayar varsayılana döndü.` : 'Zaten varsayılandaydı.' };
+    }
+    if (kind === 's' || kind === 't' || kind === 'z' || kind === 'v') {
       const r = kind === 's' ? settings.bump(a, Number(b))
         : kind === 't' ? settings.bump(a, 0)
-          : kind === 'd' ? settings.set(a, settings.defaults()[a])
+          : kind === 'z' ? settings.set(a, settings.defaults()[a])
             : settings.set(a, b);
       if (!r.ok) return { text: r.error, alert: true };
       console.log(`[AYAR] ${a} = ${r.value} (kullanıcı ${uid})`);
@@ -245,7 +268,7 @@ Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesin
     ayar: adminOnly((args) => {
       const [k, ...rest] = args.split(/\s+/).filter(Boolean);
       if (!k) return 'Kullanım: <code>/ayar anahtar değer</code> — anahtarlar /ayarlar listesinde (ör. rsiMin, minTFs, levelMaxPct).';
-      if (['sifirla', 'sıfırla', 'reset'].includes(k.toLowerCase())) { settings.reset(); return '↩️ Tüm ayarlar varsayılana döndü.'; }
+      if (['sifirla', 'sıfırla', 'reset'].includes(k.toLowerCase())) { const n = settings.reset(); return `↩️ Tüm ayarlar varsayılana döndü (${n} ayar değişti).`; }
       const d = defs.find(x => x.key.toLowerCase() === k.toLowerCase());
       if (!d) return `Bilinmeyen ayar: <code>${esc(k)}</code>. Liste: ${defs.map(x => x.key).join(', ')}`;
       const r = settings.set(d.key, rest.join(' '));
