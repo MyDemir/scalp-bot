@@ -40,8 +40,9 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
       sum: v => `eşik ${v.rsiMin} · ${v.minTFs}/3 dilim · RSI(${v.rsiPeriod}) · seri 15m≥${v.seriesMinRsi15m ?? 85}` },
     { id: 'lvl', title: '🎯 Direnç ve kırılım', keys: ['levelRequired', 'levelMaxPct', 'dipBelowPct', 'dipAbovePct', 'sfpAbovePct', 'confluencePct', 'levelsSwing', 'swingBars', 'zoneTouches', 'levelsFib', 'levelsWeeklyZone', 'sfpCards', 'sfpBars', 'discoveryCards'],
       sum: v => `${v.levelRequired ? 'şart açık' : 'şart kapalı'} · %${v.levelMaxPct} içinde · haftalık bölge ${v.levelsWeeklyZone ? 'açık' : 'kapalı'} · SFP ${v.sfpCards ? 'açık' : 'kapalı'}` },
-    { id: 'grd', title: '🏅 Derece ve kontrol listesi', keys: ['grade2Min', 'grade3Min', 'grade4Min', 'sepPct2', 'sepPct5', 'sepPct10', 'confRsi', 'sepATR', 'sepRequired', 'confRequired', 'macdRequired'],
-      sum: v => `🔴🔴≥${v.grade2Min} · 🔴🔴🔴≥${v.grade3Min} · 🔴🔴🔴🔴≥${v.grade4Min ?? 7} (9 madde)` },
+    { id: 'grd', title: '🏅 Derece ve kontrol listesi', keys: ['gradeBy', 'gradeRsi1h', 'gradeRsi15m', 'grade2Min', 'grade3Min', 'grade4Min', 'sepPct2', 'sepPct5', 'sepPct10', 'confRsi', 'sepATR', 'sepRequired', 'confRequired', 'macdRequired'],
+      sum: v => (v.gradeBy === 'liste' ? `liste: 🔴🔴≥${v.grade2Min} · 🔴🔴🔴≥${v.grade3Min} · 🔴🔴🔴🔴≥${v.grade4Min ?? 7} (9 madde)`
+        : `3 şart: ayrışma · 1s RSI ≥ ${v.gradeRsi1h ?? 80} · 15dk RSI ≥ ${v.gradeRsi15m ?? 85} (her biri +1 daire)`) },
     { id: 'vol', title: '📦 Hacimli mum', keys: ['burstPct1', 'burstPct2', 'volMult', 'volAvgN', 'takerBuyPct', 'takerSellPct', 'volGrade2X', 'dirGrade3Pct', 'windowMin', 'shortWindowMin'],
       sum: v => `gövde ≥ %${v.burstPct1} · hacim ≥ ${v.volMult}×` },
     { id: 'mov', title: '⚡ Hareket', keys: ['moveAlertPct'],
@@ -229,7 +230,8 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
 /adminyenile — Telegram grubunun yönetici listesini canlı yenile ve doğrula
 
 <b>Derece daireleri</b>
-Kart: kurulum kontrol listesi skoru (9 madde: günlük/haftalık direnç, çakışan direnç, 3m/5m RSI ${settings.get().strongRsi}–${settings.get().rsiEntryMax}, 15m ≥ ${settings.get().strongRsi}, 5m+15m ≥ ${settings.get().strongRsi}, 1h/4h ≥ ${settings.get().confRsi}, kademeli EMA21 ayrışma, ≥2 negatif tepe, MACD 3m/5m sat kesişimi) — 🔴 &lt; ${settings.get().grade2Min} · 🔴🔴 ≥ ${settings.get().grade2Min} · 🔴🔴🔴 ≥ ${settings.get().grade3Min} · 🔴🔴🔴🔴 ≥ ${settings.get().grade4Min ?? 7} (sesli)
+Kart (varsayılan): 1 + sağlanan şart — EMA21 ayrışma · 1s RSI ≥ ${settings.get().gradeRsi1h ?? 80} · 15dk RSI ≥ ${settings.get().gradeRsi15m ?? 85} (🔴🔴🔴 ve üstü sesli)
+Kart (gradeBy = liste): kurulum kontrol listesi skoru (9 madde: günlük/haftalık direnç, çakışan direnç, 3m/5m RSI ${settings.get().strongRsi}–${settings.get().rsiEntryMax}, 15m ≥ ${settings.get().strongRsi}, 5m+15m ≥ ${settings.get().strongRsi}, 1h/4h ≥ ${settings.get().confRsi}, kademeli EMA21 ayrışma, ≥2 negatif tepe, MACD 3m/5m sat kesişimi) — 🔴 &lt; ${settings.get().grade2Min} · 🔴🔴 ≥ ${settings.get().grade2Min} · 🔴🔴🔴 ≥ ${settings.get().grade3Min} · 🔴🔴🔴🔴 ≥ ${settings.get().grade4Min ?? 7} (sesli)
 Hacimli mum / ⚡: 1 daire temel · 2 daire hacim ≥ ${settings.get().volGrade2X}× · 3 daire + yön uyumu ≥ %${settings.get().dirGrade3Pct} — 🟢 alış/yükseliş · 🔴 satış/düşüş · ⚪ nötr
 RSI periyodu: ${settings.get().rsiPeriod}
 

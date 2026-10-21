@@ -41,7 +41,7 @@ const pa = (v, d = 2) => (v == null || !Number.isFinite(v) ? '—' : `%${Math.ab
 const ps = (v, d = 2) => (v == null || !Number.isFinite(v) ? '—' : `${v > 0 ? '+' : v < 0 ? '−' : ''}%${Math.abs(v).toFixed(d)}`);
 const updown = (v, d = 1) => (v == null || !Number.isFinite(v) ? '—' : `${pa(v, d)} ${v >= 0 ? 'yukarıda' : 'aşağıda'}`);
 
-const { circles, dirColor } = require('./infoEngine');
+const { circles, dirColor, gradeConds } = require('./infoEngine');
 
 function levelLine(snap, s) {
   const lv = snap.level;
@@ -130,6 +130,11 @@ function formatCard(card, s, opt = {}) {
   if (D.length === volStart + 2 && !ms) D.length = volStart;
   if (ms) { const net = ms.up - ms.down; D.push(`Bugün 1 dk ≥ %${s.moveAlertPct}: ▲ ${ms.up} · ▼ ${ms.down} · fark ${net > 0 ? '+' : net < 0 ? '−' : ''}${Math.abs(net)}`); }
 
+  if ((s.gradeBy ?? 'sart3') !== 'liste' && snap.grade > 0) {
+    const gc = gradeConds(snap, s), m = b => (b ? '✅' : '▫️');
+    D.push('', `🏅 <b>Derece ${snap.grade}/4</b> (1 + sağlanan şart)`,
+      `${m(gc.sep)} EMA21 ayrışma · ${m(gc.h1)} 1s RSI ≥ ${s.gradeRsi1h ?? 80} · ${m(gc.r15)} 15dk RSI ≥ ${s.gradeRsi15m ?? 85}`);
+  }
   const ck = snap.check;
   if (ck) {
     D.push('', `🎯 <b>Kontrol ${ck.score}/${ck.total}</b>`);

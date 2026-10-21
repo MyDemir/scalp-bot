@@ -8,8 +8,12 @@ module.exports = {
     rsiEntryMax:   100,
     confluencePct: 0.5,
 
-    // Güven skoru (max 4 daire)
-    // 1–2 → 1 · 3–4 → 2 · 5–6 → 3 · 7+ → 4
+    // Derece (daire sayısı). gradeBy 'sart3': 1 + sağlanan şart (EMA21 ayrışma · 1s RSI ≥ gradeRsi1h · 15m RSI ≥ gradeRsi15m)
+    //   18–20.10 verisi (769 kart, 60 dk sonra aşağıda): 0 şart %14 · 1 → %28 · 2 → %61 · 3 → %72 (kontrol listesi skoru 3 → %47)
+    // gradeBy 'liste': kontrol listesi skoru — 1–2 → 1 · 3–4 → 2 · 5–6 → 3 · 7+ → 4
+    gradeBy:       'sart3',
+    gradeRsi1h:    80,
+    gradeRsi15m:   85,
     grade2Min:     3,
     grade3Min:     5,
     grade4Min:     7,

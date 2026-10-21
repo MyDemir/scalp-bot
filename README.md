@@ -37,7 +37,21 @@ Kontrol anı: **3m / 5m / 15m mum kapanışları** + **hacimli her 1m mum kapan�
 8. 1m ya da 3m'de ≥ 2 negatif tepe — 1 puan
 9. 3m ya da 5m MACD sat (aşağı) kesişimi — 1 puan
 
-Detay'da 🎯 hedef: 3m EMA21 ve 5m EMA21 uzaklığı. **Derece (en fazla 11 puan):** 🔴 0–2 · 🔴🔴 3–4 · 🔴🔴🔴 5–6 · 🔴🔴🔴🔴 7+
+Detay'da 🎯 hedef: 3m EMA21 ve 5m EMA21 uzaklığı. Kontrol listesi Detay'da bilgi olarak durur.
+
+**Derece (varsayılan `gradeBy = sart3`):** 1 + sağlanan şart sayısı — EMA21 ayrışma (3m ve 5m ≥ `sepPct2`) ·
+1s RSI ≥ `gradeRsi1h` (80) · 15dk RSI ≥ `gradeRsi15m` (85). 18–20.10 verisinde (769 kart, 60 dk sonra fiyat kart anının altında):
+
+| Sağlanan şart | Kart | 60 dk sonra aşağıda | Medyan dip (60 dk) |
+|---|---|---|---|
+| 0 → 🔴 | 310 | %14 | −%0.1 |
+| 1 → 🔴🔴 | 296 | %28 | −%0.4 |
+| 2 → 🔴🔴🔴 | 99 | %61 | −%1.2 |
+| 3 → 🔴🔴🔴🔴 | 64 | %72 | −%4.1 |
+
+Aynı veride 3m/5m RSI eşikleri, tetik TF'si, günlük/çakışan direnç, negatif tepe, MACD, Stoch ve VWAP σ sonucu ayırmadı
+(kontrol listesi skoru 3 → %47). Veri iki günlük; yeni dışa aktarmayla yeniden bakılmalı.
+**`gradeBy = liste`** eski hesap: kontrol listesi puanı 🔴 0–2 · 🔴🔴 3–4 · 🔴🔴🔴 5–6 · 🔴🔴🔴🔴 7+
 (`grade2Min` / `grade3Min` / `grade4Min`, `/ayarlar` → Derece). 🔴🔴🔴 ve 🔴🔴🔴🔴 sesli (kart sesi kapalıyken bile) ve `/konu kart3`'e gider.
 Eşikler `/ayarlar`: `strongRsi`, `rsiEntryMax`, `confRsi`, `confluencePct`, `sepPct2/5/10`, `grade2Min`, `grade3Min`, `grade4Min`.
 Hacim/⚡ daireleri: 1 temel · 2 hacim ≥ 3× · 3 + yön uyumu ≥ %65; renk yönü gösterir (🟢 alış/yükseliş · 🔴 satış/düşüş · ⚪ nötr).
@@ -60,7 +74,7 @@ Yalnızca güçlü seviyeler izlenir: MA200/EMA200, 30 günlük tepe, 7/30 günl
 Kırılımdan sonraki **6 mum (30 dk)** içinde bir 5m mum seviyenin **altında kapanırsa** — ya da aynı 5m mumun fitili seviyeyi
 **≥ %0.5** aşıp gövdesi **≥ %0.2 altında** kapanırsa ve mumun hacmi önceki 20 mumun ortalamasının üstündeyse (fitil türü) — kart gelir.
 Kartta 🔔 satırı `⚠️ Sahte kırılım` (ya da `⚠️ Sahte kırılım (fitil)`), altındaki satır ayrıntı (başlık tekrarlanmaz) ve daireler hep 🔴: `⚠️ Sahte kırılım: 30 günlük tepe 0.7646 · 20 dk önce üstüne çıktı, şimdi altında kapandı`
-· `#SAHTEKIRILIM`. Derece kontrol listesinden. Aynı coinde bir SFP kartından sonra 30 dk yeni SFP kartı gelmez.
+· `#SAHTEKIRILIM`. Derece aynı hesapla (`gradeBy`). Aynı coinde bir SFP kartından sonra 30 dk yeni SFP kartı gelmez.
 Aynı coinde kartlar **#1, #2 …** diye numaralanır; kapanmış 15m RSI 75'in altına inince numara sıfırlanır.
 
 ### Kartın içeriği

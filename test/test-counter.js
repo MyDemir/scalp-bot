@@ -50,7 +50,7 @@ const R = []; const ok = x => R.push('✅ ' + x);
 {
   const s = { ...cfg.info };
   assert(s.grade2Min === 3 && s.grade3Min === 5 && s.grade4Min === 7);
-  const g = sc => eng.rsiGrade({ hits: 2, check: { score: sc } }, s);
+  const g = sc => eng.rsiGrade({ hits: 2, check: { score: sc } }, { ...s, gradeBy: 'liste' });
   assert.deepStrictEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 11].map(g), [1, 1, 1, 2, 2, 3, 3, 4, 4, 4]);
   const snap = {
     rsi: { '3m': { v: 78.6 }, '5m': { v: 87.7 }, '15m': { v: 92.2 } }, conf: { h1: 80.1, h4: 65.8 }, rsiOk: true, ok: true, hits: 2, grade: 2, chg: 0.2,

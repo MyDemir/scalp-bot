@@ -174,13 +174,32 @@ function checklist(snap, s) {
   return { items, score, total: items.length, warn, daily, confluence: conf };
 }
 
-function rsiGrade(snap, s) {
-  if (!(snap.hits >= s.minTFs)) return 0;
+/** Derece şartları (gradeBy 'sart3'): EMA21 ayrışma · 1s RSI · 15m RSI — 18–20.10 kart verisinde sonucu ayıran üçü */
+function gradeConds(snap, s) {
+  const r15 = snap.rsi?.['15m']?.v, h1 = snap.conf?.h1;
+  return {
+    sep: Boolean(snap.sepOk),
+    h1: Number.isFinite(h1) && h1 >= (s.gradeRsi1h ?? 80),
+    r15: Number.isFinite(r15) && r15 >= (s.gradeRsi15m ?? 85),
+  };
+}
+
+/** RSI şartından bağımsız derece (1–4) */
+function gradeOf(snap, s) {
+  if ((s.gradeBy ?? 'sart3') !== 'liste') {
+    const c = gradeConds(snap, s);
+    return 1 + c.sep + c.h1 + c.r15;
+  }
   const sc = snap.check ? snap.check.score : 0;
   if (sc >= (s.grade4Min ?? 7)) return 4;
   if (sc >= (s.grade3Min ?? 5)) return 3;
   if (sc >= (s.grade2Min ?? 3)) return 2;
   return 1;
+}
+
+function rsiGrade(snap, s) {
+  if (!(snap.hits >= s.minTFs)) return 0;
+  return gradeOf(snap, s);
 }
 
 const DOT = { red: '🔴', green: '🟢', white: '⚪' };
@@ -721,12 +740,7 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
     if (!sfp && !seriesBurst && !moveCard) return null;
     if (!snap.rsiOk) snap = evaluate(series, s, ctx, true);
     inSeries = seriesBurst;
-    if (sfp && !(snap.grade > 0)) {
-      const sc = snap.check ? snap.check.score : 0;
-      snap.grade = sc >= (s.grade4Min ?? 7) ? 4
-        : sc >= (s.grade3Min ?? 5) ? 3
-        : sc >= (s.grade2Min ?? 3) ? 2 : 1;
-    }
+    if (sfp && !(snap.grade > 0)) snap.grade = gradeOf(snap, s);
   }
   if (ctx.isMuted && ctx.isMuted(sym, snap.t)) return null;
 
@@ -769,4 +783,4 @@ function movePct(prevClose, prevT, c) {
   return base > 0 ? (c.c - base) / base * 100 : null;
 }
 
-module.exports = { macdState, stochState, rsiOf, findHiddenPU, findGoldenCross, volStats, emaRide, moveText, evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, detectSfp, discoveryOf, negPeaks, movePct, volGrade, rsiGrade, checklist, circles, dirColor, RSI_TFS, separationPct };
+module.exports = { macdState, stochState, rsiOf, findHiddenPU, findGoldenCross, volStats, emaRide, moveText, evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, detectSfp, discoveryOf, negPeaks, movePct, volGrade, rsiGrade, gradeOf, gradeConds, checklist, circles, dirColor, RSI_TFS, separationPct };
