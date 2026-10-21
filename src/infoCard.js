@@ -135,10 +135,10 @@ function formatCard(card, s, opt = {}) {
 
   if ((s.gradeBy ?? 'sart3') !== 'liste' && snap.grade > 0) {
     const gc = gradeConds(snap, s), m = b => (b ? '✅' : '▫️');
-    const capped = 1 + gc.sep + gc.h1 + gc.r15 > snap.grade;
+    const capped = Math.min(4, 1 + gc.sep + gc.h1 + gc.r15 + gc.atr) > snap.grade;
     const why2 = capped ? (gc.runaway ? `; kaçak pompa → en fazla ${snap.grade}` : !snap.level && !T.sfp ? `; direnç yok → en fazla ${snap.grade}` : '') : '';
     D.push('', `🏅 <b>Derece ${snap.grade}/4</b> (1 + sağlanan şart${why2})`,
-      `${m(gc.sep)} EMA21 ayrışma · ${m(gc.h1)} 1s RSI ${s.gradeRsi1h ?? 80}–${s.gradeRsi1hMax ?? 88} · ${m(gc.r15)} 15dk RSI ≥ ${s.gradeRsi15m ?? 85}`);
+      `${m(gc.sep)} EMA21 ayrışma · ${m(gc.h1)} 1s RSI ${s.gradeRsi1h ?? 80}–${s.gradeRsi1hMax ?? 88} · ${m(gc.r15)} 15dk RSI ≥ ${s.gradeRsi15m ?? 85} · ${m(gc.atr)} 5dk ATR ≥ %${s.gradeAtr5Pct ?? 1.2}${Number.isFinite(snap.atr5Pct) ? ` (%${snap.atr5Pct.toFixed(2)})` : ''}`);
     const hot = ['3m', '5m'].filter(tf => snap.rsi?.[tf]?.v >= s.strongRsi);
     if (hot.length) D.push(`🔥 RSI ${s.strongRsi}+: ${hot.map(tf => `${tf.replace('m', 'dk')} ${snap.rsi[tf].v.toFixed(1)}`).join(' · ')}`);
     if (Number.isFinite(snap.chg)) D.push(`${snap.chg >= 0 ? '▲' : '▼'} Son ${snap.chgMin ?? 15} dk: ${snap.chg >= 0 ? '+' : '−'}%${Math.abs(snap.chg).toFixed(1)}`);

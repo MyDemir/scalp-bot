@@ -174,7 +174,11 @@ function checklist(snap, s) {
   return { items, score, total: items.length, warn, daily, confluence: conf };
 }
 
-/** Derece şartları (gradeBy 'sart3'): EMA21 ayrışma · 1s RSI · 15m RSI — 18–20.10 kart verisinde sonucu ayıran üçü */
+/**
+ * Derece şartları (gradeBy 'sart3'): EMA21 ayrışma · 1s RSI · 15m RSI — 18–20.10 kart verisinde sonucu ayıran üçü —
+ * ve 5dk ATR ≥ gradeAtr5Pct (1.2; tepe reddiyle aynı eşik). 18–20.10'da tepe adayıyla eşleşen 374 kartta ATR şartıyla
+ * derece 4: 28 kart (6 coin) %75 aşağıda, medyan dip −%8.3 (ATR'siz 17 kart / 4 coin %71, −%6.8). Örnek küçük.
+ */
 /**
  * Kaçak pompa: 1s RSI ≥ gradeRsi1hMax (88) ya da 4s RSI ≥ gradeRsi4hMax (80). 18–20.10'da 3 şartlı kartlarda bu durumda
  * 60 dk sonra yalnız %27–39 aşağıdaydı (60 dk'da önce medyan +%11–12); 1s 80–88 ve 4s < 70 iken %85.
@@ -187,6 +191,7 @@ function gradeConds(snap, s) {
     sep: Boolean(snap.sepOk),
     h1: Number.isFinite(h1) && h1 >= (s.gradeRsi1h ?? 80) && !(h1Max > 0 && h1 >= h1Max),
     r15: Number.isFinite(r15) && r15 >= (s.gradeRsi15m ?? 85),
+    atr: (s.gradeAtr5Pct ?? 1.2) > 0 && Number.isFinite(snap.atr5Pct) && snap.atr5Pct >= (s.gradeAtr5Pct ?? 1.2),
     runaway,
   };
 }
@@ -199,7 +204,7 @@ function gradeConds(snap, s) {
 function gradeOf(snap, s, { sfp = false } = {}) {
   if ((s.gradeBy ?? 'sart3') !== 'liste') {
     const c = gradeConds(snap, s);
-    let g = 1 + c.sep + c.h1 + c.r15;
+    let g = Math.min(4, 1 + c.sep + c.h1 + c.r15 + c.atr);
     if (c.runaway) g = Math.min(g, s.gradeRunawayMax ?? 2);
     return !sfp && !snap.level ? Math.min(g, s.gradeNoLevelMax ?? 3) : g;
   }
@@ -505,6 +510,10 @@ function evaluate(series, s, ctx = {}, force = false) {
   const r1h = ta.rsiLast(series.col('1h', 'c'), s.rsiPeriod);
   const r4h = ta.rsiLast(series.col('4h', 'c'), s.rsiPeriod);
   snap.conf = { h1: r1h, h4: r4h, score: (r1h >= s.confRsi ? 1 : 0) + (r4h >= s.confRsi ? 1 : 0) };
+  { // 5dk ATR (kapanmış mumlar, fiyatın %'si) — derece şartı (gradeAtr5Pct) ve tepe reddi ile aynı hesap
+    const atr = ta.atrSeries(series.col('5m', 'h', false), series.col('5m', 'l', false), series.col('5m', 'c', false), 14);
+    snap.atr5Pct = atr.length && price > 0 ? atr[atr.length - 1] / price * 100 : null;
+  }
 
   snap.macd = {
     '3m': macdState(series, '3m'),
@@ -771,7 +780,7 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
   if (!news.length) return null;
   // Seri içinde 3m/5m/15m kapanışından gelen yeni kart yalnız derece serideki en yükseği geçince; sahte kırılım, hacimli mum
   // ve ⚡ hareket her zaman kart olur. Atlanan değişiklikler (RSI, MACD, negatif tepe…) sonraki karta birikir.
-  if ((s.seriesCards ?? 'derece') === 'derece' && !sfp && !burst && !move && tracker.maxGrade(sym) > 0 && !(snap.grade > tracker.maxGrade(sym))) return null;
+  if (!sfp && !burst && !move && tracker.maxGrade(sym) > 0 && !(snap.grade > tracker.maxGrade(sym))) return null;
   const seq = tracker.commit(sym, snap, s);
 
   const followed = ctx.isFollowed ? ctx.isFollowed(sym) : false;

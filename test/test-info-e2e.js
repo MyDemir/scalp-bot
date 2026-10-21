@@ -110,7 +110,7 @@ const results = []; const ok = s => results.push('✅ ' + s);
   ok('⚡ Ayrı hareket kartı yok: izlenen liste dışındaki LOW\'daki 1 dk +%2.6 hareket hiç bildirilmedi (LOW dinlenmiyor)');
 
   const cards = tg.sent.filter(m => m.reply_markup && !/Anlık durum/.test(m.text) && /Kart \d+/.test(m.text) && !m.text.startsWith('⚡'));
-  assert(cards.length >= 2, 'en az 2 kart bekleniyordu: ' + cards.length);
+  assert(cards.length >= 1, 'en az 1 kart bekleniyordu: ' + cards.length);  // seri içinde yeni kart yalnız derece yükselince
   assert(cards.every(c => c.text.includes('PUMPUSDT')), 'yalnızca PUMP kart üretmeli');
   const nums = cards.map(c => Number(c.text.match(/Kart (\d+)/)[1]));
   assert(nums[0] === 1 && nums.every((x, i) => i === 0 || x === nums[i - 1] + 1 || x === 1), 'kart numaraları seri içinde 1,2,3… (sıfırlanınca 1) olmalı: ' + nums);

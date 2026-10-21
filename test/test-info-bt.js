@@ -80,14 +80,13 @@ const results = []; const ok = s => results.push('✅ ' + s);
 
   // 4) --ayar ile şart sıkılaştırma → daha az kart; geçersiz ayar reddi
   const run = args => new Promise(res => require('child_process').execFile('node', [`${REPO}/src/infoBacktest.js`, ...args], { env, cwd: SP, maxBuffer: 1e7 }, (e, so, se) => res({ code: e ? e.code : 0, out: so + se })));
-  // seriesCards=hepsi: seri içindeki her yeni bilgi kart olsun, yalnız giriş şartının etkisi ölçülsün
-  const cnt = async ayar => Number((await run(['--days', '3', '--symbol', 'PUMP', '--ayar', ayar])).out.match(/PUMPUSDT: (\d+) kart/)[1]);
-  const n1 = await cnt('rsiMin=90,resetRsi=75,seriesCards=hepsi');
-  const n2 = await cnt('rsiMin=90,resetRsi=75,minTFs=3,levelMaxPct=1,seriesCards=hepsi');
+  // Seri içinde yeni kart yalnız derece yükselince geldiği için şart sıkılaştırma RSI eşiğiyle ölçülür
+  const n1 = J.cards.length;
+  const n2 = Number((await run(['--days', '3', '--symbol', 'PUMP', '--ayar', 'rsiMin=97,resetRsi=75,minTFs=3'])).out.match(/PUMPUSDT: (\d+) kart/)[1]);
   assert(n2 < n1, `sıkı ayarla daha az kart bekleniyordu (${n2} vs ${n1})`);
   const bad = await run(['--days', '1', '--symbol', 'PUMP', '--ayar', 'rsiMin=150']);
   assert(bad.code !== 0 && /50–100/.test(bad.out), bad.out);
-  ok(`--ayar minTFs=3,levelMaxPct=1 → ${n2} kart (RSI 90'da ${n1}); geçersiz --ayar rsiMin=150 hata ile reddedildi`);
+  ok(`--ayar rsiMin=97,minTFs=3 → ${n2} kart (RSI 90'da ${n1}); geçersiz --ayar rsiMin=150 hata ile reddedildi`);
   const fs2 = require('fs'); const SF = `${SP}/bt-live-settings.json`;
   fs2.writeFileSync(SF, JSON.stringify({ values: { minTFs: 2 } }));
   const before = fs2.readFileSync(SF, 'utf8');

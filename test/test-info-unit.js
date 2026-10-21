@@ -103,6 +103,11 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   assert(eng.gradeConds(sn(true, 90, 86), G3).runaway && !eng.gradeConds(sn(true, 90, 86), G3).h1, '1s ≥ 88 şart sayılmaz');
   assert.strictEqual(eng.rsiGrade(sn(true, 90, 86, undefined, 86), { ...G3, gradeRsi1hMax: 0, gradeRsi4hMax: 0 }), 4, 'kaçak kapalı (0)');
   assert.strictEqual(eng.rsiGrade({ hits: 2, rsi: rsi(90, 90, null), conf: {} }, G3), 1, 'eksik RSI → şart sayılmaz');
+  assert.strictEqual(eng.rsiGrade({ ...sn(false, 70, 86), atr5Pct: 1.3 }, G3), 3, '5dk ATR ≥ 1.2 → +1 daire');
+  assert.strictEqual(eng.rsiGrade({ ...sn(true, 81, 86), atr5Pct: 1.3 }, G3), 4, '4 şart → en fazla 4');
+  assert.strictEqual(eng.rsiGrade({ ...sn(false, 70, 86), atr5Pct: 1.1 }, G3), 2, 'ATR < 1.2 sayılmaz');
+  assert.strictEqual(eng.rsiGrade({ ...sn(false, 70, 86), atr5Pct: 3 }, { ...G3, gradeAtr5Pct: 0 }), 2, 'ATR şartı kapalı (0)');
+  assert.strictEqual(eng.rsiGrade({ ...sn(true, 88.2, 86, undefined, 86.5), atr5Pct: 2 }, G3), 2, 'kaçak pompada ATR de tavanı aşmaz');
   ck = eng.checklist({ ...base, rsi: rsi(90, 90, 90), levels: [{ name: '4h EMA200', value: 101, dist: -1 }], level: { name: '4h EMA200', value: 101, dist: -1, zone: 'near' } }, g);
   assert(!ck.items[0].ok && ck.items[0].text.includes('içinde yok'));   // yalnız 4h seviye → günlük madde yok
   ok('Derece (sart3: 1 + ayrışma + 1s RSI ≥ 80 + 15dk RSI ≥ 85; liste: kontrol skoru) · hacim 🔴/🔴🔴(≥3×)/🔴🔴🔴(+yön ≥%65) · kart derecesi puanla (9 madde; EMA21 üstü ayrışma %2/%5/%10 → 1/2/3 puan, altı 0; MACD 3m/5m sat kesişimi +1): 10 puan → 4 daire, 5 → 3, 3 → 2; RSI bandı 95–100; EMA21 yakın uyarısı; yalnız 4h seviyede günlük madde yok');
