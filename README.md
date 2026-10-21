@@ -161,16 +161,28 @@ Tepe defterinin her yeni adayında (1dk mum son 60 dk'nın en yükseği, 4 saatl
 
 H42 verisi (22.572 aday): skor 0 → %7 · 2 → %21 · 3 → %32 · 4 → %39 "gerçek tepe" (60 dk tepe aşılmadı + kapanıştan ≥ 2×ATR(5dk)
 düşüş); tüm adaylarda %16. RSI, VWAP σ, açık pozisyon, long/short, funding ve 5dk teyit mumu tutarlı katkı yapmadı.
+
+**Oynaklık şartı (5dk ATR):** 18–20.10 verisinde (7.700 aday, 1.213 pompa; pompa başına ilk eşleşen aday, pompa ≥ %5)
+belirleyici olan coinin o anki oynaklığıydı:
+
+| Filtre | Pompa | 15 dk'da −%1.5'e indi | 60 dk sonra aşağıda | Medyan dip (60 dk) |
+|---|---|---|---|---|
+| Skor 4 | 84 | %67 | %68 | −%2.2 |
+| **Skor 4 + ATR ≥ %1.2** (varsayılan) | 23 | %100 | %78 | −%5.6 |
+| Skor 3 + ATR ≥ %1.2 | 74 | %85 | %62 | −%4.5 |
+| Skor 3 + ATR < %1 | 237 | %26 | %60 | −%1.3 |
+
+Veri 39 saatlik; yeni dışa aktarmayla yeniden bakılmalı.
 ```
 🔻 #XUSDT — Tepe reddi 4/4
 ✅ Mum reddi · ✅ Kırmızı mum · ✅ Hacim 2.5 kat · ✅ Seans (Avrupa)
-Pompa: +%6.2 (4s dipten · 48 dk)
+Pompa: +%6.2 (4s dipten · 48 dk) · ATR 5dk %1.60
 Tepe: 1.06 · Fiyat: 1.05
 EMA21 3dk 1.03448 (−%1.5) · 5dk 1.0224 (−%2.7) · 15dk 1.00286 (−%4.7)
 ⏱: 13.10 12:32
 ```
 📋 Detay: mum ölçüleri (fitil %, kapanış konumu, gövde, hacim, alış), RSI, VWAP σ, ATR, tepki seviyesi, direnç, açıklama. `#TEPERED`
-`/ayarlar` → 🔻 Tepe reddi: aç/kapa (`peakAlert`), en az skor (`peakAlertMin`, varsayılan **4** → yalnız 03–15 TSİ; 3 = her saat),
+`/ayarlar` → 🔻 Tepe reddi: aç/kapa (`peakAlert`), en az skor (`peakAlertMin`, varsayılan **4** → yalnız 03–15 TSİ; 3 = her saat), 5dk ATR en az % (`peakAlertAtrPct`, varsayılan **1.2**; 0 = kapalı),
 pompa en az % (`peakAlertPumpPct`, varsayılan 5), **yalnız RSI kart şartı sağlanan coinlerde** (`peakAlertRsiOnly`, varsayılan kapalı — açıkken o an RSI şartı (`rsiMin`, `minTFs`) sağlanmayan tepeler atlanır; H42'de skor ≥ 3 + RSI şartlı adaylar %41 gerçek tepe ama sayıca çok az), coin başına aralık (`peakAlertGapMin`, varsayılan 30 dk). Mesajda RSI şartı sağlanıyorsa `RSI şartı ✅` yazar. Varsayılanlarla
 H42'de günde ~60 bildirim olurdu (skor ≥ 3, pompa ≥ %3 ile ~600). Susturulan coinlere gitmez. Kayıt: `cards` tablosu, `kind = tepe`
 (5/15/30/60/240 dk sonrası takip edilir; `/gecmis`'te görünür). Bilgi amaçlıdır, al/sat sinyali değildir.

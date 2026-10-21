@@ -62,6 +62,7 @@ module.exports = {
     // 🔻 Tepe reddi bildirimi (src/peakAlert.js) — kart biçimine dokunmaz, ayrı mesaj
     peakAlert:        true,
     peakAlertMin:     4,     // skor (mum reddi · kırmızı · hacim · Asya/Avrupa seansı) en az; 4 → yalnız 03–15 TSİ
+    peakAlertAtrPct:  1.2,   // 5dk ATR (fiyatın %'si) en az; 0 = kapalı. 18–20.10 verisi: skor 4 + ATR ≥ 1.2 → 60 dk sonra %78 aşağıda (ATR'siz %68)
     peakAlertPumpPct: 5,     // pompa (4 saatlik dipten) en az %
     peakAlertGapMin:  30,    // coin başına en fazla … dk'da bir
     peakAlertRsiOnly: false, // true: yalnız RSI kart şartı (rsiMin, minTFs) o an sağlanan coinlerde
