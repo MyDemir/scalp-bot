@@ -36,7 +36,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
 
   const DEF = Object.fromEntries(defs.map(d => [d.key, d]));
   const SECTIONS = [
-    { id: 'rsi', title: '📊 RSI kartı', keys: ['rsiMin', 'rsiMin2', 'strongRsi', 'rsiEntryMax', 'minTFs', 'rsiPeriod', 'resetRsi', 'seriesBursts', 'seriesMinRsi15m'],
+    { id: 'rsi', title: '📊 RSI kartı', keys: ['rsiMin', 'rsiMin2', 'strongRsi', 'rsiEntryMax', 'minTFs', 'rsiPeriod', 'resetRsi', 'seriesCards', 'seriesBursts', 'seriesMinRsi15m'],
       sum: v => `eşik ${v.rsiMin} · ${v.minTFs}/3 dilim · RSI(${v.rsiPeriod}) · seri 15m≥${v.seriesMinRsi15m ?? 85}` },
     { id: 'lvl', title: '🎯 Direnç ve kırılım', keys: ['levelRequired', 'levelMaxPct', 'dipBelowPct', 'dipAbovePct', 'sfpAbovePct', 'confluencePct', 'levelsSwing', 'swingBars', 'zoneTouches', 'levelsFib', 'levelsWeeklyZone', 'sfpCards', 'sfpBars', 'discoveryCards'],
       sum: v => `${v.levelRequired ? 'şart açık' : 'şart kapalı'} · %${v.levelMaxPct} içinde · haftalık bölge ${v.levelsWeeklyZone ? 'açık' : 'kapalı'} · SFP ${v.sfpCards ? 'açık' : 'kapalı'}` },

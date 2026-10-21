@@ -595,7 +595,7 @@ function createTracker() {
     observe15m(sym, rsi15mClosed, s) {
       if (rsi15mClosed == null || rsi15mClosed >= s.resetRsi) return;
       const m = mem.get(sym);
-      if (m && m.seq) { m.seq = 0; m.last = null; }
+      if (m && m.seq) { m.seq = 0; m.last = null; m.maxGrade = 0; }
     },
 
     news(sym, snap, trig, s) {
@@ -658,9 +658,13 @@ function createTracker() {
       return out;
     },
 
+    /** Serideki en yüksek derece (seri 15m RSI < resetRsi ile biter) */
+    maxGrade: sym => mem.get(sym)?.maxGrade ?? 0,
+
     commit(sym, snap, s) {
       const m = get(sym);
       m.seq++;
+      m.maxGrade = Math.max(m.maxGrade ?? 0, snap.grade ?? 0);
       m.last = {
         hits: snap.hits,
         above: RSI_TFS.filter(tf => snap.rsi[tf].v >= s.rsiMin),
@@ -765,6 +769,9 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
     news.push(`Seri sürüyor, şart artık sağlanmıyor (${why})`);
   }
   if (!news.length) return null;
+  // Seri içinde 3m/5m/15m kapanışından gelen yeni kart yalnız derece serideki en yükseği geçince; sahte kırılım, hacimli mum
+  // ve ⚡ hareket her zaman kart olur. Atlanan değişiklikler (RSI, MACD, negatif tepe…) sonraki karta birikir.
+  if ((s.seriesCards ?? 'derece') === 'derece' && !sfp && !burst && !move && tracker.maxGrade(sym) > 0 && !(snap.grade > tracker.maxGrade(sym))) return null;
   const seq = tracker.commit(sym, snap, s);
 
   const followed = ctx.isFollowed ? ctx.isFollowed(sym) : false;

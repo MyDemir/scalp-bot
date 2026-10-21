@@ -42,8 +42,8 @@ Detay'da 🎯 hedef: 3m EMA21 ve 5m EMA21 uzaklığı. Kontrol listesi Detay'da 
 **Derece (varsayılan `gradeBy = sart3`):** daireler hep 🔴 (short olgunluğu); 1 + sağlanan şart sayısı — EMA21 ayrışma (3m ve 5m ≥ `sepPct2`) ·
 1s RSI `gradeRsi1h`–`gradeRsi1hMax` (80–88) · 15dk RSI ≥ `gradeRsi15m` (85). **🚀 Kaçak pompa** (1s RSI ≥ 88 ya da 4s RSI ≥ `gradeRsi4hMax` 80):
 en fazla `gradeRunawayMax` (2) daire — bu durumda tepe çoğu zaman sürdü (60 dk sonra %27–39 aşağıda, önce medyan +%11–12).
-Direnç yoksa (fiyat keşfi) en fazla `gradeNoLevelMax` (3) daire. 🔔 satırında son 15 dk yönü (▲/▼) ve 3dk/5dk RSI ≥ 95 ise `🔥 RSI 95+`
-(dereceye girmez: tek başına sonucu ayırmadı). Bu kurallarla aynı veride: 🔴 %14 · 🔴🔴 %29 · 🔴🔴🔴 %63 · 🔴🔴🔴🔴 %82 aşağıda
+Direnç yoksa (fiyat keşfi) en fazla `gradeNoLevelMax` (3) daire. Kartta ek etiket yok: kaçak pompa, 3dk/5dk RSI ≥ 95 (`🔥`, tek başına sonucu
+ayırmadığı için dereceye girmez) ve son 15 dk yönü (▲/▼) yalnız Detay'ın 🏅 Derece bölümünde. Bu kurallarla aynı veride: 🔴 %14 · 🔴🔴 %29 · 🔴🔴🔴 %63 · 🔴🔴🔴🔴 %82 aşağıda
 (eski liste: 🔴 %27 · 🔴🔴 %50 · 🔴🔴🔴 %30). Tavansız ilk sürüm: 18–20.10 verisinde (769 kart, 60 dk sonra fiyat kart anının altında):
 
 | Sağlanan şart | Kart | 60 dk sonra aşağıda | Medyan dip (60 dk) |
@@ -59,6 +59,12 @@ Aynı veride 3m/5m RSI eşikleri, tetik TF'si, günlük/çakışan direnç, nega
 (`grade2Min` / `grade3Min` / `grade4Min`, `/ayarlar` → Derece). 🔴🔴🔴 ve 🔴🔴🔴🔴 sesli (kart sesi kapalıyken bile) ve `/konu kart3`'e gider.
 Eşikler `/ayarlar → 🏅 Derece ve kontrol listesi`: `gradeBy`, `gradeRsi1h`, `gradeRsi15m`, `strongRsi`, `rsiEntryMax`, `confRsi`, `confluencePct`, `sepPct2/5/10`, `grade2Min`, `grade3Min`, `grade4Min`.
 Hacim/⚡ daireleri: 1 temel · 2 hacim ≥ 3× · 3 + yön uyumu ≥ %65; renk yönü gösterir (🟢 alış/yükseliş · 🔴 satış/düşüş · ⚪ nötr).
+
+**Seri içinde yeni kart** (`seriesCards`, varsayılan `derece`): bir coinde ilk karttan sonra seri sürerken (kapanmış 15m RSI 75'in altına
+inmeden) 3m/5m/15m kapanışından gelen yeni kart **yalnız derece serideki en yüksek dereceyi geçince** gönderilir; RSI, MACD, negatif tepe,
+direnç değişiklikleri sonraki karta birikir. Sahte kırılım, hacimli mum ve ⚡ hareket her zaman kart olur. 18–20.10 verisinde
+769 kart → 196 (seri başına medyan 3 → 1); atlanan kartlar yeni bir şey söylemiyordu (aynı derecede 60 dk sonra aşağıda oranı ilk kartla aynı).
+`/ayarlar → 📊 RSI kartı → Seri kartı` → `hepsi` eski davranış (her yeni bilgide kart).
 
 **Seri içi patlama:** bir coinde kart gittikten sonra seri sürerken (kapanmış 15m RSI 75'in altına inmeden)
 gelen hacimli 1m mum, o an **15m RSI ≥ 85** ise (`seriesMinRsi15m`) şart aranmadan kart olur (`#SERI`). 15m RSI 85'in altına
@@ -84,8 +90,8 @@ Aynı coinde kartlar **#1, #2 …** diye numaralanır; kapanmış 15m RSI 75'in 
 ### Kartın içeriği
 Hızlı okunsun diye kısa ve her şey açıkta (açılır kutu yok):
 ```
-🔴🔴 #CVXUSDT — RSI                 ← daire sayısı = derece (1 + sağlanan şart), rengi = son 15 dk yön (🟢 yükseliş · 🔴 düşüş)
-🔔: RSI 85+ · Kart 3 · ⭐ Dirençte   ← neden geldi (sahte kırılımda "⚠️ Sahte kırılım", seri içinde "Seri sürüyor (şart dışı)")
+🔴🔴 #CVXUSDT — RSI                 ← daire sayısı = derece (1 + sağlanan şart, kaçak pompada en fazla 2)
+🔔: Kart 3 · ⭐ Dirençte   ← kaçıncı kart ve dirençte mi (sahte kırılımda "⚠️ Sahte kırılım", seri içinde "Seri sürüyor (şart dışı)")
 ⚠️ Sahte kırılım: … / 🚀 Fiyat keşfi: …   ← yalnız özel olay varsa (en fazla 2 satır)
 RSI 3dk: 86.1
 RSI 5dk: 88.4

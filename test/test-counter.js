@@ -61,16 +61,18 @@ const R = []; const ok = x => R.push('✅ ' + x);
   };
   const out = formatCard({ id: 'EDENUSDT-1', symbol: 'EDENUSDT', seq: 2, t: Date.UTC(2026, 8, 29, 12, 12), price: 0.06486, snap, news: [], tags: [], trig: {} }, s);
   const txt = toPlain(out.text), det = toPlain(out.details);
-  assert(txt.split('\n')[1] === '🔔: RSI 85+ · Kart 2 · ⭐ Dirençte · ▲ 15dk +%0.2', txt);
+  assert(txt.split('\n')[1] === '🔔: Kart 2 · ⭐ Dirençte', txt);
   assert(txt.startsWith('🔴🔴 #EDENUSDT'), 'sart3: daireler hep kırmızı: ' + txt.split('\n')[0]);
-  const hot = toPlain(formatCard({ id: 'E-2', symbol: 'EDENUSDT', seq: 3, t: Date.UTC(2026, 8, 29, 12, 12), price: 0.06486, snap: { ...snap, chg: -1.25, rsi: { ...snap.rsi, '5m': { v: 96.1 } } }, news: [], tags: [], trig: {} }, s).text);
-  assert(hot.split('\n')[1] === '🔔: RSI 85+ · Kart 3 · ⭐ Dirençte · 🔥 RSI 95+ · ▼ 15dk −%1.3', hot);
+  const hotOut = formatCard({ id: 'E-2', symbol: 'EDENUSDT', seq: 3, t: Date.UTC(2026, 8, 29, 12, 12), price: 0.06486, snap: { ...snap, chg: -1.25, rsi: { ...snap.rsi, '5m': { v: 96.1 } } }, news: [], tags: [], trig: {} }, s);
+  const hot = toPlain(hotOut.text), hotDet = toPlain(hotOut.details);
+  assert(hot.split('\n')[1] === '🔔: Kart 3 · ⭐ Dirençte' && !/🔥|▼|🚀/.test(hot), 'kartta bilgi etiketi yok: ' + hot);
+  assert(hotDet.includes('🔥 RSI 95+: 5dk 96.1') && hotDet.includes('▼ Son 15 dk: −%1.3'), 'Detay: ' + hotDet);
   const old = toPlain(formatCard({ id: 'E-3', symbol: 'EDENUSDT', seq: 2, t: Date.UTC(2026, 8, 29, 12, 12), price: 0.06486, snap, news: [], tags: [], trig: {} }, { ...s, gradeBy: 'liste' }).text);
   assert(old.startsWith('🟢🟢 #EDENUSDT') && old.split('\n')[1] === '🔔: RSI 85+ · Kart 2 · ⭐ Dirençte', 'liste: renk yön, 🔔 eski: ' + old);
   assert(!txt.includes("Short'a karşı"), 'karşı sinyal kartta görünmemeli');
   assert(det.includes("⚠️ Short'a karşı:") && det.includes('• 4s gizli PU — dip 0.0601 → 0.0612 (yükseldi), RSI 38.2 → 33.1 (düştü)') && det.includes("• Günlük golden cross yakın — SMA50, SMA200'ün %1.4 altında (5 gün önce %2.3)"), det);
   console.log('\n--- kart ---\n' + txt + '\n--- Detay (kontrol bölümü) ---\n' + det.split('\n').filter(l => /Kontrol|✅|▫️|Short|•/.test(l)).join('\n'));
-  ok('Derece (liste puanı): 🔴 0–2 · 🔴🔴 3–4 · 🔴🔴🔴 5–6 · 🔴🔴🔴🔴 7+; sart3\'te daireler hep 🔴, 🔔 satırında 15 dk yönü ▲/▼ ve 🔥 RSI 95+; "⭐ Dirençte"; karşı sinyaller yalnız Detay\'da');
+  ok('Derece (liste puanı): 🔴 0–2 · 🔴🔴 3–4 · 🔴🔴🔴 5–6 · 🔴🔴🔴🔴 7+; sart3\'te daireler hep 🔴, 🔥 RSI 95+ ve 15 dk yön yalnız Detay\'da; "⭐ Dirençte"; karşı sinyaller yalnız Detay\'da');
 }
 
 // ── 4) Sahte kırılım kartı (XRP): tekrar yok, ⭐ tek yerde, daireler 🔴 ──
@@ -85,7 +87,7 @@ const R = []; const ok = x => R.push('✅ ' + x);
   const out = formatCard({ id: 'XRPUSDT-1', symbol: 'XRPUSDT', seq: 1, t: Date.UTC(2026, 8, 29, 12, 40), price: 1.5444, snap, news, tags: [], trig: { sfp } }, s);
   const ln = toPlain(out.text).split('\n');
   assert.strictEqual(ln[0], '🔴 #XRPUSDT — RSI', 'daireler 🔴 (15 dk yön yukarı olsa da): ' + ln[0]);
-  assert.strictEqual(ln[1], '🔔: ⚠️ Sahte kırılım (fitil) · Kart 1 · ⭐ Dirençte · ▲ 15dk +%0.3');
+  assert.strictEqual(ln[1], '🔔: ⚠️ Sahte kırılım (fitil) · Kart 1 · ⭐ Dirençte');
   assert.strictEqual(ln[2], '4h tepe 1.5457 · 5dk mum üstüne çıktı, altında kapandı');
   const dir = ln.find(l => l.startsWith('Direnç:'));
   assert.strictEqual(dir, 'Direnç: 4h tepe 1.5457 (%0.08 kala)', 'Direnç satırında ⭐ yok');

@@ -100,12 +100,10 @@ function formatCard(card, s, opt = {}) {
     : T.sfp ? (T.sfp.type === 'wick' ? '⚠️ Sahte kırılım (fitil)' : '⚠️ Sahte kırılım')
       : snap.rsiOk ? `RSI ${s.rsiMin}+`
         : card.inSeries ? 'Seri sürüyor (şart dışı)' : `RSI ${s.rsiMin}+`;
-  // sart3'te daireler hep 🔴 (short olgunluğu); son 15 dk yönü ve 3m/5m RSI ≥ strongRsi burada yazılır (dereceye girmez)
+  // sart3'te daireler hep 🔴 (short olgunluğu); "RSI 85+" tetiği, kaçak pompa, 3m/5m RSI ≥ strongRsi ve 15 dk yön yazılmaz (Detay'da)
   const s3 = (s.gradeBy ?? 'sart3') !== 'liste';
-  const hot = s3 && ['3m', '5m'].some(tf => snap.rsi?.[tf]?.v >= s.strongRsi) ? `🔥 RSI ${s.strongRsi}+` : null;
-  const dir = s3 && Number.isFinite(snap.chg) ? `${snap.chg >= 0 ? '▲' : '▼'} ${snap.chgMin ?? 15}dk ${snap.chg >= 0 ? '+' : '−'}%${Math.abs(snap.chg).toFixed(1)}` : null;
-  const run = s3 && gradeConds(snap, s).runaway ? '🚀 Kaçak pompa' : null;
-  L.push(`🔔: ${[why, card.seq === '–' ? null : `Kart ${card.seq}`, dip ? '⭐ Dirençte' : null, run, hot, dir].filter(Boolean).join(' · ')}`);
+  const plain = s3 && card.seq !== '–' && !T.sfp && snap.rsiOk;
+  L.push(`🔔: ${[plain ? null : why, card.seq === '–' ? null : `Kart ${card.seq}`, dip ? '⭐ Dirençte' : null].filter(Boolean).join(' · ')}`);
   // Üstte (🔔 altında) yalnız sahte kırılım / fiyat keşfi; hacimli mum ve ⚡ 1 dk hareket kartın altında (saatten önce)
   const special = card.news.filter(n => /^(⚠️ Sahte kırılım|🚀 Fiyat keşfi)/.test(n));
   for (const n of special.slice(0, 2)) L.push(esc(n.replace(/^⚠️ Sahte kırılım(?: \(fitil\))?: /, '')));
@@ -141,6 +139,9 @@ function formatCard(card, s, opt = {}) {
     const why2 = capped ? (gc.runaway ? `; kaçak pompa → en fazla ${snap.grade}` : !snap.level && !T.sfp ? `; direnç yok → en fazla ${snap.grade}` : '') : '';
     D.push('', `🏅 <b>Derece ${snap.grade}/4</b> (1 + sağlanan şart${why2})`,
       `${m(gc.sep)} EMA21 ayrışma · ${m(gc.h1)} 1s RSI ${s.gradeRsi1h ?? 80}–${s.gradeRsi1hMax ?? 88} · ${m(gc.r15)} 15dk RSI ≥ ${s.gradeRsi15m ?? 85}`);
+    const hot = ['3m', '5m'].filter(tf => snap.rsi?.[tf]?.v >= s.strongRsi);
+    if (hot.length) D.push(`🔥 RSI ${s.strongRsi}+: ${hot.map(tf => `${tf.replace('m', 'dk')} ${snap.rsi[tf].v.toFixed(1)}`).join(' · ')}`);
+    if (Number.isFinite(snap.chg)) D.push(`${snap.chg >= 0 ? '▲' : '▼'} Son ${snap.chgMin ?? 15} dk: ${snap.chg >= 0 ? '+' : '−'}%${Math.abs(snap.chg).toFixed(1)}`);
     if (gc.runaway) D.push(`🚀 Kaçak pompa: 1s RSI ${Number.isFinite(snap.conf?.h1) ? snap.conf.h1.toFixed(1) : '—'} · 4s RSI ${Number.isFinite(snap.conf?.h4) ? snap.conf.h4.toFixed(1) : '—'} — bu durumda tepe çoğu zaman sürdü`);
   }
   const ck = snap.check;

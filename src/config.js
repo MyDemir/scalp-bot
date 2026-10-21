@@ -55,6 +55,7 @@ module.exports = {
 
     seriesBursts:  true,
     seriesMinRsi15m: 85,     // seri içi için o an 15m RSI ≥ 85
+    seriesCards:   'derece', // seri içinde yeni kart: 'derece' = yalnız derece serideki en yükseği geçince · 'hepsi' = her yeni bilgide
 
     // EMA21 yüzde ayrışma (güven skoru kademeli)
     sepPct2:       2,

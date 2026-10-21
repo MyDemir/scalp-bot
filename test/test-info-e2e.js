@@ -116,7 +116,7 @@ const results = []; const ok = s => results.push('✅ ' + s);
   assert(nums[0] === 1 && nums.every((x, i) => i === 0 || x === nums[i - 1] + 1 || x === 1), 'kart numaraları seri içinde 1,2,3… (sıfırlanınca 1) olmalı: ' + nums);
   const detId = c => c.reply_markup.inline_keyboard[1][0].callback_data.slice(2);
   const det = c => bot.details.get(detId(c)) || '';
-  assert(cards[0].text.includes('🔔: RSI 90+ · Kart 1') && has('İlk kart'), 'ilk kart: ' + cards[0].text);
+  assert(cards[0].text.includes('🔔: Kart 1') && has('İlk kart'), 'ilk kart: ' + cards[0].text);
   // Kısa kart düzeni: RSI alt alta · boş satır · direnç · fiyat · saat; kutu yok
   { const ln = cards[0].text.split(/\r?\n/); const i = ln.findIndex(l => l.startsWith('RSI 3dk:'));
     // … Fiyat · Funding · (hacimli mum / ⚡ satırları kartın altında) · ⏱
