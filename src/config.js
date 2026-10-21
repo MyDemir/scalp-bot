@@ -8,8 +8,12 @@ module.exports = {
     rsiEntryMax:   100,
     confluencePct: 0.5,
 
-    // Güven skoru (max 4 daire)
-    // 1–2 → 1 · 3–4 → 2 · 5–6 → 3 · 7+ → 4
+    // Derece (daire sayısı). gradeBy 'sart3': 1 + sağlanan şart (EMA21 ayrışma · 1s RSI ≥ gradeRsi1h · 15m RSI ≥ gradeRsi15m)
+    //   18–20.10 verisi (769 kart, 60 dk sonra aşağıda): 0 şart %14 · 1 → %28 · 2 → %61 · 3 → %72 (kontrol listesi skoru 3 → %47)
+    // gradeBy 'liste': kontrol listesi skoru — 1–2 → 1 · 3–4 → 2 · 5–6 → 3 · 7+ → 4
+    gradeBy:       'sart3',
+    gradeRsi1h:    80,
+    gradeRsi15m:   85,
     grade2Min:     3,
     grade3Min:     5,
     grade4Min:     7,
@@ -62,6 +66,7 @@ module.exports = {
     // 🔻 Tepe reddi bildirimi (src/peakAlert.js) — kart biçimine dokunmaz, ayrı mesaj
     peakAlert:        true,
     peakAlertMin:     4,     // skor (mum reddi · kırmızı · hacim · Asya/Avrupa seansı) en az; 4 → yalnız 03–15 TSİ
+    peakAlertAtrPct:  1.2,   // 5dk ATR (fiyatın %'si) en az; 0 = kapalı. 18–20.10 verisi: skor 4 + ATR ≥ 1.2 → 60 dk sonra %78 aşağıda (ATR'siz %68)
     peakAlertPumpPct: 5,     // pompa (4 saatlik dipten) en az %
     peakAlertGapMin:  30,    // coin başına en fazla … dk'da bir
     peakAlertRsiOnly: false, // true: yalnız RSI kart şartı (rsiMin, minTFs) o an sağlanan coinlerde

@@ -76,7 +76,7 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   let ck = eng.checklist({ ...base, rsi: rsi(96, 96, 96) }, g);
   assert.strictEqual(ck.score, 10, JSON.stringify(ck.items.filter(x => !x.ok)));          // 8 madde × 1 + EMA %5 (2 puan) + MACD; toplam 9 madde
   assert(ck.total === 9 && ck.items[1].text.includes('1d MA200 + 30 günlük tepe'));
-  assert.strictEqual(eng.rsiGrade({ hits: 3, check: ck }, g), 4);
+  assert.strictEqual(eng.rsiGrade({ hits: 3, check: ck }, { ...g, gradeBy: 'liste' }), 4);
   // EMA21 ayrışma yalnız ÜSTTE puan alır: fiyat EMA21'in %12 altındaysa 0 puan
   ck = eng.checklist({ ...base, rsi: rsi(96, 96, 96), sepPct: { '3m': -12, '5m': -11 } }, g);
   assert(!ck.items.find(x => x.key === 'sep').ok && ck.score === 8, 'EMA altı puan almamalı: ' + ck.score);
@@ -86,12 +86,19 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   assert(ck.items[2].ok && ck.items[2].text.includes('95–100'));                           // RSI bandı 95–100
   assert(ck.warn && ck.warn.includes('EMA21'));
   assert.strictEqual(ck.score, 3);                                // günlük direnç + çakışma + bant
-  assert.strictEqual(eng.rsiGrade({ hits: 2, check: ck }, g), 2);
-  assert.strictEqual(eng.rsiGrade({ hits: 2, check: { score: 5 } }, g), 3);
-  assert.strictEqual(eng.rsiGrade({ hits: 1, check: { score: 8 } }, g), 0);
+  const L = { ...g, gradeBy: 'liste' };
+  assert.strictEqual(eng.rsiGrade({ hits: 2, check: ck }, L), 2);
+  assert.strictEqual(eng.rsiGrade({ hits: 2, check: { score: 5 } }, L), 3);
+  assert.strictEqual(eng.rsiGrade({ hits: 1, check: { score: 8 } }, L), 0);
+  // Varsayılan (sart3): 1 + ayrışma + 1s RSI ≥ 80 + 15m RSI ≥ 85; kontrol listesi skoru dereceyi etkilemez
+  const G3 = { ...g, gradeBy: 'sart3', gradeRsi1h: 80, gradeRsi15m: 85 };
+  const sn = (sep, h1, r15) => ({ hits: 2, sepOk: sep, conf: { h1 }, rsi: rsi(90, 90, r15), check: { score: 9 } });
+  assert.deepStrictEqual([sn(false, 70, 80), sn(true, 70, 80), sn(true, 81, 80), sn(true, 81, 86), sn(false, 85, 90)].map(x => eng.rsiGrade(x, G3)), [1, 2, 3, 4, 3]);
+  assert.strictEqual(eng.rsiGrade({ ...sn(true, 90, 90), hits: 1 }, G3), 0, 'RSI kart şartı yoksa derece 0');
+  assert.strictEqual(eng.rsiGrade({ hits: 2, rsi: rsi(90, 90, null), conf: {} }, G3), 1, 'eksik RSI → şart sayılmaz');
   ck = eng.checklist({ ...base, rsi: rsi(90, 90, 90), levels: [{ name: '4h EMA200', value: 101, dist: -1 }], level: { name: '4h EMA200', value: 101, dist: -1, zone: 'near' } }, g);
   assert(!ck.items[0].ok && ck.items[0].text.includes('içinde yok'));   // yalnız 4h seviye → günlük madde yok
-  ok('Derece: hacim 🔴/🔴🔴(≥3×)/🔴🔴🔴(+yön ≥%65) · kart derecesi puanla (9 madde; EMA21 üstü ayrışma %2/%5/%10 → 1/2/3 puan, altı 0; MACD 3m/5m sat kesişimi +1): 10 puan → 4 daire, 5 → 3, 3 → 2; RSI bandı 95–100; EMA21 yakın uyarısı; yalnız 4h seviyede günlük madde yok');
+  ok('Derece (sart3: 1 + ayrışma + 1s RSI ≥ 80 + 15dk RSI ≥ 85; liste: kontrol skoru) · hacim 🔴/🔴🔴(≥3×)/🔴🔴🔴(+yön ≥%65) · kart derecesi puanla (9 madde; EMA21 üstü ayrışma %2/%5/%10 → 1/2/3 puan, altı 0; MACD 3m/5m sat kesişimi +1): 10 puan → 4 daire, 5 → 3, 3 → 2; RSI bandı 95–100; EMA21 yakın uyarısı; yalnız 4h seviyede günlük madde yok');
 }
 
 // ── Ayarlar ──

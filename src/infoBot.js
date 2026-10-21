@@ -312,6 +312,8 @@ function onPeakCandidate(sr, e) {
   const sym = sr.symbol;
   const sc = peakScore(e.feat);
   if (sc.score < (s.peakAlertMin ?? 4) || !(e.feat.pumpPct >= (s.peakAlertPumpPct ?? 5))) return;
+  const minAtr = s.peakAlertAtrPct ?? 1.2;                   // 5dk ATR %: sakin coinde 'ret' çoğu zaman sürmüyor
+  if (minAtr > 0 && !(e.feat.atr5Pct >= minAtr)) return;
   if (s.peakAlertRsiOnly && !e.feat.rsiOk) return;          // yalnız RSI kart şartı (rsiMin, minTFs) sağlanan coinler
   if (settings.isMuted(sym)) return;
   const last = peakLast.get(sym);
