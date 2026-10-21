@@ -174,21 +174,39 @@ function checklist(snap, s) {
   return { items, score, total: items.length, warn, daily, confluence: conf };
 }
 
-/** Derece şartları (gradeBy 'sart3'): EMA21 ayrışma · 1s RSI · 15m RSI — 18–20.10 kart verisinde sonucu ayıran üçü */
+/**
+ * Derece şartları (gradeBy 'sart3'): EMA21 ayrışma · 1s RSI · 15m RSI — 18–20.10 kart verisinde sonucu ayıran üçü —
+ * ve 5dk ATR ≥ gradeAtr5Pct (1.2; tepe reddiyle aynı eşik). 18–20.10'da tepe adayıyla eşleşen 374 kartta ATR şartıyla
+ * derece 4: 28 kart (6 coin) %75 aşağıda, medyan dip −%8.3 (ATR'siz 17 kart / 4 coin %71, −%6.8). Örnek küçük.
+ */
+/**
+ * Kaçak pompa: 1s RSI ≥ gradeRsi1hMax (88) ya da 4s RSI ≥ gradeRsi4hMax (80). 18–20.10'da 3 şartlı kartlarda bu durumda
+ * 60 dk sonra yalnız %27–39 aşağıdaydı (60 dk'da önce medyan +%11–12); 1s 80–88 ve 4s < 70 iken %85.
+ */
 function gradeConds(snap, s) {
-  const r15 = snap.rsi?.['15m']?.v, h1 = snap.conf?.h1;
+  const r15 = snap.rsi?.['15m']?.v, h1 = snap.conf?.h1, h4 = snap.conf?.h4;
+  const h1Max = s.gradeRsi1hMax ?? 88, h4Max = s.gradeRsi4hMax ?? 80;
+  const runaway = (h1Max > 0 && Number.isFinite(h1) && h1 >= h1Max) || (h4Max > 0 && Number.isFinite(h4) && h4 >= h4Max);
   return {
     sep: Boolean(snap.sepOk),
-    h1: Number.isFinite(h1) && h1 >= (s.gradeRsi1h ?? 80),
+    h1: Number.isFinite(h1) && h1 >= (s.gradeRsi1h ?? 80) && !(h1Max > 0 && h1 >= h1Max),
     r15: Number.isFinite(r15) && r15 >= (s.gradeRsi15m ?? 85),
+    atr: (s.gradeAtr5Pct ?? 1.2) > 0 && Number.isFinite(snap.atr5Pct) && snap.atr5Pct >= (s.gradeAtr5Pct ?? 1.2),
+    runaway,
   };
 }
 
-/** RSI şartından bağımsız derece (1–4) */
-function gradeOf(snap, s) {
+/**
+ * RSI şartından bağımsız derece (1–4).
+ * sart3: direnç yoksa (fiyat keşfi) en fazla gradeNoLevelMax (3) — 18–20.10'da direnç yokken 3 şart %60 aşağıda ve
+ * 60 dk'da önce medyan +%5.6 yükseldi (direnç varken %77 / +%1.3). SFP kartında kırılan seviye direnç sayılır.
+ */
+function gradeOf(snap, s, { sfp = false } = {}) {
   if ((s.gradeBy ?? 'sart3') !== 'liste') {
     const c = gradeConds(snap, s);
-    return 1 + c.sep + c.h1 + c.r15;
+    let g = Math.min(4, 1 + c.sep + c.h1 + c.r15 + c.atr);
+    if (c.runaway) g = Math.min(g, s.gradeRunawayMax ?? 2);
+    return !sfp && !snap.level ? Math.min(g, s.gradeNoLevelMax ?? 3) : g;
   }
   const sc = snap.check ? snap.check.score : 0;
   if (sc >= (s.grade4Min ?? 7)) return 4;
@@ -492,6 +510,10 @@ function evaluate(series, s, ctx = {}, force = false) {
   const r1h = ta.rsiLast(series.col('1h', 'c'), s.rsiPeriod);
   const r4h = ta.rsiLast(series.col('4h', 'c'), s.rsiPeriod);
   snap.conf = { h1: r1h, h4: r4h, score: (r1h >= s.confRsi ? 1 : 0) + (r4h >= s.confRsi ? 1 : 0) };
+  { // 5dk ATR (kapanmış mumlar, fiyatın %'si) — derece şartı (gradeAtr5Pct) ve tepe reddi ile aynı hesap
+    const atr = ta.atrSeries(series.col('5m', 'h', false), series.col('5m', 'l', false), series.col('5m', 'c', false), 14);
+    snap.atr5Pct = atr.length && price > 0 ? atr[atr.length - 1] / price * 100 : null;
+  }
 
   snap.macd = {
     '3m': macdState(series, '3m'),
@@ -582,7 +604,7 @@ function createTracker() {
     observe15m(sym, rsi15mClosed, s) {
       if (rsi15mClosed == null || rsi15mClosed >= s.resetRsi) return;
       const m = mem.get(sym);
-      if (m && m.seq) { m.seq = 0; m.last = null; }
+      if (m && m.seq) { m.seq = 0; m.last = null; m.maxGrade = 0; }
     },
 
     news(sym, snap, trig, s) {
@@ -608,9 +630,10 @@ function createTracker() {
       if (s.rsiMin2 > s.rsiMin) line(`RSI ${s.rsiMin2} üstüne çıktı`, RSI_TFS.filter(tf => snap.rsi[tf].v >= s.rsiMin2 && !(L.above2 || []).includes(tf)));
       line(`RSI ${s.strongRsi} üstüne çıktı`, RSI_TFS.filter(tf => snap.rsi[tf].v >= s.strongRsi && !L.strong.includes(tf)));
       const sc = snap.check?.score, psc = L.score;
+      const liste = s.gradeBy === 'liste';   // sart3'te kontrol listesi dereceye girmez → yenilik sayılmaz
       if (snap.grade !== (L.grade ?? snap.grade)) {
-        out.push(`Derece ${snap.grade > L.grade ? 'yükseldi' : 'düştü'}: ${circles(snap.grade)}${sc != null ? ` (kontrol ${sc}/${snap.check.total})` : ` (${GRADE_TXT[snap.grade]})`}`);
-      } else if (sc != null && psc != null && sc !== psc) {
+        out.push(`Derece ${snap.grade > L.grade ? 'yükseldi' : 'düştü'}: ${L.grade} → ${snap.grade}${liste ? (sc != null ? ` (kontrol ${sc}/${snap.check.total})` : ` (${GRADE_TXT[snap.grade]})`) : ''}`);
+      } else if (liste && sc != null && psc != null && sc !== psc) {
         out.push(`Kontrol listesi ${psc}/${snap.check.total} → ${sc}/${snap.check.total}`);
       }
       const dKey = snap.discovery ? lvKey(snap.discovery.broken) : null;
@@ -645,9 +668,13 @@ function createTracker() {
       return out;
     },
 
+    /** Serideki en yüksek derece (seri 15m RSI < resetRsi ile biter) */
+    maxGrade: sym => mem.get(sym)?.maxGrade ?? 0,
+
     commit(sym, snap, s) {
       const m = get(sym);
       m.seq++;
+      m.maxGrade = Math.max(m.maxGrade ?? 0, snap.grade ?? 0);
       m.last = {
         hits: snap.hits,
         above: RSI_TFS.filter(tf => snap.rsi[tf].v >= s.rsiMin),
@@ -740,7 +767,7 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
     if (!sfp && !seriesBurst && !moveCard) return null;
     if (!snap.rsiOk) snap = evaluate(series, s, ctx, true);
     inSeries = seriesBurst;
-    if (sfp && !(snap.grade > 0)) snap.grade = gradeOf(snap, s);
+    if (sfp && !(snap.grade > 0)) snap.grade = gradeOf(snap, s, { sfp: true });
   }
   if (ctx.isMuted && ctx.isMuted(sym, snap.t)) return null;
 
@@ -752,6 +779,9 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
     news.push(`Seri sürüyor, şart artık sağlanmıyor (${why})`);
   }
   if (!news.length) return null;
+  // Seri içinde 3m/5m/15m kapanışından gelen yeni kart yalnız derece serideki en yükseği geçince; sahte kırılım, hacimli mum
+  // ve ⚡ hareket her zaman kart olur. Atlanan değişiklikler (RSI, MACD, negatif tepe…) sonraki karta birikir.
+  if (!sfp && !burst && !move && tracker.maxGrade(sym) > 0 && !(snap.grade > tracker.maxGrade(sym))) return null;
   const seq = tracker.commit(sym, snap, s);
 
   const followed = ctx.isFollowed ? ctx.isFollowed(sym) : false;

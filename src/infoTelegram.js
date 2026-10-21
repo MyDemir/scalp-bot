@@ -40,9 +40,9 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
       sum: v => `eşik ${v.rsiMin} · ${v.minTFs}/3 dilim · RSI(${v.rsiPeriod}) · seri 15m≥${v.seriesMinRsi15m ?? 85}` },
     { id: 'lvl', title: '🎯 Direnç ve kırılım', keys: ['levelRequired', 'levelMaxPct', 'dipBelowPct', 'dipAbovePct', 'sfpAbovePct', 'confluencePct', 'levelsSwing', 'swingBars', 'zoneTouches', 'levelsFib', 'levelsWeeklyZone', 'sfpCards', 'sfpBars', 'discoveryCards'],
       sum: v => `${v.levelRequired ? 'şart açık' : 'şart kapalı'} · %${v.levelMaxPct} içinde · haftalık bölge ${v.levelsWeeklyZone ? 'açık' : 'kapalı'} · SFP ${v.sfpCards ? 'açık' : 'kapalı'}` },
-    { id: 'grd', title: '🏅 Derece ve kontrol listesi', keys: ['gradeBy', 'gradeRsi1h', 'gradeRsi15m', 'grade2Min', 'grade3Min', 'grade4Min', 'sepPct2', 'sepPct5', 'sepPct10', 'confRsi', 'sepATR', 'sepRequired', 'confRequired', 'macdRequired'],
+    { id: 'grd', title: '🏅 Derece ve kontrol listesi', keys: ['gradeBy', 'gradeRsi1h', 'gradeRsi15m', 'gradeAtr5Pct', 'gradeRsi1hMax', 'gradeRsi4hMax', 'gradeRunawayMax', 'gradeNoLevelMax', 'grade2Min', 'grade3Min', 'grade4Min', 'sepPct2', 'sepPct5', 'sepPct10', 'confRsi', 'sepATR', 'sepRequired', 'confRequired', 'macdRequired'],
       sum: v => (v.gradeBy === 'liste' ? `liste: 🔴🔴≥${v.grade2Min} · 🔴🔴🔴≥${v.grade3Min} · 🔴🔴🔴🔴≥${v.grade4Min ?? 7} (9 madde)`
-        : `3 şart: ayrışma · 1s RSI ≥ ${v.gradeRsi1h ?? 80} · 15dk RSI ≥ ${v.gradeRsi15m ?? 85} (her biri +1 daire)`) },
+        : `4 şart: ayrışma · 1s RSI ${v.gradeRsi1h ?? 80}–${v.gradeRsi1hMax ?? 88} · 15dk RSI ≥ ${v.gradeRsi15m ?? 85} · 5dk ATR ≥ %${v.gradeAtr5Pct ?? 1.2} (her biri +1 daire, en fazla 4) · kaçak pompa (1s ≥ ${v.gradeRsi1hMax ?? 88} / 4s ≥ ${v.gradeRsi4hMax ?? 80}) en fazla ${v.gradeRunawayMax ?? 2} · dirençsiz en fazla ${v.gradeNoLevelMax ?? 3}`) },
     { id: 'vol', title: '📦 Hacimli mum', keys: ['burstPct1', 'burstPct2', 'volMult', 'volAvgN', 'takerBuyPct', 'takerSellPct', 'volGrade2X', 'dirGrade3Pct', 'windowMin', 'shortWindowMin'],
       sum: v => `gövde ≥ %${v.burstPct1} · hacim ≥ ${v.volMult}×` },
     { id: 'mov', title: '⚡ Hareket', keys: ['moveAlertPct'],
@@ -73,7 +73,22 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
   function menu() {
     const v = settings.get();
     const text = `⚙️ <b>Bilgi botu ayarları</b>\n\n${SECTIONS.map(x => `<b>${x.title}</b>\n${esc(x.sum(v))}`).join('\n\n')}\n\n${ADMIN_NOTE}`;
-    return { text, keyboard: pairs(SECTIONS.map(x => ({ text: x.title, callback_data: `g:${x.id}` }))) };
+    return { text, keyboard: [...pairs(SECTIONS.map(x => ({ text: x.title, callback_data: `g:${x.id}` }))), [{ text: '↺ Tümünü varsayılana döndür', callback_data: 'r:all' }]] };
+  }
+
+  /** Varsayılana döndürme onayı: id = 'all' ya da bölüm */
+  function resetMenu(id) {
+    const x = id === 'all' ? null : SEC[id];
+    const keys = x ? x.keys : Object.keys(settings.defaults());
+    const v = settings.get(), def = settings.defaults();
+    const diff = keys.filter(k => k in def && v[k] !== def[k]);
+    const name = x ? x.title : 'tüm ayarlar';
+    const back = { text: '↩️ Vazgeç', callback_data: x ? `g:${x.id}` : 'g:main' };
+    if (!diff.length) return { text: `⚙️ <b>${esc(name)}</b> zaten varsayılan değerlerde.`, keyboard: [[back]] };
+    const lines = diff.slice(0, 25).map(k => `• ${esc(DEF[k]?.short || k)}: ${esc(val(DEF[k] || {}, v[k]))} → <b>${esc(val(DEF[k] || {}, def[k]))}</b>`);
+    const more = diff.length > 25 ? `\n… ve ${diff.length - 25} ayar daha` : '';
+    return { text: `↺ <b>${esc(name)}</b> varsayılana dönsün mü?\n\nDeğişecek ${diff.length} ayar:\n${lines.join('\n')}${more}\n\n<i>Susturulan ve takipteki coinler, konu bağlantıları etkilenmez.</i>`,
+      keyboard: [[{ text: '✅ Evet, varsayılana döndür', callback_data: `r:${id}:ok` }, back]] };
   }
 
   function sectionMenu(id) {
@@ -90,7 +105,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
         ? { text: `${v[k] ? '✅' : '▫️'} ${d.short}`, callback_data: `t:${k}` }
         : { text: `${d.short}: ${v[k]}`, callback_data: `e:${k}` };
     });
-    return { text, keyboard: [...pairs(btns), [{ text: '↩️ Ayarlar', callback_data: 'g:main' }]] };
+    return { text, keyboard: [...pairs(btns), [{ text: '↺ Bu bölümü varsayılana döndür', callback_data: `r:${id}` }, { text: '↩️ Ayarlar', callback_data: 'g:main' }]] };
   }
 
   function editMenu(key) {
@@ -98,7 +113,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
     if (!d || d.type === 'bool') return sectionMenu(secOf(key)?.id);
     const x = secOf(key);
     const v = settings.get()[key], def = settings.defaults()[key];
-    const back = [{ text: `↺ Varsayılan (${def})`, callback_data: `d:${key}` }, { text: `↩️ ${x ? x.title : 'Ayarlar'}`, callback_data: x ? `g:${x.id}` : 'g:main' }];
+    const back = [{ text: `↺ Varsayılan (${def})`, callback_data: `z:${key}` }, { text: `↩️ ${x ? x.title : 'Ayarlar'}`, callback_data: x ? `g:${x.id}` : 'g:main' }];
     if (d.type === 'enum') {
       const text = `⚙️ ${x ? `${x.title} › ` : ''}<b>${esc(d.label)}</b>\n\nŞu an: <b>${esc(v)}</b> · varsayılan ${esc(def)}\n\n${ADMIN_NOTE}`;
       return { text, keyboard: [d.options.map(o => ({ text: o === v ? `✓ ${o}` : o, callback_data: `v:${key}:${o}` })), back] };
@@ -185,10 +200,18 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
       const on = settings.toggleFollow(a);
       return { text: on ? `⭐ ${a} takipte — kartları her zaman sesli gelir.` : `☆ ${a} takipten çıkarıldı.` };
     }
-    if (kind === 's' || kind === 't' || kind === 'd' || kind === 'v') {
+    if (kind === 'r') {
+      if (b !== 'ok') { await show(cq, resetMenu(a)); return null; }
+      const x = a === 'all' ? null : SEC[a];
+      const n = settings.reset(x ? x.keys : null);
+      console.log(`[AYAR] ${x ? x.title : 'tüm ayarlar'} varsayılana döndü (${n} ayar, kullanıcı ${uid})`);
+      await show(cq, x ? sectionMenu(x.id) : menu());
+      return { text: n ? `↺ ${n} ayar varsayılana döndü.` : 'Zaten varsayılandaydı.' };
+    }
+    if (kind === 's' || kind === 't' || kind === 'z' || kind === 'v') {
       const r = kind === 's' ? settings.bump(a, Number(b))
         : kind === 't' ? settings.bump(a, 0)
-          : kind === 'd' ? settings.set(a, settings.defaults()[a])
+          : kind === 'z' ? settings.set(a, settings.defaults()[a])
             : settings.set(a, b);
       if (!r.ok) return { text: r.error, alert: true };
       console.log(`[AYAR] ${a} = ${r.value} (kullanıcı ${uid})`);
@@ -230,7 +253,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
 /adminyenile — Telegram grubunun yönetici listesini canlı yenile ve doğrula
 
 <b>Derece daireleri</b>
-Kart (varsayılan): 1 + sağlanan şart — EMA21 ayrışma · 1s RSI ≥ ${settings.get().gradeRsi1h ?? 80} · 15dk RSI ≥ ${settings.get().gradeRsi15m ?? 85} (🔴🔴🔴 ve üstü sesli)
+Kart (varsayılan): daireler hep 🔴 = short olgunluğu; 1 + sağlanan şart — EMA21 ayrışma · 1s RSI ${settings.get().gradeRsi1h ?? 80}–${settings.get().gradeRsi1hMax ?? 88} · 15dk RSI ≥ ${settings.get().gradeRsi15m ?? 85} · 5dk ATR ≥ %${settings.get().gradeAtr5Pct ?? 1.2} (en fazla 4); kaçak pompada (1s ≥ ${settings.get().gradeRsi1hMax ?? 88} ya da 4s ≥ ${settings.get().gradeRsi4hMax ?? 80}) en fazla ${settings.get().gradeRunawayMax ?? 2}, direnç yoksa en fazla ${settings.get().gradeNoLevelMax ?? 3} (🔴🔴🔴 ve üstü sesli). Kaçak pompa, 15 dk yön ve 3dk/5dk RSI ≥ ${settings.get().strongRsi} (🔥) yalnız Detay'da
 Kart (gradeBy = liste): kurulum kontrol listesi skoru (9 madde: günlük/haftalık direnç, çakışan direnç, 3m/5m RSI ${settings.get().strongRsi}–${settings.get().rsiEntryMax}, 15m ≥ ${settings.get().strongRsi}, 5m+15m ≥ ${settings.get().strongRsi}, 1h/4h ≥ ${settings.get().confRsi}, kademeli EMA21 ayrışma, ≥2 negatif tepe, MACD 3m/5m sat kesişimi) — 🔴 &lt; ${settings.get().grade2Min} · 🔴🔴 ≥ ${settings.get().grade2Min} · 🔴🔴🔴 ≥ ${settings.get().grade3Min} · 🔴🔴🔴🔴 ≥ ${settings.get().grade4Min ?? 7} (sesli)
 Hacimli mum / ⚡: 1 daire temel · 2 daire hacim ≥ ${settings.get().volGrade2X}× · 3 daire + yön uyumu ≥ %${settings.get().dirGrade3Pct} — 🟢 alış/yükseliş · 🔴 satış/düşüş · ⚪ nötr
 RSI periyodu: ${settings.get().rsiPeriod}
@@ -245,7 +268,7 @@ Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesin
     ayar: adminOnly((args) => {
       const [k, ...rest] = args.split(/\s+/).filter(Boolean);
       if (!k) return 'Kullanım: <code>/ayar anahtar değer</code> — anahtarlar /ayarlar listesinde (ör. rsiMin, minTFs, levelMaxPct).';
-      if (['sifirla', 'sıfırla', 'reset'].includes(k.toLowerCase())) { settings.reset(); return '↩️ Tüm ayarlar varsayılana döndü.'; }
+      if (['sifirla', 'sıfırla', 'reset'].includes(k.toLowerCase())) { const n = settings.reset(); return `↩️ Tüm ayarlar varsayılana döndü (${n} ayar değişti).`; }
       const d = defs.find(x => x.key.toLowerCase() === k.toLowerCase());
       if (!d) return `Bilinmeyen ayar: <code>${esc(k)}</code>. Liste: ${defs.map(x => x.key).join(', ')}`;
       const r = settings.set(d.key, rest.join(' '));

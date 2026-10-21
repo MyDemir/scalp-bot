@@ -44,7 +44,7 @@ const s = { ...cfg.info }; const R = []; const ok = x => R.push('✅ ' + x);
   assert(!mc.news.some(n => /Hacimli yükselen mum/.test(n)), 'aynı mumda hacimli mum satırı tekrar olmamalı');
   const fc = formatCard(mc, s); const txt = toPlain(fc.text), det = toPlain(fc.details);
   const ln = txt.split('\n');
-  assert(ln[1].startsWith('🔔: RSI') && ln[2].startsWith('RSI 3dk:') && ln[ln.length - 2].startsWith('⚡🟢') && ln[ln.length - 1].startsWith('⏱:'), 'kart (⚡ altta, saatten önce): ' + txt);
+  assert(ln[1].startsWith('🔔: ') && ln[2].startsWith('RSI 3dk:') && ln[ln.length - 2].startsWith('⚡🟢') && ln[ln.length - 1].startsWith('⏱:'), 'kart (⚡ altta, saatten önce): ' + txt);
   assert(det.includes('⚡ 1 dk +%2.5') && det.includes('Bugün 1 dk ≥ %2: ▲ 1 · ▼ 1 · fark 0') && det.includes('3dk EMA21:') && det.includes('1 saat:'), det);
   const st = tr.moveStats('MOVEUSDT', tUp);
   assert(st.up === 1 && st.down === 1);

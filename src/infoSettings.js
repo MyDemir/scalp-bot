@@ -24,6 +24,11 @@ const DEFS = [
   { key: 'gradeBy', short: 'Derece hesabı', label: 'Derece: sart3 = ayrışma + 1s RSI + 15dk RSI şartları · liste = kontrol listesi skoru', type: 'enum', options: ['sart3', 'liste'] },
   { key: 'gradeRsi1h', short: 'Derece 1s RSI', label: 'Derece şartı: 1s RSI ≥', type: 'num', min: 50, max: 100, step: 1 },
   { key: 'gradeRsi15m', short: 'Derece 15dk RSI', label: 'Derece şartı: 15dk RSI ≥', type: 'num', min: 50, max: 100, step: 1 },
+  { key: 'gradeAtr5Pct', short: 'Derece 5dk ATR', label: 'Derece şartı: 5dk ATR en az % (0 = kapalı)', type: 'num', min: 0, max: 10, step: 0.1 },
+  { key: 'gradeRsi1hMax', short: 'Kaçak: 1s RSI', label: 'Kaçak pompa: 1s RSI ≥ (1s şartı da bunun altında sayılır; 0 = kapalı)', type: 'num', min: 0, max: 100, step: 1 },
+  { key: 'gradeRsi4hMax', short: 'Kaçak: 4s RSI', label: 'Kaçak pompa: 4s RSI ≥ (0 = kapalı)', type: 'num', min: 0, max: 100, step: 1 },
+  { key: 'gradeRunawayMax', short: 'Kaçakta en çok', label: 'Derece: kaçak pompada en fazla … daire', type: 'int', min: 1, max: 4, step: 1 },
+  { key: 'gradeNoLevelMax', short: 'Dirençsiz en çok', label: 'Derece: direnç yoksa (fiyat keşfi) en fazla … daire', type: 'int', min: 1, max: 4, step: 1 },
   { key: 'grade2Min', short: '🔴🔴 skor', label: '🔴🔴 için en az kontrol skoru', type: 'int', min: 1, max: 15, step: 1 },
   { key: 'grade3Min', short: '🔴🔴🔴 skor', label: '🔴🔴🔴 için en az kontrol skoru', type: 'int', min: 1, max: 15, step: 1 },
   { key: 'rsiPeriod', short: 'RSI periyot', label: 'RSI periyodu', type: 'int', min: 2, max: 30, step: 1 },
@@ -175,7 +180,19 @@ function createSettings({ file = defaultFile(), defaults = cfg.info, persist = t
     defaults: () => defaults,
     defs: DEFS,
     onChange: fn => listeners.push(fn),
-    reset() { values = { ...defaults }; save(); },
+    /** Verilen anahtarları (yoksa tümünü) varsayılana döndürür; değişen anahtar sayısı */
+    reset(keys = null) {
+      const list = keys || Object.keys(defaults);
+      const changed = [];
+      for (const k of list) {
+        if (!(k in defaults) || values[k] === defaults[k]) continue;
+        changed.push([k, values[k]]);
+        values[k] = defaults[k];
+      }
+      save();
+      for (const [k, prev] of changed) listeners.forEach(fn => { try { fn(k, values[k], prev); } catch { /* yok */ } });
+      return changed.length;
+    },
 
     isMuted(sym, now = Date.now()) {
       const u = mutes[sym];
