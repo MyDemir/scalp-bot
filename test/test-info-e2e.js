@@ -230,12 +230,10 @@ const results = []; const ok = s => results.push('✅ ' + s);
   await waitFor(() => tg.answers.length >= 5, 3000, 'üye grafik yanıtları');
   tg.answers.splice(3);
   tg.click(CHAT, USER, 't:peakAlert');
-  await waitFor(() => bot.settings.get().peakAlert === false, 3000, 'üye tepe reddi kapat');
-  tg.click(CHAT, USER, 't:peakAlert');
-  await waitFor(() => bot.settings.get().peakAlert === true, 3000, 'üye tepe reddi aç');
-  await waitFor(() => tg.answers.length >= 5, 3000, 'üye tepe reddi yanıtları');
+  await waitFor(() => tg.answers.length >= 4, 3000, 'üye tepe reddi');
+  assert(/yönetici/.test(tg.answers[3].text) && bot.settings.get().peakAlert === true, 'tepe reddi aç/kapa yöneticide');
   tg.answers.splice(3);
-  ok('Grafik (chartPeak) ve tepe reddi (peakAlert) — üye de açıp kapatabildi');
+  ok('Grafik (chartPeak) — üye de açıp kapatabildi; tepe reddi aç/kapa yöneticide kaldı');
   ok('Ayar butonları — üye basınca "yönetici olmalısın" (değişmedi); yönetici basınca RSI 90→91 ve ayrışma şartı açıldı, menü yerinde güncellendi, dosyaya yazıldı');
 
   const b2 = tg.sent.length;
