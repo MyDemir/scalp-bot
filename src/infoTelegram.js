@@ -131,6 +131,9 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
   const show = async (cq, m) => { await telegram.editMessage(cq.message.chat.id, cq.message.message_id, m.text, m.keyboard); };
 
   const denied = { text: 'Bu işlem için grup yöneticisi olmalısın.', alert: true };
+  // Grup üyelerinin de açıp kapatabildiği ayarlar (yalnız görünüm — sinyal şartlarını değiştirmez)
+  const OPEN_KEYS = new Set(['chart', 'chartPeak']);
+  const isOpenSet = (kind, key) => (kind === 't' || kind === 'v' || kind === 'z') && OPEN_KEYS.has(key);
   const detailSent = new Map();
   function detailFor(id) {
     const html = details ? details.get(id) : null;
@@ -189,7 +192,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
         .catch(err => console.warn('[PANEL-YAYIN]', err.message));
       return { text: '✅ Web paneli linki gruba ve yöneticilere başarıyla iletiliyor!', alert: true };
     }
-    if (!(await telegram.isAdmin(uid))) return denied;
+    if (!isOpenSet(kind, a) && !(await telegram.isAdmin(uid))) return denied;
 
     if (kind === 'm') {
       settings.mute(a, HOUR);
@@ -265,15 +268,17 @@ Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesin
 
     ayarlar: () => menu(),
 
-    ayar: adminOnly((args) => {
+    ayar: async (args, msg) => {
       const [k, ...rest] = args.split(/\s+/).filter(Boolean);
+      const openKey = k && [...OPEN_KEYS].find(x => x.toLowerCase() === k.toLowerCase());
+      if (!(openKey && rest.length) && !(await telegram.isAdmin(msg.from?.id))) return 'Bu komut için grup yöneticisi olmalısın.';
       if (!k) return 'Kullanım: <code>/ayar anahtar değer</code> — anahtarlar /ayarlar listesinde (ör. rsiMin, minTFs, levelMaxPct).';
       if (['sifirla', 'sıfırla', 'reset'].includes(k.toLowerCase())) { const n = settings.reset(); return `↩️ Tüm ayarlar varsayılana döndü (${n} ayar değişti).`; }
       const d = defs.find(x => x.key.toLowerCase() === k.toLowerCase());
       if (!d) return `Bilinmeyen ayar: <code>${esc(k)}</code>. Liste: ${defs.map(x => x.key).join(', ')}`;
       const r = settings.set(d.key, rest.join(' '));
       return r.ok ? `✅ ${esc(d.label)} = <b>${r.value}</b>` : `❌ ${esc(r.error)}`;
-    }),
+    },
 
     coin: (args) => {
       const sym = normSym(args);
