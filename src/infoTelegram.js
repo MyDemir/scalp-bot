@@ -131,8 +131,9 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
   const show = async (cq, m) => { await telegram.editMessage(cq.message.chat.id, cq.message.message_id, m.text, m.keyboard); };
 
   const denied = { text: 'Bu işlem için grup yöneticisi olmalısın.', alert: true };
-  // Grup üyelerinin de açıp kapatabildiği ayarlar (yalnız görünüm — sinyal şartlarını değiştirmez)
-  const OPEN_KEYS = new Set(['chart', 'chartPeak']);
+  // Grup üyelerinin de açıp kapatabildiği ayarlar: grafikler ve tepe reddi bildirimi (aç/kapa).
+  // Kart şartları ve tepe reddi eşikleri yönetici yetkisinde kalır.
+  const OPEN_KEYS = new Set(['chart', 'chartPeak', 'peakAlert']);
   const isOpenSet = (kind, key) => (kind === 't' || kind === 'v' || kind === 'z') && OPEN_KEYS.has(key);
   const detailSent = new Map();
   function detailFor(id) {

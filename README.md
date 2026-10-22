@@ -350,7 +350,7 @@ geçmişi, yanda son 7 günün etiket güncellemeleri. Taker alış "piyasa emri
 ### Telegram komutları
 | Komut | Kim | |
 |---|---|---|
-| `/ayarlar` | herkes görür, yöneticiler değiştirir | ana sayfa: bölümler + özet değerler (RSI kartı · Direnç · Derece · Hacimli mum · ⚡ Hareket · 🔻 Tepe reddi · Bildirim · Grafik · 🌊 Akış · İzlenen coinler) → bölüm: her ayar bir buton (aç-kapa ayarları tek dokunuşla) → sayısal ayar: kendi sayfasında −5/−1/+1/+5 adım ve ↺ Varsayılan · ana sayfada **↺ Tümünü varsayılana döndür**, bölümde **↺ Bu bölümü varsayılana döndür** (değişen ayarları listeleyip onay ister) |
+| `/ayarlar` | herkes görür, yöneticiler değiştirir (Grafik RSI, Grafik tepe ve 🔻 Tepe reddi aç/kapa herkese açık) | ana sayfa: bölümler + özet değerler (RSI kartı · Direnç · Derece · Hacimli mum · ⚡ Hareket · 🔻 Tepe reddi · Bildirim · Grafik · 🌊 Akış · İzlenen coinler) → bölüm: her ayar bir buton (aç-kapa ayarları tek dokunuşla) → sayısal ayar: kendi sayfasında −5/−1/+1/+5 adım ve ↺ Varsayılan · ana sayfada **↺ Tümünü varsayılana döndür**, bölümde **↺ Bu bölümü varsayılana döndür** (değişen ayarları listeleyip onay ister) |
 | `/ayar anahtar değer` · `/ayar sifirla` | yönetici | ör. `/ayar rsiMin 95`, `/ayar levelMaxPct 2`; `sifirla` tüm ayarları varsayılana döndürür ve kaç ayarın değiştiğini yazar |
 | `/coin ETH` | herkes | coinin anlık durumu (şart aranmadan) |
 | `/sustur ETH [dk]` · `/ac ETH` · `/sessiz` | yönetici / herkes | susturma |
