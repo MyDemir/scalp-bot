@@ -154,7 +154,8 @@ Kartlar ve ⚡ uyarılar **grafikli** gelir (fotoğraf + açıklama). Varsayıla
 - Yakındaki direnç seviyeleri (kartın direnci turuncu, diğerleri gri — fiyatın altındakilerin yanında temas sayısı), hacim, son fiyat etiketi
 - 5m grafik seçilirse 3m EMA21 (beyaz) ve 5m EMA21 (sarı) çizgileri de çizilir
 
-`/ayarlar` → 🖼 Grafik: **Grafik TF** (5m / 15m / 1h / 4h), Fibonacci, Ichimoku, Grafik (kartlar), Grafik ⚡ (uyarılar).
+`/ayarlar` → 🖼 Grafik: **Grafik TF** (5m / 15m / 1h / 4h), Fibonacci, Ichimoku, **Grafik RSI** (RSI kartları ve /coin) ve
+**Grafik tepe** (🔻 tepe reddi) ayrı ayrı — ör. RSI kartları grafiksiz, tepe reddi grafikli.
 Evren dışı pariteler için grafik verisi o an REST'ten çekilir. Açıklama 1024 karakteri aşarsa "Detaylar" sondan kırpılır.
 Çizim `@napi-rs/canvas` ile, yazı tipi repo içinde (`src/assets/fonts`, DejaVu); grafikler diske yazılmaz.
 
@@ -349,7 +350,7 @@ geçmişi, yanda son 7 günün etiket güncellemeleri. Taker alış "piyasa emri
 ### Telegram komutları
 | Komut | Kim | |
 |---|---|---|
-| `/ayarlar` | herkes görür, yöneticiler değiştirir | ana sayfa: bölümler + özet değerler (RSI kartı · Direnç · Derece · Hacimli mum · ⚡ Hareket · 🔻 Tepe reddi · Bildirim · Grafik · 🌊 Akış · İzlenen coinler) → bölüm: her ayar bir buton (aç-kapa ayarları tek dokunuşla) → sayısal ayar: kendi sayfasında −5/−1/+1/+5 adım ve ↺ Varsayılan · ana sayfada **↺ Tümünü varsayılana döndür**, bölümde **↺ Bu bölümü varsayılana döndür** (değişen ayarları listeleyip onay ister) |
+| `/ayarlar` | herkes görür, yöneticiler değiştirir (Grafik RSI ve Grafik tepe herkese açık; tepe reddini istemeyen üye için `/konu tepe` → o konuyu sessize alır) | ana sayfa: bölümler + özet değerler (RSI kartı · Direnç · Derece · Hacimli mum · ⚡ Hareket · 🔻 Tepe reddi · Bildirim · Grafik · 🌊 Akış · İzlenen coinler) → bölüm: her ayar bir buton (aç-kapa ayarları tek dokunuşla) → sayısal ayar: kendi sayfasında −5/−1/+1/+5 adım ve ↺ Varsayılan · ana sayfada **↺ Tümünü varsayılana döndür**, bölümde **↺ Bu bölümü varsayılana döndür** (değişen ayarları listeleyip onay ister) |
 | `/ayar anahtar değer` · `/ayar sifirla` | yönetici | ör. `/ayar rsiMin 95`, `/ayar levelMaxPct 2`; `sifirla` tüm ayarları varsayılana döndürür ve kaç ayarın değiştiğini yazar |
 | `/coin ETH` | herkes | coinin anlık durumu (şart aranmadan) |
 | `/sustur ETH [dk]` · `/ac ETH` · `/sessiz` | yönetici / herkes | susturma |

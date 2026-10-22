@@ -92,7 +92,8 @@ module.exports = {
     tradfi:        false, // kripto dışı kontratlar (hisse · ETF · emtia · döviz — Binance TRADIFI_PERPETUAL) izlensin mi
     moveAlertPct:  2,
     cardSound:     true,
-    chart:         true,
+    chart:         true,   // RSI kartları ve /coin
+    chartPeak:     true,   // 🔻 tepe reddi bildirimi (RSI kartından bağımsız)
     chartTf:       '1h',
     chartFib:      true,
     chartIchi:     true,

@@ -51,8 +51,8 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
       sum: v => (v.peakAlert ? `skor ≥ ${v.peakAlertMin}/4${v.peakAlertAtrPct > 0 ? ` · ATR ≥ %${v.peakAlertAtrPct}` : ''} · pompa ≥ %${v.peakAlertPumpPct}${v.peakAlertRsiOnly ? ' · yalnız RSI şartlı' : ''} · ${v.peakAlertGapMin} dk'da bir` : 'kapalı') },
     { id: 'snd', title: '🔔 Bildirim', keys: ['cardSound'],
       sum: v => `kart ${v.cardSound ? 'sesli' : 'sessiz'}` },
-    { id: 'cht', title: '🖼 Grafik', keys: ['chart', 'chartTf', 'chartFib', 'chartIchi', 'chartMinTouches'],
-      sum: v => (v.chart ? `${v.chartTf}${v.chartIchi ? ' · Ichimoku' : ''}${v.chartFib ? ' · Fibonacci' : ''}` : 'kapalı') },
+    { id: 'cht', title: '🖼 Grafik', keys: ['chart', 'chartPeak', 'chartTf', 'chartFib', 'chartIchi', 'chartMinTouches'],
+      sum: v => (v.chart || v.chartPeak ? `${v.chart && v.chartPeak ? 'RSI + tepe' : v.chart ? 'yalnız RSI kartı' : 'yalnız tepe reddi'} · ${v.chartTf}${v.chartIchi ? ' · Ichimoku' : ''}${v.chartFib ? ' · Fibonacci' : ''}` : 'kapalı') },
     { id: 'flw', title: '🌊 Akış (/akis)', keys: ['flowK', 'flowCvdPct', 'flowPricePct', 'flowStrongX', 'flowWeakX', 'flowBuyPct', 'flowSellPct', 'flowBigPct', 'flowBigMinUsd'],
       sum: v => `son ${v.flowK} pencere · CVD ±%${v.flowCvdPct} · fiyat ±%${v.flowPricePct} · 🐋 günlük hacmin %${v.flowBigPct} (≥ ${v.flowBigMinUsd} $)` },
     { id: 'uni', title: '🌐 İzlenen coinler', keys: ['minVolumeM', 'tradfi'],
@@ -131,6 +131,10 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
   const show = async (cq, m) => { await telegram.editMessage(cq.message.chat.id, cq.message.message_id, m.text, m.keyboard); };
 
   const denied = { text: 'Bu işlem için grup yöneticisi olmalısın.', alert: true };
+  // Grup üyelerinin de açıp kapatabildiği ayarlar (yalnız grafik görünümü — sinyal şartlarını değiştirmez).
+  // Tepe reddini istemeyen üye için: /konu tepe ile ayrı konu, üye o konuyu kendi tarafında sessize alır.
+  const OPEN_KEYS = new Set(['chart', 'chartPeak']);
+  const isOpenSet = (kind, key) => (kind === 't' || kind === 'v' || kind === 'z') && OPEN_KEYS.has(key);
   const detailSent = new Map();
   function detailFor(id) {
     const html = details ? details.get(id) : null;
@@ -189,7 +193,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
         .catch(err => console.warn('[PANEL-YAYIN]', err.message));
       return { text: '✅ Web paneli linki gruba ve yöneticilere başarıyla iletiliyor!', alert: true };
     }
-    if (!(await telegram.isAdmin(uid))) return denied;
+    if (!isOpenSet(kind, a) && !(await telegram.isAdmin(uid))) return denied;
 
     if (kind === 'm') {
       settings.mute(a, HOUR);
@@ -265,15 +269,17 @@ Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesin
 
     ayarlar: () => menu(),
 
-    ayar: adminOnly((args) => {
+    ayar: async (args, msg) => {
       const [k, ...rest] = args.split(/\s+/).filter(Boolean);
+      const openKey = k && [...OPEN_KEYS].find(x => x.toLowerCase() === k.toLowerCase());
+      if (!(openKey && rest.length) && !(await telegram.isAdmin(msg.from?.id))) return 'Bu komut için grup yöneticisi olmalısın.';
       if (!k) return 'Kullanım: <code>/ayar anahtar değer</code> — anahtarlar /ayarlar listesinde (ör. rsiMin, minTFs, levelMaxPct).';
       if (['sifirla', 'sıfırla', 'reset'].includes(k.toLowerCase())) { const n = settings.reset(); return `↩️ Tüm ayarlar varsayılana döndü (${n} ayar değişti).`; }
       const d = defs.find(x => x.key.toLowerCase() === k.toLowerCase());
       if (!d) return `Bilinmeyen ayar: <code>${esc(k)}</code>. Liste: ${defs.map(x => x.key).join(', ')}`;
       const r = settings.set(d.key, rest.join(' '));
       return r.ok ? `✅ ${esc(d.label)} = <b>${r.value}</b>` : `❌ ${esc(r.error)}`;
-    }),
+    },
 
     coin: (args) => {
       const sym = normSym(args);
