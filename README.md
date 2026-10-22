@@ -154,7 +154,8 @@ Kartlar ve ⚡ uyarılar **grafikli** gelir (fotoğraf + açıklama). Varsayıla
 - Yakındaki direnç seviyeleri (kartın direnci turuncu, diğerleri gri — fiyatın altındakilerin yanında temas sayısı), hacim, son fiyat etiketi
 - 5m grafik seçilirse 3m EMA21 (beyaz) ve 5m EMA21 (sarı) çizgileri de çizilir
 
-`/ayarlar` → 🖼 Grafik: **Grafik TF** (5m / 15m / 1h / 4h), Fibonacci, Ichimoku, Grafik (kartlar), Grafik ⚡ (uyarılar).
+`/ayarlar` → 🖼 Grafik: **Grafik TF** (5m / 15m / 1h / 4h), Fibonacci, Ichimoku, **Grafik RSI** (RSI kartları ve /coin) ve
+**Grafik tepe** (🔻 tepe reddi) ayrı ayrı — ör. RSI kartları grafiksiz, tepe reddi grafikli.
 Evren dışı pariteler için grafik verisi o an REST'ten çekilir. Açıklama 1024 karakteri aşarsa "Detaylar" sondan kırpılır.
 Çizim `@napi-rs/canvas` ile, yazı tipi repo içinde (`src/assets/fonts`, DejaVu); grafikler diske yazılmaz.
 

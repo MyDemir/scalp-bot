@@ -336,7 +336,7 @@ function onPeakCandidate(sr, e) {
   const { text, keyboard, details: det } = formatPeakAlert({ sym, e, sc, level, followed, id });
   details.set(id, det);
   let photo = null;
-  try { if (s.chart) photo = chartOf(sr, s, level, levels, `Tepe reddi ${sc.score}/4`); } catch { /* grafiksiz */ }
+  try { if (s.chartPeak) photo = chartOf(sr, s, level, levels, `Tepe reddi ${sc.score}/4`); } catch { /* grafiksiz */ }
   const thread = settings.topic('tepe') || settings.topic('kart');
   telegram.sendCard({ text, keyboard, silent: !s.cardSound && !followed, photo, thread });
   store?.add({ id, kind: 'tepe', symbol: sym, t: e.t, seq: sc.score, price: e.feat.price ?? e.price,
