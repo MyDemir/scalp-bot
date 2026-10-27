@@ -71,7 +71,7 @@ module.exports = {
     // 🔻 Tepe kurulumu bildirimi (src/peakAlert.js) — kart biçimine dokunmaz, ayrı mesaj
     peakAlert:        true,
     peakAlertConds:   2,     // 3 derece şartından (ayrışma · 1s RSI · 15dk RSI) en az; H42+H43: ≥2 + funding → %73 aşağıda (149 pompa)
-    peakAlertFundingMax: 0.005, // funding (%) bunun altında olmalı; ≥ %0.01 iken aynı şartlar %56
+    peakAlertFundingMax: 0.1,   // funding (%) bunun altında olmalı. H42+H43 (pompa ≥ %5): < %0.1 → %66 (319 pompa), < %0.005 → %73 (143)
     peakAlertPumpPct: 5,     // pompa (4 saatlik dipten) en az %
     peakAlertGapMin:  30,    // coin başına en fazla … dk'da bir
     peakAlertRsiOnly: false, // true: yalnız RSI kart şartı (rsiMin, minTFs) o an sağlanan coinlerde

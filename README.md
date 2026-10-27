@@ -190,7 +190,7 @@ Tepe defterinin her yeni adayında (1dk mum son 60 dk'nın en yükseği, 4 saatl
 | EMA21 ayrışma | fiyat 3dk **ve** 5dk EMA21'in ≥ `sepPct2` (%2) üstünde |
 | 1s RSI | `gradeRsi1h`–`gradeRsi1hMax` (80–88) |
 | 15dk RSI | ≥ `gradeRsi15m` (85) |
-| **Funding** (zorunlu) | < `peakAlertFundingMax` (%0.005, taban oranın altı) |
+| **Funding** (zorunlu) | < `peakAlertFundingMax` (varsayılan %0.1; yalnız aşırı yüksek funding'i eler) |
 
 Bildirim: üç şarttan en az `peakAlertConds` (2) + funding şartı. 1s trend aşağıysa (1s EMA50 < EMA200) başlıkta ⭐.
 H42 + H43 verisi (17–25.10, 6.825 pompa; pompa başına ilk eşleşen aday, giriş 1dk kapanış; dönemler H42 / 19–22.10 / 22–25.10):
@@ -199,13 +199,15 @@ H42 + H43 verisi (17–25.10, 6.825 pompa; pompa başına ilk eşleşen aday, gi
 |---|---|---|---|---|---|
 | Tüm pompalar | 6.825 | %56 | %59 / %51 / %58 | −%0.2 | +%0.8 |
 | 3 şarttan ≥ 2 | 342 | %66 | %68 / %64 / %67 | −%1.2 | +%1.7 |
-| **3 şarttan ≥ 2 + funding < %0.005** (varsayılan) | 149 | **%73** | %76 / %73 / %73 | −%1.7 | +%1.8 |
+| **3 şarttan ≥ 2 + funding < %0.1** (varsayılan, pompa ≥ %5) | 319 | **%66** | %67 / %66 / %67 | −%1.3 | +%1.8 |
+| ↳ + ⭐ 1s trend aşağı | 137 | %77 | %83 / %77 / %75 | −%1.6 | +%1.3 |
+| 3 şarttan ≥ 2 + funding < %0.005 | 149 | %73 | %76 / %73 / %73 | −%1.7 | +%1.8 |
 | ↳ + ⭐ 1s trend aşağı | 74 | %80 | %83 / %78 / %81 | −%1.9 | +%1.2 |
 | 3 şarttan ≥ 2 + funding ≥ %0.01 | 90 | %56 | %67 / %44 / %62 | −%0.8 | +%1.7 |
 | Eski kural: mum reddi skor 4 + ATR ≥ %1.2 | 169 | %52 | %40 / %47 / %55 | −%0.4 | +%3.5 |
 
 Eski kural 18–20.10'da %78'di, haftalık veride tutmadı → kaldırıldı. Mum reddi puanı (fitil/kapanış, kırmızı mum, hacim, seans) Detay'da bilgi olarak durur.
-Varsayılanlarla 8 günde ~186 bildirim (günde ~23). Analiz: proje klasöründe `analiz/short-kurulum.md`.
+Varsayılanlarla 8 günde ~449 bildirim (günde ~56). Funding'i %0.005'e indirmek bildirimleri ~186'ya düşürür, isabeti %73'e çıkarır. Analiz: proje klasöründe `analiz/short-kurulum.md`.
 ```
 🔻 #XUSDT — Tepe kurulumu 2/3 ⭐
 ✅ EMA21 ayrışma 3dk +%2.4 · 5dk +%3.1
@@ -217,7 +219,7 @@ EMA21 3dk 1.03448 (−%1.5) · 5dk 1.0224 (−%2.7) · 15dk 1.00286 (−%4.7)
 ⏱: 13.10 12:32
 ```
 📋 Detay: şartlar, tepe mumu (mum reddi puanı, fitil %, kapanış konumu), RSI 3dk–4s, VWAP σ, ATR, tepki seviyesi, direnç, açıklama. `#TEPEKURULUM`
-`/ayarlar` → 🔻 Tepe kurulumu: aç/kapa (`peakAlert`), en az şart (`peakAlertConds`, varsayılan **2**; 3 = yalnız üçü), funding üst sınırı (`peakAlertFundingMax`, varsayılan **%0.005**),
+`/ayarlar` → 🔻 Tepe kurulumu: aç/kapa (`peakAlert`), en az şart (`peakAlertConds`, varsayılan **2**; 3 = yalnız üçü), funding üst sınırı (`peakAlertFundingMax`, varsayılan **%0.1**),
 pompa en az % (`peakAlertPumpPct`, varsayılan 5), **yalnız RSI kart şartı sağlanan coinlerde** (`peakAlertRsiOnly`, varsayılan kapalı), coin başına aralık (`peakAlertGapMin`, varsayılan 30 dk). Mesajda RSI şartı sağlanıyorsa `RSI şartı ✅` yazar.
 Susturulan coinlere gitmez. Kayıt: `cards` tablosu, `kind = tepe`, şartlar ve funding/trend ile
 (5/15/30/60/240 dk sonrası takip edilir; `/gecmis`'te görünür). Bilgi amaçlıdır, al/sat sinyali değildir.
