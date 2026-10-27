@@ -16,7 +16,7 @@
  * Çıktı zip (tepeler.csv · kartlar.csv · temaslar.csv · akis.csv) — haftalarca veride bile bellek şişmez.
  */
 
-const { rowToStat } = require('./cardStore');
+const { rowToStat, rowToTouch } = require('./cardStore');
 const { flatDrop, dropCols, csvLine, csvHeader } = require('./eventLog');
 const { createZipSet } = require('./zipWriter');
 
@@ -47,15 +47,22 @@ async function buildExports(store, days = 30, now = Date.now(), { maxZipBytes = 
     const { bursts, text, kind, partial, done, ...rest } = r;
     return flatten({ ...rest, time: new Date(r.t).toISOString(), partial: partial ? 1 : 0 });
   });
-  const tc = (store.touchesSince ? store.touchesSince(since) : []).map(r => flatten({ ...r, time: new Date(r.t).toISOString() }));
-  const fl = flow && flow.enabled() ? flow.rowsSince(since) : null;
-  if (fl) counts.akis = 0;
-  for (const [name, rows, key] of [['kartlar.csv', cards, 'kartlar'], ['temaslar.csv', tc, 'temaslar'], ...(fl ? [['akis.csv', fl, 'akis']] : [])]) {
+  const writeRows = async (name, rows, key) => {
     const c = colsOf(rows), e = zip.entry(name, csvHeader(c));
     for (const r of rows) await e.write(csvLine(r, c));
     await e.end();
     counts[key] = rows.length;
-  }
+  };
+  await writeRows('kartlar.csv', cards, 'kartlar');
+  // Temaslar parça parça (haftalarca veride on binlerce satır — düz kopyaları bellekte tutulmaz)
+  const touchRow = r => flatten({ ...r, time: new Date(r.t).toISOString() });
+  const tcols = Object.keys(touchRow(rowToTouch({ t: 0 }))), tz = zip.entry('temaslar.csv', csvHeader(tcols));
+  const onTouch = async r => { counts.temaslar++; await tz.write(csvLine(touchRow(r), tcols)); };
+  if (store.forEachTouch) await store.forEachTouch({ since }, onTouch);
+  else if (store.touchesSince) for (const r of store.touchesSince(since)) await onTouch(r);
+  await tz.end();
+  const fl = flow && flow.enabled() ? flow.rowsSince(since) : null;
+  if (fl) await writeRows('akis.csv', fl, 'akis');
   return { files: await zip.finish(), counts };
 }
 
