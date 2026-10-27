@@ -334,7 +334,7 @@ function onPeakCandidate(sr, e) {
   let level = null, levels = [];
   try { levels = eng.levelsOf(sr, s); level = eng.pickLevel(e.feat.price ?? e.price, levels, s).level; } catch { /* grafik seviyesiz */ }
   const followed = settings.isFollowed(sym);
-  const { text, keyboard, details: det } = formatPeakAlert({ sym, e, st, sc, level, followed, id });
+  const { text, keyboard, details: det } = formatPeakAlert({ sym, e, st, sc, s, level, followed, id });
   details.set(id, det);
   let photo = null;
   try { if (s.chartPeak) photo = chartOf(sr, s, level, levels, `Tepe kurulumu ${st.n}/3`); } catch { /* grafiksiz */ }

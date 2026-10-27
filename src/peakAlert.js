@@ -53,11 +53,12 @@ function emaPrice(price, sepPct) {
 }
 
 /**
- * @param {object} o { sym, e: aday (t, price=tepe, feat), st: peakSetup, sc: peakScore, level, followed, id }
+ * @param {object} o { sym, e: aday (t, price=tepe, feat), st: peakSetup, sc: peakScore, s: ayarlar (eşikler), level, followed, id }
  * @returns {{text, keyboard, details}}
  */
-function formatPeakAlert({ sym, e, st, sc, level = null, followed = false, id }) {
+function formatPeakAlert({ sym, e, st, sc, s = {}, level = null, followed = false, id }) {
   const f = e.feat || {};
+  const sepMin = s.sepPct2 ?? 2, h1Min = s.gradeRsi1h ?? 80, h1Max = s.gradeRsi1hMax ?? 88, r15Min = s.gradeRsi15m ?? 85, fMax = s.peakAlertFundingMax ?? 0.005;
   const close = f.price ?? e.price;
   const mark = b => (b ? '✅' : '▫️');
   const r1 = v => (v == null || !Number.isFinite(v) ? '—' : v.toFixed(1));
@@ -81,10 +82,10 @@ function formatPeakAlert({ sym, e, st, sc, level = null, followed = false, id })
     `📋 <b>#${esc(sym)} — ${title}</b> · ${dayTime(e.t)}`,
     '',
     '🏅 <b>Şartlar</b>',
-    `${mark(st.sep)} EMA21 ayrışma: 3dk ${sg(f.sep3)} · 5dk ${sg(f.sep5)} (ikisi de ≥ %2)`,
-    `${mark(st.h1)} 1s RSI ${r1(f.rsi1h)} (80–88)`,
-    `${mark(st.r15)} 15dk RSI ${r1(f.rsi15)} (≥ 85)`,
-    `${mark(st.fund)} Funding ${fund} (< %0.005)`,
+    `${mark(st.sep)} EMA21 ayrışma: 3dk ${sg(f.sep3)} · 5dk ${sg(f.sep5)} (ikisi de ≥ %${sepMin})`,
+    `${mark(st.h1)} 1s RSI ${r1(f.rsi1h)} (${h1Min}${h1Max > 0 ? `–${h1Max}` : '+'})`,
+    `${mark(st.r15)} 15dk RSI ${r1(f.rsi15)} (≥ ${r15Min})`,
+    `${mark(st.fund)} Funding ${fund} (< %${fMax})`,
     `${st.trendDown ? '⭐' : '▫️'} 1s trend ${f.trend_1h ? esc(f.trend_1h) : '—'}`,
     '',
     '🕯 <b>Tepe mumu</b> (bilgi)',
@@ -99,7 +100,7 @@ function formatPeakAlert({ sym, e, st, sc, level = null, followed = false, id })
     '',
     '<blockquote expandable>ℹ️ <b>Nasıl okunur</b>',
     '• Aday: 1dk mum son 60 dk\'nın en yükseği, 4 saatlik dipten ≥ %3 yukarıda',
-    '• Şart: kart derecesinin 3 şartından en az 2\'si + funding taban oranın (%0.005) altında',
+    `• Şart: kart derecesinin 3 şartından en az ${s.peakAlertConds ?? 2} tanesi + funding %${fMax} altında (taban oran %0.005)`,
     '• H42 + H43 (17–25.10, 6.825 pompa, pompa başına ilk aday, 1dk kapanıştan): 60 dk sonra %73 aşağıda (tüm pompalar %56), medyan −%1.7; 60 dk içinde medyan +%1.8 yukarı da gitti',
     '• ⭐ 1s trend aşağı: %80 aşağıda, yukarı gidiş medyan +%1.2 · 3 şartın üçü: %80, medyan dip −%7.8',
     '• Funding ≥ %0.01 iken aynı şartlar yalnız %56 — bu yüzden şart',

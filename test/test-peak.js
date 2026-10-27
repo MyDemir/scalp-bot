@@ -41,6 +41,8 @@ assert(plain.startsWith('🔻 #XUSDT — Tepe kurulumu 2/3 ⭐'), plain);
 assert(plain.includes('✅ EMA21 ayrışma 3dk +%2.4 · 5dk +%3.1') && plain.includes('▫️ 1s RSI 70.0 · ✅ 15dk RSI 87.0') && plain.includes('✅ Funding +%0.0021 · ⭐ 1s trend aşağı'), plain);
 assert(plain.includes('Pompa: +%6.2 (4s dipten · 48 dk) · ATR 5dk %1.60') && plain.includes('Tepe: 1.06 · Fiyat: 1.05'));
 assert(plain.includes('EMA21 3dk 1.03448 (−%1.5) · 5dk 1.02240 (−%2.7)') || /EMA21 3dk 1\.034\d* \(−%1\.5\)/.test(plain), 'EMA21 hedefleri: ' + plain);
+const m2 = formatPeakAlert({ sym: 'XUSDT', e, st: peakSetup(base, { peakAlertFundingMax: 0.01 }), sc: peakScore(base), s: { peakAlertFundingMax: 0.01, gradeRsi15m: 90 }, id: 'x' });
+assert(m2.details.includes('(< %0.01)') && m2.details.includes('(≥ 90)') && m.details.includes('(< %0.005)') && m.details.includes('(80–88)'), 'Detay ayardaki eşikleri yazar');
 assert(m.text.length <= 1024, 'grafik altı yazısı ≤ 1024: ' + m.text.length);
 assert(m.keyboard.flat().some(b => b.callback_data === 'd:XUSDT-1-tepe'), 'Detay butonu');
 assert(m.details.includes('Tepe mumu') && m.details.includes('✅ Mum reddi · ✅ Kırmızı mum · ✅ Hacim 2.5 kat · ✅ Seans (Avrupa)') && m.details.includes('Günlük bölge 1.08') && m.details.includes('#TEPEKURULUM') && m.details.length < 4096);
