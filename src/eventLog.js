@@ -112,7 +112,7 @@ function troughFeatures(series, s, low, anchorT) {
 
 /**
  * @param {object} opts  DEFAULTS + { enrich(sym, {t, price, futQ60}) → Promise<obj|null>, orderBook(sym) → Promise<obj|null>,
- *                       onCandidate(series, aday) — yeni tepe adayı oluşunca (🔻 tepe reddi bildirimi) }
+ *                       onCandidate(series, aday) — yeni tepe adayı oluşunca (🔻 tepe kurulumu bildirimi) }
  */
 function createDropLedger(opts = {}) {
   const E = { ...DEFAULTS, ...opts };

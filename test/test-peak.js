@@ -1,16 +1,17 @@
 'use strict';
-// 🔻 Tepe reddi: skor, mesaj biçimi, bildirim kuralları (eşik, pompa, coin başına aralık, susturma, konu)
+// 🔻 Tepe kurulumu: şartlar, mesaj biçimi, bildirim kuralları (eşik, pompa, coin başına aralık, susturma, konu)
 const REPO = require('path').resolve(__dirname, '..'); const assert = require('assert'); const fs = require('fs');
 const TMP = require('./_tmp');
 process.env.INFO_SETTINGS_PATH = `${TMP}/peak-settings.json`; fs.rmSync(process.env.INFO_SETTINGS_PATH, { force: true });
 process.env.DB_PATH = `${TMP}/peak.db`;
-const { peakScore, formatPeakAlert, emaPrice } = require(`${REPO}/src/peakAlert`);
+const { peakScore, peakSetup, formatPeakAlert, emaPrice } = require(`${REPO}/src/peakAlert`);
 const { toPlain } = require(`${REPO}/src/infoCard`);
 const R = []; const ok = x => R.push('✅ ' + x);
 const MIN = 60e3;
 
 // ── 1) Skor ──
-const base = { wick_5m: 0.4, clv_1m: 0.8, body_1m: -0.2, volx_3m: 2.5, session: 'Avrupa', pumpPct: 6.2, pumpMin: 48, price: 1.05, ema21_3m: 1.5, ema21_5m: 2.7, ema21_15m: 4.7, rsi3: 88, rsi5: 86, rsi15: 79, rsi1h: 70, vwD_sig: 2.1, atr5Pct: 1.6, pkLv: 'Günlük VWAP +2σ', buy_1m: 41 };
+const base = { wick_5m: 0.4, clv_1m: 0.8, body_1m: -0.2, volx_3m: 2.5, session: 'Avrupa', pumpPct: 6.2, pumpMin: 48, price: 1.05, ema21_3m: 1.5, ema21_5m: 2.7, ema21_15m: 4.7, rsi3: 88, rsi5: 86, rsi15: 87, rsi1h: 70, rsi4h: 66, vwD_sig: 2.1, atr5Pct: 1.6, pkLv: 'Günlük VWAP +2σ', buy_1m: 41,
+  sep3: 2.4, sep5: 3.1, funding: 0.0021, trend_1h: 'aşağı' };
 assert.deepStrictEqual(peakScore(base), { score: 4, R: true, K: true, V: true, SE: true });
 assert.strictEqual(peakScore({ ...base, wick_5m: 0.1, clv_1m: 0.4 }).R, true, 'mum reddi: 1dk alt yarıda kapanış da sayılır');
 assert.strictEqual(peakScore({ ...base, wick_5m: 0.1, clv_1m: 0.9 }).score, 3);
@@ -18,19 +19,34 @@ assert.strictEqual(peakScore({ ...base, session: 'ABD', body_1m: 0.1 }).score, 2
 assert.strictEqual(peakScore({}).score, 0, 'eksik alan → 0');
 assert(Math.abs(emaPrice(1.05, 5) - 1) < 1e-9);
 ok('Skor: mum reddi (fitil ≥ %35 ya da 1dk alt yarı) · kırmızı · hacim ≥ 2 kat · Asya/Avrupa; eksik alanlar sayılmaz');
+assert.deepStrictEqual(peakSetup(base), { n: 2, sep: true, h1: false, r15: true, fund: true, trendDown: true, ok: true });
+assert.strictEqual(peakSetup({ ...base, rsi1h: 84 }).n, 3, '1s RSI 80–88 → 3 şart');
+assert.strictEqual(peakSetup({ ...base, rsi1h: 90 }).h1, false, '1s RSI ≥ 88 (kaçak) şart sayılmaz');
+assert.strictEqual(peakSetup({ ...base, sep3: 1.5 }).ok, false, 'ayrışma 3dk ve 5dk ikisi de ≥ %2 olmalı → 1 şart');
+assert.strictEqual(peakSetup({ ...base, funding: 0.005 }).ok, false, 'funding %0.005 (taban) → yok');
+assert.strictEqual(peakSetup({ ...base, funding: null }).ok, false, 'funding bilinmiyor → yok');
+assert.strictEqual(peakSetup({ ...base, funding: -0.01 }).ok, true, 'negatif funding → var');
+assert.strictEqual(peakSetup({ ...base, sep3: 1 }, { peakAlertConds: 1 }).ok, true, 'peakAlertConds 1');
+assert.strictEqual(peakSetup({ ...base, funding: 0.008 }, { peakAlertFundingMax: 0.01 }).ok, true, 'peakAlertFundingMax');
+assert.strictEqual(peakSetup({ ...base, trend_1h: 'yukarı' }).trendDown, false);
+assert.strictEqual(peakSetup({}).ok, false, 'eksik alan → yok');
+ok('Şartlar: 3 şarttan (3dk+5dk ayrışma ≥ %2 · 1s RSI 80–88 · 15dk RSI ≥ 85) ≥ 2 ve funding < %0.005; ⭐ 1s trend aşağı; eşikler ayardan');
 
 // ── 2) Mesaj ──
 const e = { t: Date.UTC(2026, 9, 13, 9, 32), price: 1.06, feat: base };
-const m = formatPeakAlert({ sym: 'XUSDT', e, sc: peakScore(base), level: { name: 'Günlük bölge', value: 1.08 }, id: 'XUSDT-1-tepe' });
+const m = formatPeakAlert({ sym: 'XUSDT', e, st: peakSetup(base), sc: peakScore(base), level: { name: 'Günlük bölge', value: 1.08 }, id: 'XUSDT-1-tepe' });
 const plain = toPlain(m.text);
 console.log(plain + '\n---\n' + toPlain(m.details).slice(0, 600));
-assert(plain.startsWith('🔻 #XUSDT — Tepe reddi 4/4') && plain.includes('✅ Mum reddi · ✅ Kırmızı mum · ✅ Hacim 2.5 kat · ✅ Seans (Avrupa)'));
+assert(plain.startsWith('🔻 #XUSDT — Tepe kurulumu 2/3 ⭐'), plain);
+assert(plain.includes('✅ EMA21 ayrışma 3dk +%2.4 · 5dk +%3.1') && plain.includes('▫️ 1s RSI 70.0 · ✅ 15dk RSI 87.0') && plain.includes('✅ Funding +%0.0021 · ⭐ 1s trend aşağı'), plain);
 assert(plain.includes('Pompa: +%6.2 (4s dipten · 48 dk) · ATR 5dk %1.60') && plain.includes('Tepe: 1.06 · Fiyat: 1.05'));
 assert(plain.includes('EMA21 3dk 1.03448 (−%1.5) · 5dk 1.02240 (−%2.7)') || /EMA21 3dk 1\.034\d* \(−%1\.5\)/.test(plain), 'EMA21 hedefleri: ' + plain);
+const m2 = formatPeakAlert({ sym: 'XUSDT', e, st: peakSetup(base, { peakAlertFundingMax: 0.01 }), sc: peakScore(base), s: { peakAlertFundingMax: 0.01, gradeRsi15m: 90 }, id: 'x' });
+assert(m2.details.includes('(< %0.01)') && m2.details.includes('(≥ 90)') && m.details.includes('(< %0.005)') && m.details.includes('(80–88)'), 'Detay ayardaki eşikleri yazar');
 assert(m.text.length <= 1024, 'grafik altı yazısı ≤ 1024: ' + m.text.length);
 assert(m.keyboard.flat().some(b => b.callback_data === 'd:XUSDT-1-tepe'), 'Detay butonu');
-assert(m.details.includes('Tepe mumu') && m.details.includes('Günlük bölge 1.08') && m.details.includes('#TEPERED') && m.details.length < 4096);
-ok(`Mesaj: ${m.text.split('\n').length} satır (${m.text.length} karakter ≤ 1024), EMA21 3/5/15dk fiyat ve uzaklık, Detay'da mum ölçüleri + açıklama`);
+assert(m.details.includes('Tepe mumu') && m.details.includes('✅ Mum reddi · ✅ Kırmızı mum · ✅ Hacim 2.5 kat · ✅ Seans (Avrupa)') && m.details.includes('Günlük bölge 1.08') && m.details.includes('#TEPEKURULUM') && m.details.length < 4096);
+ok(`Mesaj: ${m.text.split('\n').length} satır (${m.text.length} karakter ≤ 1024), EMA21 3/5/15dk fiyat ve uzaklık, Detay'da şartlar, mum ölçüleri + açıklama`);
 
 // ── 3) Bildirim kuralları (infoBot) ──
 const telegram = require(`${REPO}/src/telegram`);
@@ -42,24 +58,28 @@ const sr = { symbol: 'XUSDT' };
 const cand = (t, f = {}) => ({ t, price: 1.06, feat: { ...base, ...f } });
 const T = Date.UTC(2026, 9, 13, 9, 0);
 bot.onPeakCandidate(sr, cand(T));
-assert.strictEqual(sent.length, 1, 'skor 4, pompa %6.2 → bildirim');
+assert.strictEqual(sent.length, 1, '2/3 şart + funding düşük, pompa %6.2 → bildirim');
 bot.onPeakCandidate(sr, cand(T + 10 * MIN));
 assert.strictEqual(sent.length, 1, '30 dk dolmadan aynı coin → yok');
-bot.onPeakCandidate(sr, cand(T + 31 * MIN, { session: 'ABD' }));
-assert.strictEqual(sent.length, 1, 'skor 3 < varsayılan 4 → yok');
+bot.onPeakCandidate(sr, cand(T + 31 * MIN, { rsi15: 80 }));
+assert.strictEqual(sent.length, 1, '1/3 şart < varsayılan 2 → yok');
 bot.onPeakCandidate(sr, cand(T + 32 * MIN, { pumpPct: 4 }));
 assert.strictEqual(sent.length, 1, 'pompa %4 < %5 → yok');
-bot.onPeakCandidate({ symbol: 'AUSDT' }, cand(T + 33 * MIN, { atr5Pct: 0.9 }));
-assert.strictEqual(sent.length, 1, 'ATR 5dk %0.9 < %1.2 → yok');
-bot.onPeakCandidate({ symbol: 'YUSDT' }, cand(T + 33 * MIN));
-assert.strictEqual(sent.length, 2, 'başka coin → var');
+bot.onPeakCandidate({ symbol: 'AUSDT' }, cand(T + 33 * MIN, { funding: 0.01 }));
+assert.strictEqual(sent.length, 1, 'funding %0.01 ≥ %0.005 → yok');
+bot.onPeakCandidate({ symbol: 'YUSDT' }, cand(T + 33 * MIN, { session: 'Gece', body_1m: 0.3, atr5Pct: 0.4 }));
+assert.strictEqual(sent.length, 2, 'başka coin → var (mum reddi skoru ve ATR şart değil)');
 bot.settings.mute('ZUSDT', 3600e3);
 bot.onPeakCandidate({ symbol: 'ZUSDT' }, cand(T + 34 * MIN));
 assert.strictEqual(sent.length, 2, 'susturulan coin → yok');
-bot.settings.set('peakAlertMin', 3); bot.settings.setTopic('tepe', 55);
-bot.onPeakCandidate(sr, cand(T + 61 * MIN, { session: 'ABD' }));
-assert.strictEqual(sent.length, 3, 'eşik 3 yapılınca skor 3 → var');
+bot.settings.set('peakAlertConds', 3); bot.settings.setTopic('tepe', 55);
+bot.onPeakCandidate(sr, cand(T + 61 * MIN));
+assert.strictEqual(sent.length, 2, 'eşik 3 yapılınca 2/3 → yok');
+bot.onPeakCandidate(sr, cand(T + 62 * MIN, { rsi1h: 84 }));
+assert.strictEqual(sent.length, 3, '3/3 → var');
 assert.strictEqual(sent[2].thread, 55, '/konu tepe');
+assert(sent[2].text.includes('Tepe kurulumu 3/3'));
+bot.settings.set('peakAlertConds', 2);
 bot.settings.set('peakAlertRsiOnly', true);
 bot.onPeakCandidate({ symbol: 'RUSDT' }, cand(T + 65 * MIN, { rsiOk: false }));
 assert.strictEqual(sent.length, 3, 'yalnız RSI şartlı açık, RSI şartı yok → yok');
@@ -67,9 +87,9 @@ bot.onPeakCandidate({ symbol: 'RUSDT' }, cand(T + 66 * MIN, { rsiOk: true }));
 assert.strictEqual(sent.length, 4, 'RSI şartı var → var');
 assert(sent[3].text.includes('RSI şartı ✅'));
 bot.settings.set('peakAlertRsiOnly', false);
-bot.settings.set('peakAlertAtrPct', 0);
-bot.onPeakCandidate({ symbol: 'AUSDT' }, cand(T + 67 * MIN, { atr5Pct: 0.3 }));
-assert.strictEqual(sent.length, 5, 'ATR şartı 0 → kapalı, düşük ATR de gider');
+bot.settings.set('peakAlertFundingMax', 0.02);
+bot.onPeakCandidate({ symbol: 'AUSDT' }, cand(T + 67 * MIN, { funding: 0.01 }));
+assert.strictEqual(sent.length, 5, 'funding eşiği %0.02 → %0.01 de gider');
 // Grafik tepe reddi için ayrı: RSI kartında kapalıyken (chart) tepe reddinde açık olabilir (chartPeak)
 const chartMod = require(`${REPO}/src/chart`);
 const origRender = chartMod.renderChart, origCandles = chartMod.candlesFromSeries;
@@ -80,11 +100,11 @@ bot.onPeakCandidate({ symbol: 'GUSDT' }, cand(T + 68 * MIN));
 assert.strictEqual(sent.length, 6);
 assert(Buffer.isBuffer(sent[5].photo), 'chart kapalı ama chartPeak açık → tepe reddi grafikli');
 chartMod.renderChart = origRender; chartMod.candlesFromSeries = origCandles;
-ok('Grafik: RSI kartı (chart) ve tepe reddi (chartPeak) ayrı ayrı açılıp kapanır');
+ok('Grafik: RSI kartı (chart) ve tepe kurulumu (chartPeak) ayrı ayrı açılıp kapanır');
 bot.settings.set('peakAlert', false);
 bot.onPeakCandidate({ symbol: 'WUSDT' }, cand(T + 70 * MIN));
 assert.strictEqual(sent.length, 6, 'kapalı → yok');
-assert(bot.details.get('XUSDT-' + T + '-tepe').includes('Tepe reddi'), 'Detay saklandı');
-ok('Bildirim: skor ≥ 4, 5dk ATR ≥ %1.2 ve pompa ≥ %5 (varsayılan; ATR 0 = kapalı), coin başına 30 dk\'da bir, susturulan coin yok, eşik /ayarlar\'dan, yalnız RSI şartlı seçeneği, /konu tepe, kapatılabilir, Detay saklanıyor');
+assert(bot.details.get('XUSDT-' + T + '-tepe').includes('Tepe kurulumu'), 'Detay saklandı');
+ok('Bildirim: 3 şarttan ≥ 2 + funding < %0.005 ve pompa ≥ %5 (varsayılan), coin başına 30 dk\'da bir, susturulan coin yok, eşik /ayarlar\'dan, yalnız RSI şartlı seçeneği, /konu tepe, kapatılabilir, Detay saklanıyor');
 console.log('\n' + R.join('\n'));
 process.exit(0);

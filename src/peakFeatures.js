@@ -180,4 +180,4 @@ const EXTRA_COLS = ['cvdNet15', 'cvdNet60', 'cvdDiv', 'cvdDivPct', 'buyChg', 'wi
   'hourTR', 'dow', 'session', 'minToFunding', 'ageDays', 'athDist', 'fromLow30', 'dayChg', 'dayPos', 'trend_1h', 'ema200_1h', 'trend_4h',
   'ema200_4h', 'ichiPos', 'ichiDist', 'samples24h', 'drops24h', 'cards24h', 'lastOutcome', 'minsSinceDrop'];
 
-module.exports = { extraFeatures, EXTRA_COLS, cvdFeatures, bollinger, ichiCloud, session, localHourDow };
+module.exports = { extraFeatures, EXTRA_COLS, emaTrend, cvdFeatures, bollinger, ichiCloud, session, localHourDow };
