@@ -76,7 +76,7 @@ const DEFS = [
   { key: 'ichiShift', short: 'Kaydırma', label: 'Ichimoku bulut kaydırma', type: 'int', min: 1, max: 200, step: 1, menu: false },
   { key: 'peakAlert', short: 'Tepe kurulumu', label: '🔻 Tepe kurulumu bildirimi (ayrı mesaj)', type: 'bool' },
   { key: 'peakAlertConds', short: 'Tepe şart', label: 'Tepe kurulumu: 3 şarttan (ayrışma · 1s RSI · 15dk RSI) en az', type: 'int', min: 1, max: 3, step: 1 },
-  { key: 'peakAlertFundingMax', short: 'Tepe funding', label: 'Tepe kurulumu: funding bunun altında (%)', type: 'num', min: -0.05, max: 0.1, step: 0.001 },
+  { key: 'peakAlertFundingMax', short: 'Tepe funding', label: 'Tepe kurulumu: funding bunun altında (%)', type: 'num', min: -0.05, max: 0.5, step: 0.005 },
   { key: 'peakAlertPumpPct', short: 'Tepe pompa %', label: 'Tepe kurulumu: pompa en az % (4s dipten)', type: 'num', min: 3, max: 30, step: 1 },
   { key: 'peakAlertRsiOnly', short: 'Tepe: RSI şartı', label: 'Tepe kurulumu: yalnız RSI kart şartı sağlanan coinlerde', type: 'bool' },
   { key: 'peakAlertGapMin', short: 'Tepe aralık dk', label: 'Tepe kurulumu: coin başına en fazla … dk\'da bir', type: 'int', min: 5, max: 240, step: 5 },
