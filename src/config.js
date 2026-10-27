@@ -68,10 +68,10 @@ module.exports = {
     confRequired:  false,
     macdRequired:  false,
 
-    // 🔻 Tepe reddi bildirimi (src/peakAlert.js) — kart biçimine dokunmaz, ayrı mesaj
+    // 🔻 Tepe kurulumu bildirimi (src/peakAlert.js) — kart biçimine dokunmaz, ayrı mesaj
     peakAlert:        true,
-    peakAlertMin:     4,     // skor (mum reddi · kırmızı · hacim · Asya/Avrupa seansı) en az; 4 → yalnız 03–15 TSİ
-    peakAlertAtrPct:  1.2,   // 5dk ATR (fiyatın %'si) en az; 0 = kapalı. 18–20.10 verisi: skor 4 + ATR ≥ 1.2 → 60 dk sonra %78 aşağıda (ATR'siz %68)
+    peakAlertConds:   2,     // 3 derece şartından (ayrışma · 1s RSI · 15dk RSI) en az; H42+H43: ≥2 + funding → %73 aşağıda (149 pompa)
+    peakAlertFundingMax: 0.005, // funding (%) bunun altında olmalı; ≥ %0.01 iken aynı şartlar %56
     peakAlertPumpPct: 5,     // pompa (4 saatlik dipten) en az %
     peakAlertGapMin:  30,    // coin başına en fazla … dk'da bir
     peakAlertRsiOnly: false, // true: yalnız RSI kart şartı (rsiMin, minTFs) o an sağlanan coinlerde
@@ -93,7 +93,7 @@ module.exports = {
     moveAlertPct:  2,
     cardSound:     true,
     chart:         true,   // RSI kartları ve /coin
-    chartPeak:     true,   // 🔻 tepe reddi bildirimi (RSI kartından bağımsız)
+    chartPeak:     true,   // 🔻 tepe kurulumu bildirimi (RSI kartından bağımsız)
     chartTf:       '1h',
     chartFib:      true,
     chartIchi:     true,

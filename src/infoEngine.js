@@ -176,7 +176,7 @@ function checklist(snap, s) {
 
 /**
  * Derece şartları (gradeBy 'sart3'): EMA21 ayrışma · 1s RSI · 15m RSI — 18–20.10 kart verisinde sonucu ayıran üçü —
- * ve 5dk ATR ≥ gradeAtr5Pct (1.2; tepe reddiyle aynı eşik). 18–20.10'da tepe adayıyla eşleşen 374 kartta ATR şartıyla
+ * ve 5dk ATR ≥ gradeAtr5Pct (1.2). 18–20.10'da tepe adayıyla eşleşen 374 kartta ATR şartıyla
  * derece 4: 28 kart (6 coin) %75 aşağıda, medyan dip −%8.3 (ATR'siz 17 kart / 4 coin %71, −%6.8). Örnek küçük.
  */
 /**
@@ -378,7 +378,7 @@ function vwapState(series, price) {
   while (from > 0 && t[from - 1] >= dayStart) from--;
   const r = ta.vwapBands(series.col('5m', 'h'), series.col('5m', 'l'), series.col('5m', 'c'), series.col('5m', 'v'), from);
   if (!r) return null;
-  return { ...r, pos: r.sigma > 0 ? (price - r.vwap) / r.sigma : 0 };
+  return { ...r, pos: r.sigma > 0 ? (price - r.vwap) / r.sigma : null };
 }
 
 /**
@@ -510,7 +510,7 @@ function evaluate(series, s, ctx = {}, force = false) {
   const r1h = ta.rsiLast(series.col('1h', 'c'), s.rsiPeriod);
   const r4h = ta.rsiLast(series.col('4h', 'c'), s.rsiPeriod);
   snap.conf = { h1: r1h, h4: r4h, score: (r1h >= s.confRsi ? 1 : 0) + (r4h >= s.confRsi ? 1 : 0) };
-  { // 5dk ATR (kapanmış mumlar, fiyatın %'si) — derece şartı (gradeAtr5Pct) ve tepe reddi ile aynı hesap
+  { // 5dk ATR (kapanmış mumlar, fiyatın %'si) — derece şartı (gradeAtr5Pct)
     const atr = ta.atrSeries(series.col('5m', 'h', false), series.col('5m', 'l', false), series.col('5m', 'c', false), 14);
     snap.atr5Pct = atr.length && price > 0 ? atr[atr.length - 1] / price * 100 : null;
   }

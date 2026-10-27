@@ -14,8 +14,9 @@ const { compact } = require('./infoStats');
 const { createCardStore } = require('./cardStore');
 const { createTouchTracker } = require('./levelTouch');
 const { createDropLedger, DEFAULTS: DROP_DEFAULTS } = require('./eventLog');
-const { peakScore, formatPeakAlert } = require('./peakAlert');
+const { peakScore, peakSetup, formatPeakAlert } = require('./peakAlert');
 const { createEnricher, createLiqStream } = require('./marketData');
+const { emaTrend } = require('./peakFeatures');
 const ta = require('./ta');
 const { createWeeklyJob } = require('./weeklyReport');
 const path = require('path');
@@ -296,9 +297,10 @@ async function emitCard(card) {
   const oi = await oiChange(card.symbol);
   if (oi != null) card.oi = { changePct: oi };
   const s = settings.get();
+  const sr = series.get(card.symbol);
+  try { if (sr) card.trend1h = emaTrend(sr, '1h', card.price).trend_1h; } catch { /* kayıtta boş kalır */ }
   const { text, keyboard, details: det } = formatCard(card, s, { now: Date.now() });
   details.set(card.id, det);
-  const sr = series.get(card.symbol);
   let photo = null;
   if (s.chart && sr) photo = chartOf(sr, s, card.snap.level, card.snap.levels || [], `Kart ${card.seq}`);
   
@@ -311,17 +313,15 @@ async function emitCard(card) {
   console.log(`[KART] ${card.symbol} #${card.seq} derece ${card.grade} · RSI ${card.snap.hits}/3 · ${lv ? `${lv.name} ${lv.dist.toFixed(2)}\%${lv.zone}` : 'seviye yok'} · ${card.silent ? 'sessiz' : 'SESLİ'} · ${card.news.join(' | ')}`);
 }
 
-// ── 🔻 Tepe reddi (src/peakAlert.js) ─────────────────────────────────────
-// Tepe defterinin her yeni adayında skor bakılır; kart biçimine dokunmaz, ayrı mesaj gider.
+// ── 🔻 Tepe kurulumu (src/peakAlert.js) ──────────────────────────────────
+// Tepe defterinin her yeni adayında şartlara bakılır; kart biçimine dokunmaz, ayrı mesaj gider.
 const peakLast = new Map();          // sym → son bildirim zamanı
 function onPeakCandidate(sr, e) {
   const s = settings.get();
   if (!s.peakAlert || !e?.feat) return;
   const sym = sr.symbol;
-  const sc = peakScore(e.feat);
-  if (sc.score < (s.peakAlertMin ?? 4) || !(e.feat.pumpPct >= (s.peakAlertPumpPct ?? 5))) return;
-  const minAtr = s.peakAlertAtrPct ?? 1.2;                   // 5dk ATR %: sakin coinde 'ret' çoğu zaman sürmüyor
-  if (minAtr > 0 && !(e.feat.atr5Pct >= minAtr)) return;
+  const st = peakSetup(e.feat, s);
+  if (!st.ok || !(e.feat.pumpPct >= (s.peakAlertPumpPct ?? 5))) return;
   if (s.peakAlertRsiOnly && !e.feat.rsiOk) return;          // yalnız RSI kart şartı (rsiMin, minTFs) sağlanan coinler
   if (settings.isMuted(sym)) return;
   const last = peakLast.get(sym);
@@ -329,20 +329,24 @@ function onPeakCandidate(sr, e) {
   peakLast.set(sym, e.t);
   if (peakLast.size > 2000) peakLast.delete(peakLast.keys().next().value);
   stats.peakAlerts++;
+  const sc = peakScore(e.feat);
   const id = `${sym}-${e.t}-tepe`;
   let level = null, levels = [];
   try { levels = eng.levelsOf(sr, s); level = eng.pickLevel(e.feat.price ?? e.price, levels, s).level; } catch { /* grafik seviyesiz */ }
   const followed = settings.isFollowed(sym);
-  const { text, keyboard, details: det } = formatPeakAlert({ sym, e, sc, level, followed, id });
+  const { text, keyboard, details: det } = formatPeakAlert({ sym, e, st, sc, level, followed, id });
   details.set(id, det);
   let photo = null;
-  try { if (s.chartPeak) photo = chartOf(sr, s, level, levels, `Tepe reddi ${sc.score}/4`); } catch { /* grafiksiz */ }
+  try { if (s.chartPeak) photo = chartOf(sr, s, level, levels, `Tepe kurulumu ${st.n}/3`); } catch { /* grafiksiz */ }
   const thread = settings.topic('tepe') || settings.topic('kart');
   telegram.sendCard({ text, keyboard, silent: !s.cardSound && !followed, photo, thread });
-  store?.add({ id, kind: 'tepe', symbol: sym, t: e.t, seq: sc.score, price: e.feat.price ?? e.price,
-    data: { score: sc.score, R: sc.R, K: sc.K, V: sc.V, SE: sc.SE, peak: e.price, pumpPct: e.feat.pumpPct, wick_5m: e.feat.wick_5m, clv_1m: e.feat.clv_1m,
-      body_1m: e.feat.body_1m, volx_3m: e.feat.volx_3m, session: e.feat.session, ema21_3m: e.feat.ema21_3m, ema21_5m: e.feat.ema21_5m, ema21_15m: e.feat.ema21_15m } });
-  console.log(`[TEPE] ${sym} skor ${sc.score}/4 · pompa %${e.feat.pumpPct} · tepe ${e.price}`);
+  const f = e.feat;
+  store?.add({ id, kind: 'tepe', symbol: sym, t: e.t, seq: st.n, price: f.price ?? e.price,
+    data: { score: st.n, conds: { sep: st.sep, h1: st.h1, r15: st.r15, fund: st.fund }, trendDown: st.trendDown, peak: e.price, pumpPct: f.pumpPct,
+      funding: f.funding, trend_1h: f.trend_1h, rsi1h: f.rsi1h, rsi15: f.rsi15, sep3: f.sep3, sep5: f.sep5, atr5Pct: f.atr5Pct,
+      rejScore: sc.score, wick_5m: f.wick_5m, clv_1m: f.clv_1m, body_1m: f.body_1m, volx_3m: f.volx_3m, session: f.session,
+      ema21_3m: f.ema21_3m, ema21_5m: f.ema21_5m, ema21_15m: f.ema21_15m } });
+  console.log(`[TEPE] ${sym} kurulum ${st.n}/3${st.trendDown ? ' ⭐' : ''} · funding ${f.funding} · pompa %${f.pumpPct} · tepe ${e.price}`);
 }
 
 // ── Mum işleme ────────────────────────────────────────────────────────────
@@ -748,7 +752,7 @@ function heartbeat() {
   diag = newDiag();
   console.log(
     `[HEARTBEAT] WS ${ws?.open ?? 0}/${ws?.connections ?? 0} bağlı (${ws?.streams ?? 0} stream)` +
-    ` | son ${mins}dk: ${closes} 1m kapanış, ${ws?.skipped ?? 0} ara güncelleme atlandı, ${cards} kart, ${peaks} tepe reddi` +
+    ` | son ${mins}dk: ${closes} 1m kapanış, ${ws?.skipped ?? 0} ara güncelleme atlandı, ${cards} kart, ${peaks} tepe kurulumu` +
     ` | coin: ${readyCount()}/${series.size} hazır${busy.size ? `, ${busy.size} yükleniyor` : ''}${stale.length ? `, ${stale.length} GERİDE` : ''}` +
     ` | ${dTxt}` +
     ` | ${loadText(load)}` +

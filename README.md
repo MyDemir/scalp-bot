@@ -40,7 +40,7 @@ Kontrol anı: **3m / 5m / 15m mum kapanışları** + **hacimli her 1m mum kapan�
 Detay'da 📏 hedef: 3m EMA21 ve 5m EMA21 uzaklığı. Kontrol listesi Detay'da bilgi olarak durur.
 
 **Derece (varsayılan `gradeBy = sart3`):** daireler hep 🔴 (short olgunluğu); 1 + sağlanan şart sayısı — EMA21 ayrışma (3m ve 5m ≥ `sepPct2`) ·
-1s RSI `gradeRsi1h`–`gradeRsi1hMax` (80–88) · 15dk RSI ≥ `gradeRsi15m` (85) · 5dk ATR ≥ `gradeAtr5Pct` (%1.2; tepe reddiyle aynı eşik) — en fazla 4. **🚀 Kaçak pompa** (1s RSI ≥ 88 ya da 4s RSI ≥ `gradeRsi4hMax` 80):
+1s RSI `gradeRsi1h`–`gradeRsi1hMax` (80–88) · 15dk RSI ≥ `gradeRsi15m` (85) · 5dk ATR ≥ `gradeAtr5Pct` (%1.2) — en fazla 4. **🚀 Kaçak pompa** (1s RSI ≥ 88 ya da 4s RSI ≥ `gradeRsi4hMax` 80):
 en fazla `gradeRunawayMax` (2) daire — bu durumda tepe çoğu zaman sürdü (60 dk sonra %27–39 aşağıda, önce medyan +%11–12).
 Direnç yoksa (fiyat keşfi) en fazla `gradeNoLevelMax` (3) daire. Kartta ek etiket yok: kaçak pompa, 3dk/5dk RSI ≥ 95 (`🔥`, tek başına sonucu
 ayırmadığı için dereceye girmez) ve son 15 dk yönü (▲/▼) yalnız Detay'ın 🏅 Derece bölümünde. Bu kurallarla aynı veride: 🔴 %14 · 🔴🔴 %29 · 🔴🔴🔴 %63 · 🔴🔴🔴🔴 %82 aşağıda
@@ -155,7 +155,7 @@ Kartlar ve ⚡ uyarılar **grafikli** gelir (fotoğraf + açıklama). Varsayıla
 - 5m grafik seçilirse 3m EMA21 (beyaz) ve 5m EMA21 (sarı) çizgileri de çizilir
 
 `/ayarlar` → 🖼 Grafik: **Grafik TF** (5m / 15m / 1h / 4h), Fibonacci, Ichimoku, **Grafik RSI** (RSI kartları ve /coin) ve
-**Grafik tepe** (🔻 tepe reddi) ayrı ayrı — ör. RSI kartları grafiksiz, tepe reddi grafikli.
+**Grafik tepe** (🔻 tepe kurulumu) ayrı ayrı — ör. RSI kartları grafiksiz, tepe kurulumu grafikli.
 Evren dışı pariteler için grafik verisi o an REST'ten çekilir. Açıklama 1024 karakteri aşarsa "Detaylar" sondan kırpılır.
 Çizim `@napi-rs/canvas` ile, yazı tipi repo içinde (`src/assets/fonts`, DejaVu); grafikler diske yazılmaz.
 
@@ -181,43 +181,45 @@ Detay'da direnç ayrıntısı: günlük bölgenin aralığı ve temas sayısı, 
 **3dk EMA21 durumu** (yalnız 📋 Detay'da): *izliyor (trend)* — son 10 mumun ≥ 6'sında fiyat EMA21'e değdi;
 *koptu* — önceki 10 mumun ≥ 6'sında değmişken son 3 mumda değmedi ve fiyat ≥ 1.5 ATR yukarıda; aksi *serbest*.
 
-### 🔻 Tepe reddi (ayrı bildirim)
+### 🔻 Tepe kurulumu (ayrı bildirim)
 Kart biçimine dokunmaz; şart oluşunca gruba **ayrı kısa mesaj + grafik** gider (`/konu tepe`, boşsa kart konusu).
-Tepe defterinin her yeni adayında (1dk mum son 60 dk'nın en yükseği, 4 saatlik dipten ≥ %3) tepe mumu puanlanır:
+Tepe defterinin her yeni adayında (1dk mum son 60 dk'nın en yükseği, 4 saatlik dipten ≥ %3) kart derecesinin üç şartına ve funding'e bakılır:
 
-| Koşul (1 puan) | Tanım |
+| Şart | Tanım |
 |---|---|
-| Mum reddi | 5dk mumda üst fitil ≥ %35 **ya da** 1dk mum alt yarısında kapandı |
-| Kırmızı mum | tepe 1dk mumu açılışının altında kapandı |
-| Hacim | 3dk mum hacmi önceki 20 mumun ≥ 2 katı |
-| Seans | Asya (03–09 TSİ) ya da Avrupa (10–15 TSİ) |
+| EMA21 ayrışma | fiyat 3dk **ve** 5dk EMA21'in ≥ `sepPct2` (%2) üstünde |
+| 1s RSI | `gradeRsi1h`–`gradeRsi1hMax` (80–88) |
+| 15dk RSI | ≥ `gradeRsi15m` (85) |
+| **Funding** (zorunlu) | < `peakAlertFundingMax` (%0.005, taban oranın altı) |
 
-H42 verisi (22.572 aday): skor 0 → %7 · 2 → %21 · 3 → %32 · 4 → %39 "gerçek tepe" (60 dk tepe aşılmadı + kapanıştan ≥ 2×ATR(5dk)
-düşüş); tüm adaylarda %16. RSI, VWAP σ, açık pozisyon, long/short, funding ve 5dk teyit mumu tutarlı katkı yapmadı.
+Bildirim: üç şarttan en az `peakAlertConds` (2) + funding şartı. 1s trend aşağıysa (1s EMA50 < EMA200) başlıkta ⭐.
+H42 + H43 verisi (17–25.10, 6.825 pompa; pompa başına ilk eşleşen aday, giriş 1dk kapanış; dönemler H42 / 19–22.10 / 22–25.10):
 
-**Oynaklık şartı (5dk ATR):** 18–20.10 verisinde (7.700 aday, 1.213 pompa; pompa başına ilk eşleşen aday, pompa ≥ %5)
-belirleyici olan coinin o anki oynaklığıydı:
+| Filtre | Pompa | 60 dk sonra aşağıda | Dönemler | Medyan 60 dk | Medyan yukarı (60 dk) |
+|---|---|---|---|---|---|
+| Tüm pompalar | 6.825 | %56 | %59 / %51 / %58 | −%0.2 | +%0.8 |
+| 3 şarttan ≥ 2 | 342 | %66 | %68 / %64 / %67 | −%1.2 | +%1.7 |
+| **3 şarttan ≥ 2 + funding < %0.005** (varsayılan) | 149 | **%73** | %76 / %73 / %73 | −%1.7 | +%1.8 |
+| ↳ + ⭐ 1s trend aşağı | 74 | %80 | %83 / %78 / %81 | −%1.9 | +%1.2 |
+| 3 şarttan ≥ 2 + funding ≥ %0.01 | 90 | %56 | %67 / %44 / %62 | −%0.8 | +%1.7 |
+| Eski kural: mum reddi skor 4 + ATR ≥ %1.2 | 169 | %52 | %40 / %47 / %55 | −%0.4 | +%3.5 |
 
-| Filtre | Pompa | 15 dk'da −%1.5'e indi | 60 dk sonra aşağıda | Medyan dip (60 dk) |
-|---|---|---|---|---|
-| Skor 4 | 84 | %67 | %68 | −%2.2 |
-| **Skor 4 + ATR ≥ %1.2** (varsayılan) | 23 | %100 | %78 | −%5.6 |
-| Skor 3 + ATR ≥ %1.2 | 74 | %85 | %62 | −%4.5 |
-| Skor 3 + ATR < %1 | 237 | %26 | %60 | −%1.3 |
-
-Veri 39 saatlik; yeni dışa aktarmayla yeniden bakılmalı.
+Eski kural 18–20.10'da %78'di, haftalık veride tutmadı → kaldırıldı. Mum reddi puanı (fitil/kapanış, kırmızı mum, hacim, seans) Detay'da bilgi olarak durur.
+Varsayılanlarla 8 günde ~186 bildirim (günde ~23). Analiz: proje klasöründe `analiz/short-kurulum.md`.
 ```
-🔻 #XUSDT — Tepe reddi 4/4
-✅ Mum reddi · ✅ Kırmızı mum · ✅ Hacim 2.5 kat · ✅ Seans (Avrupa)
+🔻 #XUSDT — Tepe kurulumu 2/3 ⭐
+✅ EMA21 ayrışma 3dk +%2.4 · 5dk +%3.1
+▫️ 1s RSI 70.0 · ✅ 15dk RSI 87.0
+✅ Funding +%0.0021 · ⭐ 1s trend aşağı
 Pompa: +%6.2 (4s dipten · 48 dk) · ATR 5dk %1.60
 Tepe: 1.06 · Fiyat: 1.05
 EMA21 3dk 1.03448 (−%1.5) · 5dk 1.0224 (−%2.7) · 15dk 1.00286 (−%4.7)
 ⏱: 13.10 12:32
 ```
-📋 Detay: mum ölçüleri (fitil %, kapanış konumu, gövde, hacim, alış), RSI, VWAP σ, ATR, tepki seviyesi, direnç, açıklama. `#TEPERED`
-`/ayarlar` → 🔻 Tepe reddi: aç/kapa (`peakAlert`), en az skor (`peakAlertMin`, varsayılan **4** → yalnız 03–15 TSİ; 3 = her saat), 5dk ATR en az % (`peakAlertAtrPct`, varsayılan **1.2**; 0 = kapalı),
-pompa en az % (`peakAlertPumpPct`, varsayılan 5), **yalnız RSI kart şartı sağlanan coinlerde** (`peakAlertRsiOnly`, varsayılan kapalı — açıkken o an RSI şartı (`rsiMin`, `minTFs`) sağlanmayan tepeler atlanır; H42'de skor ≥ 3 + RSI şartlı adaylar %41 gerçek tepe ama sayıca çok az), coin başına aralık (`peakAlertGapMin`, varsayılan 30 dk). Mesajda RSI şartı sağlanıyorsa `RSI şartı ✅` yazar. Varsayılanlarla
-H42'de günde ~60 bildirim olurdu (skor ≥ 3, pompa ≥ %3 ile ~600). Susturulan coinlere gitmez. Kayıt: `cards` tablosu, `kind = tepe`
+📋 Detay: şartlar, tepe mumu (mum reddi puanı, fitil %, kapanış konumu), RSI 3dk–4s, VWAP σ, ATR, tepki seviyesi, direnç, açıklama. `#TEPEKURULUM`
+`/ayarlar` → 🔻 Tepe kurulumu: aç/kapa (`peakAlert`), en az şart (`peakAlertConds`, varsayılan **2**; 3 = yalnız üçü), funding üst sınırı (`peakAlertFundingMax`, varsayılan **%0.005**),
+pompa en az % (`peakAlertPumpPct`, varsayılan 5), **yalnız RSI kart şartı sağlanan coinlerde** (`peakAlertRsiOnly`, varsayılan kapalı), coin başına aralık (`peakAlertGapMin`, varsayılan 30 dk). Mesajda RSI şartı sağlanıyorsa `RSI şartı ✅` yazar.
+Susturulan coinlere gitmez. Kayıt: `cards` tablosu, `kind = tepe`, şartlar ve funding/trend ile
 (5/15/30/60/240 dk sonrası takip edilir; `/gecmis`'te görünür). Bilgi amaçlıdır, al/sat sinyali değildir.
 
 ### Kart geçmişi
@@ -263,7 +265,8 @@ için hangi durumların düşüşe eşlik ettiğini veriden bulmak.
 - **Tepe fotoğrafı (214 sütun):**
   - **1m / 3m / 5m / 15m / 1h / 4h** her biri için: RSI, EMA21'e uzaklık %, MACD (kesişim / zayıf / güçlü) ve histogram,
     Stoch RSI K/D, ATR %, son mumun hacim katı, taker alış %
-  - **VWAP:** günlük / haftalık / aylık (UTC gün, Pazartesi, ay başı) % ve σ (±1/2/3σ bantları seviye olarak),
+  - **VWAP:** günlük / haftalık / aylık (UTC gün, Pazartesi, ay başı) % ve σ (±1/2/3σ bantları seviye olarak; σ en az 6 mumdan sonra
+    ve VWAP'ın %0.01'inden büyükse — gün/hafta başında σ ≈ 0 çıkıp seviyeler fiyata yapışıyordu),
     kayan 90 dk / 24 saat / 7 gün, pompa dibinden sabitlenmiş VWAP
   - **Tepki seviyesi:** (+ `pkLvTouches`: o seviyenin önceki ~100 günde kaç kez test edildiği) tepenin %0.3 içindeki en yakın seviye (Fib, günlük/haftalık bölge, trend çizgisi, 7/30g en yüksek,
     MA200/EMA200, 1s/4s/15dk tepe, VWAP ve bantları, EMA21 3/5/15dk/1s) + %0.5 içindeki tüm seviyeler
@@ -296,7 +299,7 @@ likidasyonu, funding, spot prim, piyasa geneli …): o koşul **varken / yokken*
 ilk günlerde az örnek olur, backtest hemen geçmiş veriden verir.
 
 `/disaaktar [gün]` (yönetici) — tek **zip** **özelden** gelir (önce bota özelden bir kez /start yaz); içinde 4 CSV:
-`tepeler.csv` (tüm tepe adayları + `outcome`, tüm göstergeler), `kartlar.csv` (kartlar + kart anı göstergeleri + 5/15/30/60/240 dk sonrası),
+`tepeler.csv` (tüm tepe adayları + `outcome`, tüm göstergeler), `kartlar.csv` (kartlar + kart anı göstergeleri — funding, 5dk ATR, 3/5dk ayrışma, OI 1s, 1s trend dahil — + 5/15/30/60/240 dk sonrası),
 `temaslar.csv` (seviye tepkisi), `akis.csv` (alım-satım akışı pencereleri + 🐋 büyük işlem sayıları; akış kapalıysa yok). UTF-8, virgülle ayrılmış, ondalık nokta → Google Sheets / Excel / Python (pandas).
 Zip 40 MB'ı aşarsa (Telegram sınırı 50 MB) kalan satırlar `…-2.zip`'e geçer (`tepeler-2.csv`).
 Komut satırından: `fly ssh console` → `cd /app && node src/exportData.js --days 30` → `/data/export/veri.zip`,
@@ -312,7 +315,7 @@ Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı kon
    botu ekle, gruba bir komut yaz ve `fly logs`'ta `Tanımsız sohbetten mesaj yok sayıldı: … ID -100…` satırındaki
    ID'yi `fly secrets set TELEGRAM_CHAT_ID=-100…` ile tanımla.
 2. İstediğin konunun **içinde** (yönetici olarak) yaz: `/konu kart` · `/konu sistem` ·
-   `/konu kart3` (🔴🔴🔴'ler ayrı konuya) · `/konu backtest` · `/konu rapor` (haftalık dosyalar) · `/konu tepe` (🔻 tepe reddi). Bağlantı `/data`'da saklanır.
+   `/konu kart3` (🔴🔴🔴'ler ayrı konuya) · `/konu backtest` · `/konu rapor` (haftalık dosyalar) · `/konu tepe` (🔻 tepe kurulumu). Bağlantı `/data`'da saklanır.
 3. `/konu` listeyi gösterir, `/konu sil kart` kaldırır. Bağlanmamış tür genel akışa gider; konu silinirse mesajlar
    kaybolmaz, genel akışa düşer. Komut yanıtları, komutun yazıldığı konuya gelir.
 
@@ -350,7 +353,7 @@ geçmişi, yanda son 7 günün etiket güncellemeleri. Taker alış "piyasa emri
 ### Telegram komutları
 | Komut | Kim | |
 |---|---|---|
-| `/ayarlar` | herkes görür, yöneticiler değiştirir (Grafik RSI ve Grafik tepe herkese açık; tepe reddini istemeyen üye için `/konu tepe` → o konuyu sessize alır) | ana sayfa: bölümler + özet değerler (RSI kartı · Direnç · Derece · Hacimli mum · ⚡ Hareket · 🔻 Tepe reddi · Bildirim · Grafik · 🌊 Akış · İzlenen coinler) → bölüm: her ayar bir buton (aç-kapa ayarları tek dokunuşla) → sayısal ayar: kendi sayfasında −5/−1/+1/+5 adım ve ↺ Varsayılan · ana sayfada **↺ Tümünü varsayılana döndür**, bölümde **↺ Bu bölümü varsayılana döndür** (değişen ayarları listeleyip onay ister) |
+| `/ayarlar` | herkes görür, yöneticiler değiştirir (Grafik RSI ve Grafik tepe herkese açık; tepe kurulumunu istemeyen üye için `/konu tepe` → o konuyu sessize alır) | ana sayfa: bölümler + özet değerler (RSI kartı · Direnç · Derece · Hacimli mum · ⚡ Hareket · 🔻 Tepe kurulumu · Bildirim · Grafik · 🌊 Akış · İzlenen coinler) → bölüm: her ayar bir buton (aç-kapa ayarları tek dokunuşla) → sayısal ayar: kendi sayfasında −5/−1/+1/+5 adım ve ↺ Varsayılan · ana sayfada **↺ Tümünü varsayılana döndür**, bölümde **↺ Bu bölümü varsayılana döndür** (değişen ayarları listeleyip onay ister) |
 | `/ayar anahtar değer` · `/ayar sifirla` | yönetici | ör. `/ayar rsiMin 95`, `/ayar levelMaxPct 2`; `sifirla` tüm ayarları varsayılana döndürür ve kaç ayarın değiştiğini yazar |
 | `/coin ETH` | herkes | coinin anlık durumu (şart aranmadan) |
 | `/sustur ETH [dk]` · `/ac ETH` · `/sessiz` | yönetici / herkes | susturma |
@@ -415,7 +418,7 @@ src/
 ├── infoSettings.js   # Ayarlar (varsayılan config.info, değişiklikler /data/info-settings.json)
 ├── infoStats.js      # Kart sınıfları + "sonrası" medyanları (backtest ve /istatistik ortak)
 ├── cardStore.js      # Kart geçmişi (SQLite /data/cards.db) + 5/15/30/60/240 dk takip + seviye tepkisi tablosu
-├── peakAlert.js      # 🔻 Tepe reddi: skor (mum reddi · kırmızı · hacim · seans) + ayrı bildirim metni
+├── peakAlert.js      # 🔻 Tepe kurulumu: 3 derece şartı + funding (mum reddi puanı bilgi) + ayrı bildirim metni
 ├── eventLog.js       # Tepe defteri: pompa tepe adayı → düştü/devam/yatay, kartlı/kartsız, /kacan, /teyit (canlı + backtest ortak)
 ├── peakFeatures.js   # Tepe adayı ek özellikleri: CVD, mum yapısı, Bollinger, hız, piyasa, zaman, coin geçmişi
 ├── marketData.js     # Binance ek verisi: açık pozisyon, long/short, emir defteri, spot, baz, likidasyon akışı

@@ -22,7 +22,7 @@ const TOPICS = {
   sistem:   'bot mesajları ("hazır" vb.)',
   backtest: 'backtest raporları (--telegram)',
   rapor:    'haftalık istatistik dosyaları (Pazartesi 03:01; boşsa "sistem" konusuna)',
-  tepe:     '🔻 tepe reddi bildirimleri (boşsa "kart" konusuna)',
+  tepe:     '🔻 tepe kurulumu bildirimleri (boşsa "kart" konusuna)',
 };
 
 function normSym(x) {
@@ -47,12 +47,12 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
       sum: v => `gövde ≥ %${v.burstPct1} · hacim ≥ ${v.volMult}×` },
     { id: 'mov', title: '⚡ Hareket', keys: ['moveAlertPct'],
       sum: v => (v.moveAlertPct > 0 ? `1 dk ≥ %${v.moveAlertPct} → RSI kartına eklenir` : 'kapalı') },
-    { id: 'pk', title: '🔻 Tepe reddi', keys: ['peakAlert', 'peakAlertMin', 'peakAlertAtrPct', 'peakAlertPumpPct', 'peakAlertRsiOnly', 'peakAlertGapMin'],
-      sum: v => (v.peakAlert ? `skor ≥ ${v.peakAlertMin}/4${v.peakAlertAtrPct > 0 ? ` · ATR ≥ %${v.peakAlertAtrPct}` : ''} · pompa ≥ %${v.peakAlertPumpPct}${v.peakAlertRsiOnly ? ' · yalnız RSI şartlı' : ''} · ${v.peakAlertGapMin} dk'da bir` : 'kapalı') },
+    { id: 'pk', title: '🔻 Tepe kurulumu', keys: ['peakAlert', 'peakAlertConds', 'peakAlertFundingMax', 'peakAlertPumpPct', 'peakAlertRsiOnly', 'peakAlertGapMin'],
+      sum: v => (v.peakAlert ? `şart ≥ ${v.peakAlertConds}/3 · funding < %${v.peakAlertFundingMax} · pompa ≥ %${v.peakAlertPumpPct}${v.peakAlertRsiOnly ? ' · yalnız RSI şartlı' : ''} · ${v.peakAlertGapMin} dk'da bir` : 'kapalı') },
     { id: 'snd', title: '🔔 Bildirim', keys: ['cardSound'],
       sum: v => `kart ${v.cardSound ? 'sesli' : 'sessiz'}` },
     { id: 'cht', title: '🖼 Grafik', keys: ['chart', 'chartPeak', 'chartTf', 'chartFib', 'chartIchi', 'chartMinTouches'],
-      sum: v => (v.chart || v.chartPeak ? `${v.chart && v.chartPeak ? 'RSI + tepe' : v.chart ? 'yalnız RSI kartı' : 'yalnız tepe reddi'} · ${v.chartTf}${v.chartIchi ? ' · Ichimoku' : ''}${v.chartFib ? ' · Fibonacci' : ''}` : 'kapalı') },
+      sum: v => (v.chart || v.chartPeak ? `${v.chart && v.chartPeak ? 'RSI + tepe' : v.chart ? 'yalnız RSI kartı' : 'yalnız tepe kurulumu'} · ${v.chartTf}${v.chartIchi ? ' · Ichimoku' : ''}${v.chartFib ? ' · Fibonacci' : ''}` : 'kapalı') },
     { id: 'flw', title: '🌊 Akış (/akis)', keys: ['flowK', 'flowCvdPct', 'flowPricePct', 'flowStrongX', 'flowWeakX', 'flowBuyPct', 'flowSellPct', 'flowBigPct', 'flowBigMinUsd'],
       sum: v => `son ${v.flowK} pencere · CVD ±%${v.flowCvdPct} · fiyat ±%${v.flowPricePct} · 🐋 günlük hacmin %${v.flowBigPct} (≥ ${v.flowBigMinUsd} $)` },
     { id: 'uni', title: '🌐 İzlenen coinler', keys: ['minVolumeM', 'tradfi'],
@@ -132,7 +132,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
 
   const denied = { text: 'Bu işlem için grup yöneticisi olmalısın.', alert: true };
   // Grup üyelerinin de açıp kapatabildiği ayarlar (yalnız grafik görünümü — sinyal şartlarını değiştirmez).
-  // Tepe reddini istemeyen üye için: /konu tepe ile ayrı konu, üye o konuyu kendi tarafında sessize alır.
+  // Tepe kurulumunu istemeyen üye için: /konu tepe ile ayrı konu, üye o konuyu kendi tarafında sessize alır.
   const OPEN_KEYS = new Set(['chart', 'chartPeak']);
   const isOpenSet = (kind, key) => (kind === 't' || kind === 'v' || kind === 'z') && OPEN_KEYS.has(key);
   const detailSent = new Map();
@@ -356,7 +356,7 @@ Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesin
         const dips = [5, 15, 30, 60].filter(x => r.fwd[x]).map(x => `${x}dk ${pct(r.fwd[x].low, 1)}`);
         const w = r.fwd[60] ? `dip ${dips.join(' · ')} · 60dk tepe ${pct(r.fwd[60].high, 1)} · sonra ${pct(r.fwd[60].close, 1)}`
           : dips.length ? `dip ${dips.join(' · ')} · 60dk bekleniyor` : r.partial ? '60dk: eksik (yeniden başlatma)' : 'bekleniyor';
-        if (r.kind === 'tepe') return `${dayTime(r.t)} 🔻 Tepe reddi ${r.score ?? r.seq ?? '—'}/4 → ${w}`;
+        if (r.kind === 'tepe') return r.conds ? `${dayTime(r.t)} 🔻 Tepe kurulumu ${r.score ?? r.seq ?? '—'}/3${r.trendDown ? ' ⭐' : ''} → ${w}` : `${dayTime(r.t)} 🔻 Tepe reddi ${r.score ?? r.seq ?? '—'}/4 → ${w}`;
         if (r.kind === 'move') return `${dayTime(r.t)} ⚡${circles(r.grade || 1, r.movePct > 0 ? 'green' : 'red')} ${pct(r.movePct)} → ${w}`;
         const cls = [`RSI ${r.hits}/3`, r.level?.zone === 'dip' ? 'dirençte' : r.level ? 'yaklaşıyor' : null, r.burst ? `${r.burst.dir === 'sell' ? '▼' : r.burst.dir === 'buy' ? '▲' : '◆'}patlama` : null, r.inSeries ? 'seri içi' : null].filter(Boolean).join(' · ');
         return `${dayTime(r.t)} ${r.grade != null ? circles(r.grade) + ' ' : ''}#${r.seq} ${cls} → ${w}`;

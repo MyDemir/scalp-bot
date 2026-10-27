@@ -28,8 +28,15 @@ function compact(c) {
     neg1m: sn.neg?.['1m']?.count ?? 0, neg3m: sn.neg?.['3m']?.count ?? 0, rsi1h: sn.conf.h1 != null ? +sn.conf.h1.toFixed(1) : null, rsi4h: sn.conf.h4 != null ? +sn.conf.h4.toFixed(1) : null,
     macd3m: sn.macd?.['3m']?.text ?? null, macd5m: sn.macd?.['5m']?.text ?? null, macd15m: sn.macd?.['15m']?.text ?? null,
     stoch5m: sn.stoch ? { k: +sn.stoch.k.toFixed(1), d: +sn.stoch.d.toFixed(1), cross: sn.stoch.cross } : null,
-    vwapSigma: sn.vwap ? +sn.vwap.pos.toFixed(2) : null,
+    vwapSigma: Number.isFinite(sn.vwap?.pos) ? +sn.vwap.pos.toFixed(2) : null,
     bursts: sn.bursts, btc1h: sn.btc1h != null ? +sn.btc1h.toFixed(2) : null,
+    // tepe adayıyla aynı birimler (tepeler.csv): funding %, ATR %, EMA21 ayrışma %, OI 1s değişimi %
+    funding: sn.funding?.rate != null ? +(sn.funding.rate * 100).toFixed(4) : null,
+    atr5Pct: Number.isFinite(sn.atr5Pct) ? +sn.atr5Pct.toFixed(3) : null,
+    sep3: Number.isFinite(sn.sepPct?.['3m']) ? +sn.sepPct['3m'].toFixed(2) : null,
+    sep5: Number.isFinite(sn.sepPct?.['5m']) ? +sn.sepPct['5m'].toFixed(2) : null,
+    oiChg60: Number.isFinite(c.oi?.changePct) ? +c.oi.changePct.toFixed(2) : null,
+    trend_1h: c.trend1h ?? null,
     fwd: c.fwd,
   };
 }

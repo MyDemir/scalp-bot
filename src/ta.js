@@ -141,16 +141,21 @@ function stochRsiTail(closes, rsiP = 14, stochP = 14, kP = 3, dP = 3, keep = 3) 
  * Hacim ağırlıklı ortalama fiyat + hacim ağırlıklı standart sapma.
  * Tipik fiyat (h+l+c)/3. fromIdx'ten sona kadar olan mumlar kullanılır.
  */
-function vwapBands(high, low, close, volume, fromIdx = 0) {
-  let pv = 0, v = 0, p2v = 0;
+/**
+ * VWAP ve hacim ağırlıklı σ. σ, en az minBars mumdan sonra ve VWAP'ın %0.01'inden büyükse verilir (yoksa null):
+ * gün/hafta başında 1–2 mumla σ ≈ 0 çıkıyor, fiyat σ cinsinden ±yüz binlere fırlıyor ve ±σ seviyeleri fiyata yapışıyordu.
+ */
+function vwapBands(high, low, close, volume, fromIdx = 0, { minBars = 6 } = {}) {
+  let pv = 0, v = 0, p2v = 0, n = 0;
   for (let i = Math.max(0, fromIdx); i < close.length; i++) {
     const tp = (high[i] + low[i] + close[i]) / 3;
-    pv += tp * volume[i]; p2v += tp * tp * volume[i]; v += volume[i];
+    pv += tp * volume[i]; p2v += tp * tp * volume[i]; v += volume[i]; n++;
   }
   if (!(v > 0)) return null;
   const vwap = pv / v;
-  const sigma = Math.sqrt(Math.max(0, p2v / v - vwap * vwap));
-  return { vwap, sigma };
+  const sd = Math.sqrt(Math.max(0, p2v / v - vwap * vwap));
+  const sigma = n >= minBars && sd > vwap * 1e-4 ? sd : null;
+  return { vwap, sigma, n };
 }
 
 module.exports = { rsiSeries, rsiLast, emaSeries, emaLast, smaLast, atrSeries, macdTail, stochRsiTail, vwapBands };

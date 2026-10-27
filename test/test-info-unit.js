@@ -127,4 +127,29 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   const saved = JSON.parse(fs.readFileSync(f, 'utf8')); assert(!('burstPct1' in saved.values), 'yalnızca değişenler yazılmalı');
   ok('Ayarlar: sınır/tip doğrulaması, virgüllü sayı, ± adım ve sınıra kırpma, aç-kapa; susturma süresi doluyor; dosyaya yalnızca değişenler yazılıp geri okunuyor');
 }
+// ── VWAP σ: gün/hafta başında az mumla σ verilmez ──
+{ const ta = require(`${REPO}/src/ta`); const { vwapFeatures, refLevels } = require(`${REPO}/src/marketSnap`);
+  const h = [1.001, 1.0011], l = [0.9999, 1.0], c = [1.0, 1.0005], v = [100, 120];
+  const r2 = ta.vwapBands(h, l, c, v, 0);
+  assert(r2.vwap > 0 && r2.sigma === null && r2.n === 2, '2 mum → σ yok');
+  const H = [], L = [], C = [], V = [];
+  for (let i = 0; i < 12; i++) { const p = 1 + i * 0.002; H.push(p * 1.002); L.push(p * 0.998); C.push(p); V.push(100); }
+  const r12 = ta.vwapBands(H, L, C, V, 0);
+  assert(r12.sigma > 0 && r12.n === 12, '12 mum → σ var');
+  assert.strictEqual(ta.vwapBands([1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1], [5, 5, 5, 5, 5, 5], 0).sigma, null, 'düz fiyat (σ ≈ 0) → σ yok');
+  const f = vwapFeatures({ D: r2, W: r12 }, 1.0008);
+  assert(f.vwD_sig === null && Number.isFinite(f.vwD_pct) && Number.isFinite(f.vwW_sig), 'σ yoksa vwD_sig boş, % kalır');
+  ok('VWAP σ: 6 mumdan az ya da σ < VWAP\'ın %0.01\'i → σ yok (gün başı ±yüz binlerce σ ve fiyata yapışık ±σ seviyeleri çıkmıyor)');
+}
+// ── Kart kaydı: funding, ATR, ayrışma, OI, 1s trend ──
+{ const { compact } = require(`${REPO}/src/infoStats`);
+  const rsi = Object.fromEntries(eng.RSI_TFS.map(tf => [tf, { v: 86 }]));
+  const card = { symbol: 'XUSDT', t: 0, seq: 1, grade: 3, price: 1, news: [], tags: [], trig: { tfs: ['3m'] }, oi: { changePct: 2.345 }, trend1h: 'aşağı',
+    snap: { rsi, hits: 2, conf: { score: 1, h1: 82, h4: 60 }, sepOk: true, sepPct: { '3m': 2.456, '5m': 3.1 }, atr5Pct: 1.2346, funding: { rate: 0.00003 }, vwap: { vwap: 1, sigma: null, pos: null } } };
+  const x = compact(card);
+  assert(x.funding === 0.003 && x.atr5Pct === 1.235 && x.sep3 === 2.46 && x.sep5 === 3.1 && x.oiChg60 === 2.35 && x.trend_1h === 'aşağı' && x.vwapSigma === null, JSON.stringify(x));
+  const y = compact({ ...card, oi: undefined, trend1h: undefined, snap: { ...card.snap, funding: null, atr5Pct: null, sepPct: {} } });
+  assert(y.funding === null && y.atr5Pct === null && y.sep3 === null && y.oiChg60 === null && y.trend_1h === null);
+  ok('Kart kaydı: funding %, 5dk ATR %, 3/5dk ayrışma, OI 1s, 1s trend (tepeler.csv ile aynı birimler); yoksa boş');
+}
 console.log(R.join('\n'));
