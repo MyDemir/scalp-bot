@@ -748,6 +748,7 @@ function heartbeat() {
   diag = newDiag();
   console.log(
     `[HEARTBEAT] WS ${ws?.open ?? 0}/${ws?.connections ?? 0} bağlı (${ws?.streams ?? 0} stream)` +
+    `${ws?.perConn?.length > 1 ? ` · bağlantı gecikmesi en fazla ${ws.perConn.map(c => `#${c.id} ${(c.lagMaxMs / 1000).toFixed(0)} sn`).join(', ')}` : ''}` +
     ` | son ${mins}dk: ${closes} 1m kapanış, ${ws?.skipped ?? 0} ara güncelleme atlandı, ${cards} kart, ${peaks} tepe reddi` +
     ` | coin: ${readyCount()}/${series.size} hazır${busy.size ? `, ${busy.size} yükleniyor` : ''}${stale.length ? `, ${stale.length} GERİDE` : ''}` +
     ` | ${dTxt}` +
@@ -762,11 +763,11 @@ function heartbeat() {
   if (stale.length) console.warn(`[UYARI] ${stale.length} coinde son 3 dk'da 1m mumu yok: ${stale.slice(0, 15).join(', ')}${stale.length > 15 ? '…' : ''}`);
   if (lastDiag.n && lastDiag.lagMax > 20_000) {
     const why = !lastDiag.eN ? 'bot yetişemiyor olabilir'
-      : lastDiag.locSum >= lastDiag.binSum ? `gecikmenin çoğu yerel (en fazla ${Math.round(lastDiag.locMax / 1000)} sn) — ${load.stealPct >= 10 ? `CPU kotası dolmuş görünüyor (steal %${load.stealPct.toFixed(0)})` : 'süreç/event loop yetişemiyor'}`
+      : lastDiag.locSum >= lastDiag.binSum ? `gecikmenin çoğu yerel (en fazla ${Math.round(lastDiag.locMax / 1000)} sn) — ${load.stealPct >= 10 ? `CPU kotası dolmuş görünüyor (steal %${load.stealPct.toFixed(0)})` : load.loopP99Ms < 200 && load.cpuPct < 50 ? 'süreç boşta → mesajlar bağlantıda (Binance/ağ tarafında) birikiyor' : 'süreç/event loop yetişemiyor'}`
       : 'gecikme Binance tarafında (mesaj geç üretilmiş)';
     console.warn(`[UYARI] 1m mum gecikmesi ${Math.round(lastDiag.lagMax / 1000)} sn'ye çıktı — ${why}`);
   }
-  if (ws && ws.reconnects > 0) console.warn(`[UYARI] Son ${mins} dakikada ${ws.reconnects} WebSocket yeniden bağlanması`);
+  if (ws && ws.reconnects > 0) console.warn(`[UYARI] Son ${mins} dakikada ${ws.reconnects} WebSocket yeniden bağlanması${ws.lagReconnects ? ` (${ws.lagReconnects} tanesi birikme koruması)` : ''}`);
 }
 
 // ── Başlangıç ─────────────────────────────────────────────────────────────
