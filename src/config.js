@@ -123,7 +123,9 @@ module.exports = {
   },
 
   ws: {
-    streamsPerConnection: 800,
+    // Tek bağlantıda 440+ stream Binance tarafında birikiyordu (CPU %6'dayken gecikme 26→264 sn, ardından 1006).
+    // Stream'ler birkaç bağlantıya bölünür (446 coin → 3 bağlantı); Binance sınırı bağlantı başına 1024.
+    streamsPerConnection: Math.max(50, Math.min(1000, Number(process.env.WS_STREAMS_PER_CONN) || 150)),
     staleMs:              60_000,
   },
 

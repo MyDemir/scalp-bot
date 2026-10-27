@@ -15,6 +15,10 @@
  *     (eski /ws adresindeki gibi "bağlı ama veri yok" durumunu yakalar)
  *   • Yeniden bağlanınca onGap(symbols, downSince) çağrılır → kaçan mumlar REST ile doldurulabilir
  *   • Üstel geri çekilme (1 sn → 30 sn), bağlantılar kademeli açılır
+ *   • Birikme koruması: bağlantının yerel gecikmesi (alış − Binance olay zamanı E) lagReconnectMs'i aşarsa
+ *     bağlantı yenilenir. Binance tek bağlantıdaki mesajları geride biriktirebiliyor (CPU boştayken bile
+ *     gecikme dakikalara çıkıp sonunda 1006 ile kopuyordu); yeniden bağlanınca kuyruk sıfırlanır, kaçan
+ *     mumlar onGap ile REST'ten dolar. Aynı bağlantı lagReconnectGapMs içinde bir kez yenilenir.
  */
 
 const WebSocket = require('ws');
@@ -30,6 +34,8 @@ const DEFAULTS = {
   minBackoffMs:         1_000,
   maxBackoffMs:         30_000,
   finalOnly:            false,   // true: kapanmamış mum güncellemeleri JSON'a çevrilmeden atlanır (CPU)
+  lagReconnectMs:       45_000,  // yerel gecikme (EWMA) bunu aşarsa bağlantı yenilenir (0 = kapalı)
+  lagReconnectGapMs:    10 * 60_000,
 };
 
 function chunk(arr, n) {
@@ -68,6 +74,10 @@ function createStreamClient({ symbols, timeframes, onKline, onGap = () => {}, op
     timers:      [],
     outbox:      [],              // gönderilecek SUBSCRIBE/UNSUBSCRIBE mesajları (10 msj/sn sınırı)
     sending:     false,
+    lagEwma:     null,            // yerel gecikme (alış − E), kayan ortalama
+    lagMax:      0,               // pencere içinde en fazla (takeStats sıfırlar)
+    lagReconnects: 0,
+    lagReconnectAt: 0,
   });
   const conns = chunk(streams, opt.streamsPerConnection).map((list, i) => newConn(list, i + 1));
 
@@ -127,6 +137,11 @@ function createStreamClient({ symbols, timeframes, onKline, onGap = () => {}, op
       eventTime: Number(d.E) || null,   // Binance'in mesajı ürettiği an — gecikmeyi Binance / yerel diye ayırmak için
     };
     if (kline.final) counters.finals[k.i] = (counters.finals[k.i] || 0) + 1;
+    if (kline.eventTime) {
+      const lag = Math.max(0, conn.lastMsgAt - kline.eventTime);
+      conn.lagEwma = conn.lagEwma == null ? lag : conn.lagEwma * 0.9 + lag * 0.1;
+      if (lag > conn.lagMax) conn.lagMax = lag;
+    }
 
     checkGap(conn);
 
@@ -174,6 +189,7 @@ function createStreamClient({ symbols, timeframes, onKline, onGap = () => {}, op
       conn.state     = 'open';
       conn.lastMsgAt = Date.now();          // watchdog sayacı bağlantı anından başlar
       conn.subAcks   = 0;
+      conn.lagEwma   = null;
       logger.log(`[WS#${conn.id}] Bağlandı — ${conn.streams.length} stream abone ediliyor`);
       subscribe(conn);
     });
@@ -207,6 +223,14 @@ function createStreamClient({ symbols, timeframes, onKline, onGap = () => {}, op
         logger.warn(`[WS#${conn.id}] ${Math.round((now - conn.lastMsgAt) / 1000)} sn'dir veri yok — bağlantı yenileniyor`);
         conn.downSince = conn.downSince ?? conn.lastMsgAt;
         conn.ws.terminate();                 // 'close' olayı yeniden bağlanmayı tetikler
+      } else if (conn.state === 'open' && opt.lagReconnectMs > 0 && conn.lagEwma > opt.lagReconnectMs
+        && now - conn.lagReconnectAt > opt.lagReconnectGapMs) {
+        logger.warn(`[WS#${conn.id}] Mesajlar ${Math.round(conn.lagEwma / 1000)} sn geriden geliyor (Binance tarafında birikme) — bağlantı yenileniyor`);
+        conn.lagReconnectAt = now;
+        conn.lagReconnects++;
+        conn.downSince = conn.downSince ?? Math.max(0, now - conn.lagEwma);   // geride kalan aralık REST'ten dolsun
+        conn.lagEwma = null;
+        conn.ws.terminate();
       }
     }
   }
@@ -291,7 +315,9 @@ function createStreamClient({ symbols, timeframes, onKline, onGap = () => {}, op
         skipped:     counters.skipped,
         finals:      { ...counters.finals },
         reconnects:  conns.reduce((n, c) => n + c.reconnects, 0),
+        lagReconnects: conns.reduce((n, c) => n + c.lagReconnects, 0),
         parseErrors: counters.parseErrors,
+        perConn:     conns.map(c => ({ id: c.id, streams: c.streams.length, open: c.state === 'open', lagMaxMs: Math.round(c.lagMax), lagNowMs: c.lagEwma == null ? null : Math.round(c.lagEwma) })),
       };
     },
 
@@ -302,7 +328,7 @@ function createStreamClient({ symbols, timeframes, onKline, onGap = () => {}, op
       counters.skipped = 0;
       counters.finals = {};
       counters.parseErrors = 0;
-      for (const c of conns) c.reconnects = 0;
+      for (const c of conns) { c.reconnects = 0; c.lagReconnects = 0; c.lagMax = 0; }
       return s;
     },
   };
