@@ -11,6 +11,9 @@ primary_region = 'fra'
 [env]
   NODE_ENV = 'production'
   PORT = '3000'
+  # V8 varsayılanı makine belleğinin ~1/4'ü (512 MB'ta ~128 MB eski nesil) — bot + haftalık rapor buna sığmıyordu.
+  # 512 MB makinede 320 MB heap + yerel bellek (SQLite, canvas, tamponlar) sığar; bellek değişirse bunu da güncelle.
+  NODE_OPTIONS = '--max-old-space-size=320'
 
 [processes]
   app = 'node src/server.js'

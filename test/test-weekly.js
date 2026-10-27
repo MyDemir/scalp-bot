@@ -70,7 +70,7 @@ ok(`Dosyalar: ${w.files.map(f => f.name).join(', ')} (zip: ${Object.keys(Z).join
   ok('İş: ilk kurulumda gönderim/silme yok (ilk rapor sonraki Pazartesi); gönderim hatasında veri silinmedi, 10 dk sonra tekrar; gönderilince MD + zip, kartlar/temaslar/düşüşler silindi (VACUUM); aynı hafta tekrar yok; durum dosyaya yazıldı');
 }
 
-// ── 4) Büyük hafta: 30 000 tepe adayı — parça parça okunur, bellek sınırlı, zip 40 MB sınırında bölünür ──
+// ── 4) Büyük hafta: 30 000 tepe adayı + 50 000 temas — parça parça okunur, bellek sınırlı, zip 40 MB sınırında bölünür ──
 {
   const st2 = createCardStore({ file: dir + '/big.db', logger: { log() {}, error: x => { throw new Error(x); } } });
   const N = 30000, t0 = now - 6 * 24 * H;
@@ -78,6 +78,10 @@ ok(`Dosyalar: ${w.files.map(f => f.name).join(', ')} (zip: ${Object.keys(Z).join
   const big = { ...feat }; for (let i = 0; i < 200; i++) big['x' + i] = Math.random();      // ~214 alanlık gerçek satır gibi
   for (let i = 0; i < N; i++) ins({ id: 'B' + i, symbol: 'S' + (i % 300) + 'USDT', t: t0 + i * 15e3, price: 1 + i / N, dropT: null, dropMin: null, card: false, cardGrade: null,
     outcome: i % 5 === 0 ? 'düştü' : i % 2 ? 'devam' : 'yatay', feat: { ...big, c5Red: i % 3 === 0, c5Next60Low: -(i % 4) }, out: { 60: { low: -1, high: 1, close: 0 }, 240: { low: -2, high: 1, close: -1 } } });
+  const NT = 50000;                                                                       // ~1 haftalık seviye teması (H43: 56 408)
+  for (let i = 0; i < NT; i++) st2.addTouch({ id: 'T' + i, symbol: 'S' + (i % 300) + 'USDT', t: t0 + i * 10e3, name: ['Fib 0.786', '7g en yüksek', 'Günlük bölge'][i % 3], kind: 'fib', value: 1,
+    hits: 2, rsiOk: i % 3 === 0, card: i % 20 === 0, emaGap: 1, pb: i % 7, pbMin: i % 60, emaMin: i % 2 ? 3 : null, brokeMin: i % 4 ? null : i % 60, brokeAfterEma: false, held: i % 5 === 0,
+    up: 0.1, dn: -2, c60: -1, stop: '3dk EMA21', stopDepth: 0, falling: false, lvTouches: i % 9 });
   global.gc?.();
   const h0 = process.memoryUsage().heapUsed;
   let peak = 0; const iv = setInterval(() => { peak = Math.max(peak, process.memoryUsage().heapUsed - h0); }, 5);
@@ -85,15 +89,18 @@ ok(`Dosyalar: ${w.files.map(f => f.name).join(', ')} (zip: ${Object.keys(Z).join
   const t1 = Date.now();
   const wb = await W.buildWeekly(st2, { now, s: cfg.info, E: cfg.events, maxZipBytes: 1.5e5 });
   const ms = Date.now() - t1; clearInterval(iv); clearInterval(lagIv);
-  assert.strictEqual(wb.counts.peaks, N); assert.strictEqual(wb.counts.drops, N / 5);
+  assert.strictEqual(wb.counts.peaks, N); assert.strictEqual(wb.counts.drops, N / 5); assert.strictEqual(wb.counts.touches, NT);
   assert(wb.files.length > 2 && wb.files.slice(1).every(f => f.buf.length < 0.5e6), 'zip bölündü: ' + wb.files.map(f => f.name + ' ' + f.buf.length).join(', '));
   let rows = 0; for (const f of wb.files.slice(1)) for (const [k, v] of Object.entries(unzip(f.buf))) if (k.startsWith('tepeler')) rows += v.trim().split('\n').length - 1;
   assert.strictEqual(rows, N, 'tüm satırlar zip parçalarında');
+  let trows = 0; for (const f of wb.files.slice(1)) for (const [k, v] of Object.entries(unzip(f.buf))) if (k.startsWith('temaslar')) trows += v.trim().split('\n').length - 1;
+  assert.strictEqual(trows, NT, 'tüm temaslar zip parçalarında');
+  assert(wb.md.includes(`${NT} temas`), 'MD seviye tepkisi özeti');
   assert(wb.md.includes(`… ve ${N / 5 - 300} düşüş daha`) && wb.md.length < 400e3, 'MD sınırlı');
   assert(peak < 150e6, 'bellek artışı sınırlı: ' + (peak / 1e6).toFixed(0) + ' MB');
   assert(ticks >= ms / 20 * 0.3, 'olay döngüsü bloklanmadı: ' + ticks + ' tik / ' + ms + ' ms');
   st2.close();
-  ok(`Büyük hafta: ${N} tepe adayı ${(ms / 1000).toFixed(1)} sn'de, bellek artışı en fazla ${(peak / 1e6).toFixed(0)} MB, ${wb.files.length - 1} zip parçası (sınır 150 KB), MD'de ilk 300 düşüş; olay döngüsü dönmeye devam etti (${ticks} tik)`);
+  ok(`Büyük hafta: ${N} tepe adayı + ${NT} seviye teması ${(ms / 1000).toFixed(1)} sn'de, bellek artışı en fazla ${(peak / 1e6).toFixed(0)} MB, ${wb.files.length - 1} zip parçası (sınır 150 KB), MD'de ilk 300 düşüş; olay döngüsü dönmeye devam etti (${ticks} tik)`);
 }
   console.log('\n' + R.join('\n'));
 })().catch(e => { console.error(e); process.exit(1); });

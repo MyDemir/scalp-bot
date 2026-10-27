@@ -112,7 +112,8 @@ function touchSum(a) {
   const back = sep.filter(e => e.emaMin != null);
   const broke = a.filter(e => e.brokeMin != null);
   const first = a.filter(e => e.brokeMin != null && (!(e.pb > 0) || e.brokeMin <= e.pbMin));
-  const rej = a.filter(e => !first.includes(e));
+  const firstSet = new Set(first);                       // includes() haftalık 50 bin temasta O(n²) → saniyelerce blok
+  const rej = a.filter(e => !firstSet.has(e));
   const withStop = rej.filter(e => e.stop);
   const stops = new Map();
   for (const e of withStop) stops.set(e.stop, (stops.get(e.stop) || 0) + 1);
