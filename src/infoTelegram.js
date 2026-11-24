@@ -22,7 +22,6 @@ const TOPICS = {
   sistem:   'bot mesajları ("hazır" vb.)',
   backtest: 'backtest raporları (--telegram)',
   rapor:    'haftalık istatistik dosyaları (Pazartesi 03:01; boşsa "sistem" konusuna)',
-  tepe:     '🔻 tepe kurulumu bildirimleri (boşsa "kart" konusuna)',
 };
 
 function normSym(x) {
@@ -47,12 +46,10 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
       sum: v => `gövde ≥ %${v.burstPct1} · hacim ≥ ${v.volMult}×` },
     { id: 'mov', title: '⚡ Hareket', keys: ['moveAlertPct'],
       sum: v => (v.moveAlertPct > 0 ? `1 dk ≥ %${v.moveAlertPct} → RSI kartına eklenir` : 'kapalı') },
-    { id: 'pk', title: '🔻 Tepe kurulumu', keys: ['peakAlert', 'peakAlertConds', 'peakAlertFundingMax', 'peakAlertPumpPct', 'peakAlertRsiOnly', 'peakAlertGapMin'],
-      sum: v => (v.peakAlert ? `şart ≥ ${v.peakAlertConds}/3 · funding < %${v.peakAlertFundingMax} · pompa ≥ %${v.peakAlertPumpPct}${v.peakAlertRsiOnly ? ' · yalnız RSI şartlı' : ''} · ${v.peakAlertGapMin} dk'da bir` : 'kapalı') },
     { id: 'snd', title: '🔔 Bildirim', keys: ['cardSound'],
       sum: v => `kart ${v.cardSound ? 'sesli' : 'sessiz'}` },
-    { id: 'cht', title: '🖼 Grafik', keys: ['chart', 'chartPeak', 'chartTf', 'chartFib', 'chartIchi', 'chartMinTouches'],
-      sum: v => (v.chart || v.chartPeak ? `${v.chart && v.chartPeak ? 'RSI + tepe' : v.chart ? 'yalnız RSI kartı' : 'yalnız tepe kurulumu'} · ${v.chartTf}${v.chartIchi ? ' · Ichimoku' : ''}${v.chartFib ? ' · Fibonacci' : ''}` : 'kapalı') },
+    { id: 'cht', title: '🖼 Grafik', keys: ['chart', 'chartTf', 'chartFib', 'chartIchi', 'chartMinTouches'],
+      sum: v => (v.chart ? `RSI kartı · ${v.chartTf}${v.chartIchi ? ' · Ichimoku' : ''}${v.chartFib ? ' · Fibonacci' : ''}` : 'kapalı') },
     { id: 'flw', title: '🌊 Akış (/akis)', keys: ['flowK', 'flowCvdPct', 'flowPricePct', 'flowStrongX', 'flowWeakX', 'flowBuyPct', 'flowSellPct', 'flowBigPct', 'flowBigMinUsd'],
       sum: v => `son ${v.flowK} pencere · CVD ±%${v.flowCvdPct} · fiyat ±%${v.flowPricePct} · 🐋 günlük hacmin %${v.flowBigPct} (≥ ${v.flowBigMinUsd} $)` },
     { id: 'uni', title: '🌐 İzlenen coinler', keys: ['minVolumeM', 'tradfi'],
@@ -132,8 +129,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
 
   const denied = { text: 'Bu işlem için grup yöneticisi olmalısın.', alert: true };
   // Grup üyelerinin de açıp kapatabildiği ayarlar (yalnız grafik görünümü — sinyal şartlarını değiştirmez).
-  // Tepe kurulumunu istemeyen üye için: /konu tepe ile ayrı konu, üye o konuyu kendi tarafında sessize alır.
-  const OPEN_KEYS = new Set(['chart', 'chartPeak']);
+  const OPEN_KEYS = new Set(['chart']);
   const isOpenSet = (kind, key) => (kind === 't' || kind === 'v' || kind === 'z') && OPEN_KEYS.has(key);
   const detailSent = new Map();
   function detailFor(id) {
