@@ -39,7 +39,8 @@ const { tfIndicators, vwapSet, vwapFeatures, refLevels, nearest, TF_COLS, VWAP_C
 const { maLadder, stopOf } = require('./levelTouch');
 const { extraFeatures, EXTRA_COLS, EXTRA_AUDIT_COLS } = require('./peakFeatures');
 const { basisPct, ENRICH_COLS, LIQ_COLS } = require('./marketData');
-// Kayıt / derece davranışı değişince elle artır (tepeler.csv cfgVer). 24.11.2026-2: derece = 1 + sep+h1+r15+atr+macd+stoch+rsi3hi; sepPct2 3.
+const PKG_VERSION = String(require('../package.json').version ?? '');
+// Kayıt / derece davranışı değişince elle artır (tepeler.csv dataVer; cfgVer package.json sürümü kalır). 24.11.2026-2: derece = 1 + sep+h1+r15+atr+macd+stoch+rsi3hi; sepPct2 3.
 const DATA_VER = '2026.11.24-3';
 
 const MIN = 60_000;
@@ -97,7 +98,8 @@ const AUDIT_COLS = ['sameBar', 'cardWhen', 'contSkipped', 'rsi15c', 'rsi1hc', 'r
   'rsi3c', 'rsi5c', 'sep3c', 'sep5c', 'cfgPeakWindowMin', 'cfgSampleGapMin', 'cfgVer', 'dropC15', 'lowC15', 'closeC60',
   'incTf', 'inc5', 'inc15', 'lvZoneHiN', 'lvZoneLoN', 'pkLvTouchUp', 'pkLvTouchDn',
   // derece denetimi (24.11.2026): grade = yeni derece (gradeVer 2); gradeOld = macd/stoch şartsız eski formül
-  'gradeOld', 'g_sep', 'g_h1', 'g_r15', 'g_atr', 'g_macd', 'g_stoch', 'g_rsi3hi', 'g_runaway', 'cfgGradeRsi15m', 'cfgGradeAtr5Pct', 'cfgGradeMacd5m', 'cfgGradeStoch5m', 'cfgSepPct2', 'cfgGradeRsi3m', 'gradeVer'];
+  'gradeOld', 'g_sep', 'g_h1', 'g_r15', 'g_atr', 'g_macd', 'g_stoch', 'g_rsi3hi', 'g_runaway', 'cfgGradeRsi15m', 'cfgGradeAtr5Pct', 'cfgGradeMacd5m', 'cfgGradeStoch5m', 'cfgSepPct2', 'cfgGradeRsi3m', 'gradeVer',
+  'dataVer'];
 const FEATURE_COLS = [...BASE_COLS, ...PEAK_COLS, ...TF_COLS, ...VWAP_COLS, ...EXTRA_COLS, 'basisPct', ...LIQ_COLS, ...ENRICH_COLS, ...TROUGH_COLS, ...OUTCOME_COLS, ...AUDIT_COLS];
 
 /** Tepe anının tam fotoğrafı */
@@ -264,7 +266,7 @@ function createDropLedger(opts = {}) {
       feat: peakFeatures(series, s, ctx, c.h, pump, loT, tc, history(sym, x, tc)) };
     // kayıt anındaki geçerli ayarlar (minTFs/rsiMin Telegram'dan değişebilir; observe'e geçen `s` canlıda settings.get())
     Object.assign(e.feat, { cfgMinTFs: s.minTFs ?? null, cfgRsiMin: s.rsiMin ?? null, cfgDropPct: E.dropPct, cfgContPct: E.contPct,
-      cfgPeakWindowMin: E.peakWindowMin, cfgSampleGapMin: E.sampleGapMin, cfgVer: DATA_VER });
+      cfgPeakWindowMin: E.peakWindowMin, cfgSampleGapMin: E.sampleGapMin, cfgVer: PKG_VERSION, dataVer: DATA_VER });
     // Emir defteri tepe anında (coin başına en fazla 60 sn'de bir; araya giren adaylar son fotoğrafı kullanır)
     if (E.orderBook) {
       if (tc - x.obAt >= MIN) {

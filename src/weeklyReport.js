@@ -25,7 +25,7 @@ const { createSetupAcc } = require('./setupTable');
 const { flatDrop, dropCols, dropText, teyitText, createTeyitAcc, slimDrop, csvLine, csvHeader } = require('./eventLog');
 const { createZipSet } = require('./zipWriter');
 const { touchText } = require('./infoStats');
-const { flatten, cardRow } = require('./exportData');
+const { flatten, cardRow, colsOf } = require('./exportData');
 
 const MIN = 60_000, HOUR = 3_600_000, DAY = 86_400_000, WEEK = 7 * DAY, MONDAY0 = 4 * DAY;
 const TZ = process.env.DISPLAY_TZ || 'Europe/Istanbul';
@@ -110,7 +110,6 @@ async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = n
 
   const zip = createZipSet(`veri-${label}`, { maxBytes: maxZipBytes });
   const cardRows = cards.map(r => cardRow(r, true));
-  const colsOf = rows => { const set = new Set(); for (const r of rows) for (const k of Object.keys(r)) set.add(k); return [...set]; };
   {
     const cols = colsOf(cardRows), e = zip.entry('kartlar.csv', csvHeader(cols));
     for (const r of cardRows) await e.write(csvLine(r, cols));
@@ -210,7 +209,7 @@ async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = n
     '- Tepe: pkLv / pkLvKind / pkLvDist / pkLvTouches (tepki seviyesi ve önceki ~100 günde kaç kez test edildiği), pkNear (%0.5 içindeki tüm seviyeler) · Dip: trPct, trMin, trLv, trLvDist, trLvTouches, trNear, trEma (3/5/15dk EMA21 merdiveni), trFalling',
     '- yollar.csv: her tepe adayının sonraki 15 dk 1m yolu; entry = tepe anı 1dk kapanışı, h/l/c<k> = k. dakikanın en yüksek/en düşük/kapanış değişimi (% , entry\'ye göre), n = kaydedilen dakika (<15 ise eksik). t < cutoff kapsamındaki adaylar; haftalık rapordan sonra diğer kayıtlarla silinir (en fazla 60 gün)',
     '- temaslar.csv: lvTouches = seviyenin önceki ~100 günde (4s mumlar) kaç ayrı kez test edildiği · kartlar.csv: level_touches',
-    '- tepeler.csv doğruluk sütunları (sonda): sameBar, cardWhen, contSkipped, rsi15c/rsi1hc/rsi4hc/rsi3c/rsi5c (kapanmış mumlu RSI), sep3c/sep5c, cfg* (kayıt anı ayarı; cfgVer = el ile artırılan kayıt sürümü), wick_/clv_ 5mc/15mc, bar5Pct/bar15Pct, volPeakXc (tepe 1dk hacmi / pompa süresindeki mumların ortalaması; payda gerçek mum sayısı), miss60, futQ60t/spotQ60/spotShare60t, dropC15/lowC15/closeC60 (girişe göre), incTf/inc5/inc15 (eksik 1m\'li mum), lvZoneHiN/lvZoneLoN, pkLvTouchUp/pkLvTouchDn',
+    '- tepeler.csv doğruluk sütunları (sonda): sameBar, cardWhen, contSkipped, rsi15c/rsi1hc/rsi4hc/rsi3c/rsi5c (kapanmış mumlu RSI), sep3c/sep5c, cfg* (kayıt anı ayarı; cfgVer = package.json sürümü; dataVer = el ile artırılan kayıt/derece sürümü), wick_/clv_ 5mc/15mc, bar5Pct/bar15Pct, volPeakXc (tepe 1dk hacmi / pompa süresindeki mumların ortalaması; payda gerçek mum sayısı), miss60, futQ60t/spotQ60/spotShare60t, dropC15/lowC15/closeC60 (girişe göre), incTf/inc5/inc15 (eksik 1m\'li mum), lvZoneHiN/lvZoneLoN, pkLvTouchUp/pkLvTouchDn',
     '- Derece alanları (tepeler.csv sonda; kartlar.csv son 16 kolon): grade = o anki kart derecesi (gradeVer 2: 1 + ayrışma + 1s + 15dk + ATR + MACD 5m + Stoch 5m + 3dk RSI), gradeOld = MACD/Stoch/3dk RSI şartsız eski formül (ayrışma eşiği güncel), g_sep/g_h1/g_r15/g_atr/g_macd/g_stoch/g_rsi3hi/g_runaway (0/1), cfgGradeRsi15m/cfgGradeAtr5Pct/cfgGradeMacd5m/cfgGradeStoch5m/cfgSepPct2/cfgGradeRsi3m (o andaki ayar). Eski satırlarda boş',
     '- temaslar.csv: pb0, belowMin (sonda)',
     '- Kart şartı: rsiOk, hits, ok, fails (rsi|seviye…), score, checkOk · sonrası: low/high/close 5, 15, 30, 60, 240 (tepeye göre %)',
