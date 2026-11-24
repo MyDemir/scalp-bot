@@ -72,11 +72,16 @@ const CLASSES = [
   ['Seviye: Fib',          c => c.levelKind === 'fib'],
 ];
 
+// Backtest'te dönem sonuna taşan 60 dk penceresi (fwd[60].full === false) medyana girmez; canlı kayıtta `full` alanı yoktur (girer).
+const fullFwd60 = c => !!c.fwd?.[60] && c.fwd[60].full !== false;
+const excluded60 = cards => cards.filter(c => c.fwd?.[60] && c.fwd[60].full === false).length;
+const excludedNote = n => (n > 0 ? ` (${n} eksik pencere dışarıda)` : '');
+
 function classTable(cards) {
   const rows = [];
   for (const [name, f] of CLASSES) {
     const sub = cards.filter(f);
-    const ok = sub.filter(c => c.fwd?.[60]);
+    const ok = sub.filter(fullFwd60);
     rows.push({
       name, n: sub.length,
       low60: median(ok.map(c => c.fwd[60].low)), high60: median(ok.map(c => c.fwd[60].high)), close60: median(ok.map(c => c.fwd[60].close)),
@@ -254,4 +259,4 @@ function touchText(rows, { title = '', filter = '', s = {} } = {}) {
   return out.slice(0, 4096);
 }
 
-module.exports = { median, pctS, fmtDate, compact, CLASSES, classTable, load, touchGroups, touchSum, touchText, TOUCH_ORDER };
+module.exports = { excluded60, excludedNote, median, pctS, fmtDate, compact, CLASSES, classTable, load, touchGroups, touchSum, touchText, TOUCH_ORDER };

@@ -169,4 +169,14 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   assert(y.funding === null && y.atr5Pct === null && y.sep3 === null && y.oiChg60 === null && y.trend_1h === null);
   ok('Kart kaydı: funding %, 5dk ATR %, 3/5dk ayrışma, OI 1s, 1s trend (tepeler.csv ile aynı birimler); yoksa boş');
 }
+// ── Backtest eksik 60 dk penceresi ──
+{ const { classTable, excluded60, excludedNote } = require(`${REPO}/src/infoStats`);
+  const mk = (close, full) => ({ t: 1, symbol: 'A', seq: 1, silent: false, fwd: { 60: { low: -1, high: 1, close, ...(full === undefined ? {} : { full }) } } });
+  const cards = [mk(1, true), mk(3), mk(100, false)];   // tam, canlı biçimli (full yok), eksik
+  const row = classTable(cards)[0];
+  assert.strictEqual(row.close60, 2, 'full:false kart medyana girmemeli; full alanı olmayan girmeli: ' + row.close60);
+  assert.strictEqual(excluded60(cards), 1);
+  assert.strictEqual(excludedNote(1), ' (1 eksik pencere dışarıda)'); assert.strictEqual(excludedNote(0), '');
+  ok('Medyan: fwd[60].full===false dışarıda (sayısı notta), canlı biçimli kart (full yok) dahil');
+}
 console.log(R.join('\n'));

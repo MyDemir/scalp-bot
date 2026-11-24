@@ -84,6 +84,21 @@ async function main() {
     assert(!internal.recoveryQueue.has(failSym), 'recovered failed symbol should leave the queue');
     assert(internal.isFreshSymbol(okSym), 'recovered series should have a current 1m candle');
 
+    // Kilitteki coin için atlanan değerlendirme sayacı ve durum metni
+    {
+      const sym = okSym;
+      const before = internal.stats.blockedEvals, beforeToday = internal.stats.blockedEvalsToday;
+      internal.recoveryBlocked.add(sym);
+      const k = i => ({ startTime: now + i * MIN, open: 101, high: 102, low: 100, close: 101, volume: 1, quoteVolume: 101 });
+      internal.onKline(sym, '1m', k(0), true);
+      internal.onKline(sym, '1m', k(1), true);
+      assert.strictEqual(internal.stats.blockedEvals, before + 2, 'blocked 1m evaluations must be counted');
+      assert.strictEqual(internal.stats.blockedEvalsToday, beforeToday + 2, 'daily blocked counter must increase');
+      assert(internal.statusText().includes('kilitte atlanan 1m değerlendirme'), 'status text must show blocked counter');
+      internal.recoveryBlocked.delete(sym);
+      internal.pending.set(sym, []);
+    }
+
     console.log('PASS: per-symbol REST recovery, busy/failure retry, signal gating and resubscription');
   } finally {
     binance.fetchKlines = originalFetch;
