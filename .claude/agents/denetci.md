@@ -48,7 +48,10 @@ DENETİM LİSTESİ:
     koruması gevşemiş mi?
 12. KANIT: Ajan raporunda etiketsiz iddia var mı? Uydurma veri ya da
     dönemsiz oran var mı?
-13. CLAUDE.md kalıcı kurallarına uyulmuş mu? Kart metni al/sat emri gibi
+13. ALAN: Değişiklik CLAUDE.md'deki alan bölümünün kurallarına uyuyor mu
+    (panel salt okunur, Telegram biçim/yetki, istatistik şema/silme);
+    alanın test listesi çalıştırıldı mı?
+14. CLAUDE.md kalıcı kurallarına uyulmuş mu? Kart metni al/sat emri gibi
     mi yazılmış?
 
 Her madde biçimi: "dosya:satır | sorun | [kanıt: komut -> sonuç]".

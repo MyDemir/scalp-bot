@@ -7,6 +7,8 @@ maxTurns: 100
 effort: medium
 isolation: worktree
 ---
+İlk iş CLAUDE.md'yi oku: "Her görevin başında" adımları ve görevin alanının
+(web paneli, Telegram botu, istatistik kaydı, sinyal motoru) bölümü bağlayıcıdır.
 CLAUDE.md "Ajan ortak kuralları" geçerlidir. Burada yalnızca role özgü kurallar var.
 
 BAŞLANGIÇ:

@@ -6,6 +6,103 @@ ve 🔻 tepe kurulumu bildirimi gönderir; otomatik işlem yoktur. Aynı
 süreçte salt okunur web paneli (`src/server.js`, port 3000) çalışır.
 Kod `src/`, testler `test/`; kullanıcı kılavuzu `README.md`.
 
+## Her görevin başında (zorunlu)
+Bu dosya her görevde, her ajan için bağlayıcıdır. İşe başlamadan:
+1. Görevin hangi alana girdiğini belirle (aşağıdaki "Üç alan": web
+   paneli, Telegram botu, istatistik kaydı; birden fazlası olabilir).
+   Hiçbirine girmiyorsa "Sinyal motoru (ortak çekirdek)" bölümüne bak.
+2. O alanın bölümünü, dosyalarını ve testlerini oku; alanın
+   kurallarını brife ve RAPOR'a taşı.
+3. "Kullanıcının kalıcı kuralları" ve "Ajan ortak kuralları"nı uygula;
+   onay kapısına giren adım varsa başlamadan sor.
+4. İş bitince alanın testlerini, ardından `npm test`'i çalıştır;
+   davranış değiştiyse `README.md`'nin ilgili bölümünü güncelle.
+Alan sınırını aşan değişiklikte (ör. yeni istatistik alanı + panelde
+gösterim + Telegram komutu) her alan ayrı iş sayılır, ortak ARAYÜZ
+(kolon adı, API alanı, komut argümanı) brifte yazılır.
+
+## Üç alan
+
+### 1. Web paneli
+- Dosyalar: `src/server.js` (Express, port 3000; API uçları ve panelin
+  HTML/JS'i aynı dosyada, `app.get('/')` altında), `src/adminAuth.js`
+  (Telegram OTP ile oturum), `src/webUrl.js` (panel adresi:
+  `WEB_PANEL_URL` / `APP_URL` / Fly).
+- Uçlar: `/api/auth/*` (kod iste / doğrula / çıkış / oturum),
+  `/api/external-bots/heartbeat` (harici bot nabzı, `X-Bot-Key` =
+  `EXTERNAL_BOT_KEY`), oturum arkasında yalnız GET: `/api/status`,
+  `/api/settings`, `/api/universe`, `/api/cards`, `/api/touches`,
+  `/api/flow`, `/api/flow/table`, `/api/logs*`, `/api/reports/:name`,
+  `/api/external-bots`.
+- Kurallar: panel **salt okunurdur**; ayar değişikliği yalnız
+  Telegram'dan. `adminAuth.middleware` arkasına girmeyen yeni `/api/`
+  ucu, CSRF (`sameOrigin`) ya da güvenlik başlığı gevşetmesi, oturum /
+  OTP sürelerinin uzatılması onay kapısıdır. Dışarıdan gelen metin
+  `cleanText` ve HTML kaçışından geçer. Panel aynı süreçte botla
+  çalışır: ağır sorgu bot döngüsünü bekletir, parça parça oku.
+- Testler: `node test/run.js admin-auth dashboard-security api-security
+  web-url`. Görsel değişiklikte 390px ve 1280px ekran görüntüsü.
+
+### 2. Telegram botu
+- Dosyalar: `src/telegram.js` (gönderim kuyruğu: grupta 20 msj/dk,
+  429'da `retry_after` kadar bekleyip tekrar, `TELEGRAM_MAX_QUEUE_LEN`,
+  kullanıcı yanıtları `kind: 'reply'` ile öncelikli; komutlara yalnız
+  `TELEGRAM_CHAT_ID` sohbetinden yanıt), `src/infoTelegram.js`
+  (komutlar, `/ayarlar` menüsü, butonlar, konu yönlendirme),
+  `src/infoCard.js` (kart metni, Telegram HTML), `src/peakAlert.js`
+  (🔻 tepe kurulumu bildirimi), `src/chart.js` (kart grafiği PNG),
+  `src/infoSettings.js` (ayarlar → `/data/info-settings.json`).
+- Kurallar: kart ve bildirim biçimi, derece daireleri, sesli/sessiz
+  ayrımı ve `/konu` yönlendirmesi kullanıcının onaylı tasarımıdır;
+  değişiklik onay kapısıdır. Yetki: ayar değiştirme yöneticide
+  (`TELEGRAM_ADMIN_IDS` ya da grup yöneticileri); üyeye açık olanlar
+  README'deki komut tablosunda yazılı, yetkiyi genişletmek onay ister.
+  Metin `esc()` ile kaçışlanır, 4000 karakteri aşmaz. Yeni komut
+  README "Telegram komutları" tablosuna ve `/yardim`'a eklenir. Yeni
+  ayar `config.js` `info` + `/ayarlar` menüsü + README'ye birlikte
+  girer. Mesaj sayısını artıran değişiklik (günde kaç mesaj)
+  RAPOR'da yazılır.
+- Testler: `node test/run.js telegram-queue info-e2e peak counter chart
+  gap-dedup`.
+
+### 3. İstatistik kaydı
+- Dosyalar ve tablolar (hepsi `/data` altında, SQLite WAL):
+  - `src/cardStore.js` → `cards.db`: `cards` (kart + 5/15/30/60/240 dk
+    sonrası; `kind = tepe` tepe bildirimleri), `touches` (seviye
+    tepkisi, `src/levelTouch.js`), `events` (tepe defteri,
+    `src/eventLog.js`). Saklama: kart 90 gün, temas ve tepe 60 gün.
+  - `src/spotFlow.js` + `src/bigTrades.js` → `flow.db`: `flow`,
+    `flow_label`, `flow_changes`, `flow_big` (1s 30 gün, 4s 180 gün,
+    büyük işlem 400 gün).
+  - `src/logStore.js` → `logs/events-YYYY-MM-DD.jsonl`
+    (`LOG_RETENTION_DAYS`, varsayılan 14).
+  - Tepe anı fotoğrafı: `src/marketSnap.js`, `src/peakFeatures.js`,
+    `src/marketData.js`; özet ve medyanlar `src/infoStats.js`.
+  - Dışa aktarma: `src/exportData.js` (`/disaaktar`), haftalık
+    `src/weeklyReport.js` + `src/zipWriter.js` (Pazartesi 03:01 TSİ:
+    MD + zip gruba gider, ancak hepsi gittikten sonra kapsamdaki
+    kayıtlar silinir; gönderim başarısızsa silme yok).
+- Kurallar: kayıt hatası botu ya da kart gönderimini durdurmaz
+  (logla, devam et). Kazanç/kayıp hesaplanmaz; "sonrası" yalnız fiyat
+  değişimidir. Eksik veri uydurulmaz: yarım takip "eksik" işaretlenir.
+  Şema yalnız `CREATE TABLE IF NOT EXISTS` / `ADD COLUMN` ile ilerler.
+  Yeni kolon CSV başlığına (`dropCols`, `csvHeader`) ve gerekiyorsa
+  README'ye girer; mevcut kolonun adı ya da anlamı değişmez (eski
+  haftalık dosyalarla kıyas bozulur). Büyük okuma parça parça yapılır
+  (512 MB; haftalık rapor bunun için parçalı okur). Saklama süresi,
+  silme mantığı ve şema değişikliği onay kapısıdır.
+- Testler: `node test/run.js drops touch weekly spot-flow log-store
+  info-unit`.
+
+### Sinyal motoru (ortak çekirdek)
+Üç alanı besleyen kod: `src/infoBot.js` (evren, WS, tohum, boşluk
+doldurma, funding/OI, heartbeat, haftalık rapor tetiği), `src/series.js`,
+`src/infoEngine.js`, `src/levels.js`, `src/ta.js`, `src/streamClient.js`,
+`src/binanceClient.js` (REST weight bütçesi), `src/infoBacktest.js`.
+Canlı ve backtest aynı kodu kullanır. Testler: `node test/run.js
+info-unit breakout move neg daily-levels fib backfill symbol-recovery
+info-bt`.
+
 ## Komutlar
 - Kurulum: `npm ci` (better-sqlite3 ve @napi-rs/canvas yerel modül; ilk
   kurulum birkaç dakika sürebilir)
@@ -87,7 +184,7 @@ Kod `src/`, testler `test/`; kullanıcı kılavuzu `README.md`.
   dosyaya yukleyici ya da sen yazarsın.
 
 ## Brif şablonu
-GÖREV · SENİN DOSYALARIN · DOKUNMA · ARAYÜZ · ONAY KAPILARI · ÖNCE OKU ·
+ALAN · GÖREV · SENİN DOSYALARIN · DOKUNMA · ARAYÜZ · ONAY KAPILARI · ÖNCE OKU ·
 BİTTİ TANIMI · RAPOR
 - ARAYÜZ: başka bir işle paylaşılan sözleşme; dosya yolu, fonksiyon
   imzası, ayar anahtarı, Telegram komutu ve argümanları, kart / CSV
@@ -99,6 +196,9 @@ BİTTİ TANIMI · RAPOR
   (ör. `node test/run.js peak` -> 1/1 geçti; `npm test` -> 28/28).
 
 ## Ajan ortak kuralları (her ajan uyar)
+0. ALAN: İlk iş bu dosyanın "Her görevin başında" adımlarını uygular;
+   RAPOR'un ilk satırına `ALAN: web paneli | Telegram botu | istatistik
+   kaydı | sinyal motoru` yazar.
 1. ÇALIŞMA YERİ: `isolation: worktree` olan ajan harness'in açtığı
    dizinde çalışır; ilk iş `pwd` ve dalı raporlar. Ana checkout'a ya da
    brifte yazan başka bir yola yazmaz.
@@ -134,6 +234,7 @@ BİTTİ TANIMI · RAPOR
    Büyük dosyada (`server.js`, `infoBot.js`, `infoEngine.js`,
    `README.md`) Grep. Log'un ilgili kısmı (`| tail -40`).
 9. RAPOR (denetçi hariç; o JSON döner):
+   ALAN: web paneli | Telegram botu | istatistik kaydı | sinyal motoru
    DURUM: BİTTİ | KISMİ | DURDU
    ÇALIŞMA YERİ: yol, dal
    DEĞİŞEN DOSYALAR: yol (+/- satır)
