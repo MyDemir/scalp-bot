@@ -1,0 +1,12 @@
+{
+  "worktree": {
+    "baseRef": "head"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(npm ci)",
+      "Bash(npm test)",
+      "Bash(node test/run.js:*)"
+    ]
+  }
+}
