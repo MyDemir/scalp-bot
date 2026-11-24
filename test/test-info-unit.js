@@ -97,7 +97,10 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   assert.strictEqual(eng.rsiGrade({ ...sn(true, 90, 90), hits: 1 }, G3), 0, 'RSI kart şartı yoksa derece 0');
   assert.strictEqual(eng.rsiGrade(sn(true, 81, 86, null), G3), 3, 'direnç yok (fiyat keşfi) → en fazla 3');
   assert.strictEqual(eng.rsiGrade(sn(true, 81, 86, null), { ...G3, gradeNoLevelMax: 4 }), 4, 'tavan ayarlanabilir');
-  assert.strictEqual(eng.gradeOf(sn(true, 81, 86, null), G3, { sfp: true }), 4, 'SFP: kırılan seviye direnç sayılır');
+  // SFP kartı da aynı kırpmaya tabi (K14: ölü { sfp } seçeneği kaldırıldı; davranış aynı): seviyesiz → en fazla 3, seviyeli → 4
+  assert.strictEqual(eng.gradeOf(sn(true, 81, 86, null), G3), 3, 'seviyesiz SFP en fazla gradeNoLevelMax');
+  assert.strictEqual(eng.gradeOf(sn(true, 81, 86, null), G3, { sfp: true }), 3, 'eski { sfp } argümanı artık etkisiz');
+  assert.strictEqual(eng.gradeOf(sn(true, 81, 86), G3), 4, 'seviyeli SFP kırpılmaz');
   assert.strictEqual(eng.rsiGrade(sn(true, 88.2, 86, undefined, 86.5), G3), 2, 'kaçak pompa (1s 88 · 4s 86) → en fazla 2');
   assert.strictEqual(eng.rsiGrade(sn(true, 84, 86, undefined, 81), G3), 2, '4s ≥ 80 → kaçak');
   assert(eng.gradeConds(sn(true, 90, 86), G3).runaway && !eng.gradeConds(sn(true, 90, 86), G3).h1, '1s ≥ 88 şart sayılmaz');

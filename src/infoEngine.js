@@ -199,14 +199,15 @@ function gradeConds(snap, s) {
 /**
  * RSI şartından bağımsız derece (1–4).
  * sart3: direnç yoksa (fiyat keşfi) en fazla gradeNoLevelMax (3) — 18–20.10'da direnç yokken 3 şart %60 aşağıda ve
- * 60 dk'da önce medyan +%5.6 yükseldi (direnç varken %77 / +%1.3). SFP kartında kırılan seviye direnç sayılır.
+ * 60 dk'da önce medyan +%5.6 yükseldi (direnç varken %77 / +%1.3). SFP kartı da aynı kırpmaya tabidir
+ * (seviyesiz SFP en fazla gradeNoLevelMax).
  */
-function gradeOf(snap, s, { sfp = false } = {}) {
+function gradeOf(snap, s) {
   if ((s.gradeBy ?? 'sart3') !== 'liste') {
     const c = gradeConds(snap, s);
     let g = Math.min(4, 1 + c.sep + c.h1 + c.r15 + c.atr);
     if (c.runaway) g = Math.min(g, s.gradeRunawayMax ?? 2);
-    return !sfp && !snap.level ? Math.min(g, s.gradeNoLevelMax ?? 3) : g;
+    return !snap.level ? Math.min(g, s.gradeNoLevelMax ?? 3) : g;
   }
   const sc = snap.check ? snap.check.score : 0;
   if (sc >= (s.grade4Min ?? 7)) return 4;
@@ -767,7 +768,6 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
     if (!sfp && !seriesBurst && !moveCard) return null;
     if (!snap.rsiOk) snap = evaluate(series, s, ctx, true);
     inSeries = seriesBurst;
-    if (sfp && !(snap.grade > 0)) snap.grade = gradeOf(snap, s, { sfp: true });
   }
   if (ctx.isMuted && ctx.isMuted(sym, snap.t)) return null;
 
