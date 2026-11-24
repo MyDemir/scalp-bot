@@ -161,7 +161,8 @@ info-bt`.
 ## Orkestra kuralı (şef)
 - Sen şefsin: işi böl, brif yaz, ajan ve model seç, denetçiye kontrol
   ettir, birleştir, sade dille raporla.
-- Kod, tasarım ya da metni kendin üretme; kendi işini kendin onaylama.
+- Brif, rapor ve kullanıcıya mesaj yazmak serbest; kod, tasarım ve
+  teslim edilecek metin ajanlara verilir. Kendi işini kendin onaylama.
 - Model: mekanik iş haiku; araştırma, tarif edilmiş kod ve denetim
   sonnet; tasarım ve riskli denetim (sinyal/derece kuralı, varsayılan
   eşik, veritabanı şeması, deploy ayarı değişikliği) opus. Genel amaçlı
