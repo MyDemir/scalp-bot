@@ -270,6 +270,10 @@ Zip 40 MB'ı aşarsa (Telegram sınırı 50 MB) kalan satırlar `…-2.zip`'e ge
 - `contSkipped` — bu kayıttan önce, son kayıttan beri `sampleGapMin` seyreltmesiyle kaydedilmeden atlanan "devam" adayı sayısı
 - `rsi15c`, `rsi1hc`, `rsi4hc` — 15dk / 1s / 4s RSI, yalnız KAPANMIŞ mumlarla (`rsi15`, `rsi1h`, `rsi4h` kısmi mumludur)
 - `cfgMinTFs`, `cfgRsiMin`, `cfgDropPct`, `cfgContPct` — adayın oluştuğu andaki ayarlar (minTFs / rsiMin Telegram'dan değişebilir)
+- `wick_5mc`, `clv_5mc`, `wick_15mc`, `clv_15mc` — son KAPANMIŞ 5dk / 15dk mumun üst fitili ve kapanış yeri (`wick_5m`, `clv_5m` vb. devam eden, kısmi mumdandır); `bar5Pct`, `bar15Pct` — tepe anında devam eden 5dk / 15dk mumun kaçta kaçı geçmişti (0–100; mum sınırına denk gelirse 100)
+- `volPeakXc` — `volPeakX` gibi, ama payda gerçekte toplanan mum sayısıyla ve tepe mumu ortalamadan hariç (geçmiş kısaysa `volPeakX` düşük ortalama kullanır; o aynen kalır)
+- `miss60` — tepe anından önceki 60 dk'da 1dk serisinde eksik dakika sayısı (60 − pencerede kayıtlı mum). `cvdNet60`, `volTrend15` gibi dizin tabanlı pencerelerde "boşluk vardı" bayrağı olarak oku (0 = boşluk yok)
+- `futQ60t`, `spotQ60`, `spotShare60t` — futures ve spot 1dk quote hacmi, ikisi de AYNI aralıkta: açılışı tepe anından 60 dk önce … 1 dk önce olan 60 mum (tepe anında biter). `spotShare60t` = spotQ60 / (spotQ60 + futQ60t). Eski `spotShare60` farklıdır (futures kısmı kayıt anında, ~15 dk sonra, son 60 mumdan) ve değişmedi; spot alınamazsa yeni sütunlar boş
 Komut satırından: `fly ssh console` → `cd /app && node src/exportData.js --days 30` → `/data/export/veri.zip`,
 bilgisayara: `fly ssh sftp get /data/export/veri.zip`.
 

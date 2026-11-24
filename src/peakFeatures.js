@@ -79,6 +79,20 @@ function candleOf(series, tf) {
     [`body_${tf}`]: o[n - 1] > 0 ? num((c[n - 1] - o[n - 1]) / o[n - 1] * 100, 2) : null,
   };
 }
+// Son KAPANMIŞ mumdan fitil / kapanış yeri (candleOf kısmi mumludur; bunlar K21 için)
+function candleClosed(series, tf) {
+  const h = series.col(tf, 'h', false), l = series.col(tf, 'l', false), o = series.col(tf, 'o', false), c = series.col(tf, 'c', false);
+  const n = c.length;
+  if (!n) return {};
+  const R = h[n - 1] - l[n - 1];
+  return {
+    [`wick_${tf}c`]: R > 0 ? num((h[n - 1] - Math.max(o[n - 1], c[n - 1])) / R, 2) : null,
+    [`clv_${tf}c`]: R > 0 ? num((c[n - 1] - l[n - 1]) / R, 2) : null,
+  };
+}
+// Devam eden mumun ilerlemesi (0–100): t tepe anı (son 1m kapanışı). t mum sınırındaysa son mum az önce kapandı → 100
+function barPct(t, ms) { return t % ms === 0 ? 100 : num((t % ms) / ms * 100, 1); }
+
 function greens(series, tf) {
   const o = series.col(tf, 'o', false), c = series.col(tf, 'c', false);
   let k = 0;
@@ -137,6 +151,16 @@ function extraFeatures(series, o = {}) {
   const pm = Math.max(5, Math.min(240, pumpMin || 60));
   const avgPump = sum(d.q, n - pm, n) / pm;
   out.volPeakX = avgPump > 0 ? num(d.q[n - 1] / avgPump) : null;
+  // H46 K19: payda gerçekte toplanan mum sayısı; tepe (son) mum paydan hariç
+  { const from = Math.max(0, n - pm), cnt = n - 1 - from;
+    out.volPeakXc = cnt > 0 && sum(d.q, from, n - 1) > 0 ? num(d.q[n - 1] / (sum(d.q, from, n - 1) / cnt)) : null; }
+  // H46 K20/K22: pencere [t−60dk, t) — spot (marketData endTime=t−1, 60 mum) ile AYNI aralık: açılış zamanı t−60dk … t−1dk
+  // (tepe mumu dahil, t'de açılan mum yok). miss60 = 60 − aralıktaki 1m mum sayısı; futQ60t = aralıktaki 1m quote toplamı
+  { let cnt = 0, fq = 0;
+    for (let i = n - 1; i >= 0 && d.t[i] >= t - 60 * MIN; i--) if (d.t[i] < t) { cnt++; fq += d.q[i]; }
+    out.miss60 = 60 - cnt; out.futQ60t = num(fq, 2); }
+  for (const tf of ['5m', '15m']) Object.assign(out, { [`wick_${tf}c`]: null, [`clv_${tf}c`]: null }, candleClosed(series, tf));
+  out.bar5Pct = barPct(t, 5 * MIN); out.bar15Pct = barPct(t, 15 * MIN);
   for (const [tf, k] of [['5m', 'neg5'], ['15m', 'neg15'], ['1h', 'neg1h']]) out[k] = negPeaks(series, tf, 40, s.rsiPeriod || 14)?.count ?? null;
   for (const tf of ['5m', '15m', '1h']) Object.assign(out, { [`bbB_${tf}`]: null, [`bbW_${tf}`]: null }, bollinger(series, tf));
   const c = d.c;
@@ -180,4 +204,7 @@ const EXTRA_COLS = ['cvdNet15', 'cvdNet60', 'cvdDiv', 'cvdDivPct', 'buyChg', 'wi
   'hourTR', 'dow', 'session', 'minToFunding', 'ageDays', 'athDist', 'fromLow30', 'dayChg', 'dayPos', 'trend_1h', 'ema200_1h', 'trend_4h',
   'ema200_4h', 'ichiPos', 'ichiDist', 'samples24h', 'drops24h', 'cards24h', 'lastOutcome', 'minsSinceDrop'];
 
-module.exports = { extraFeatures, EXTRA_COLS, emaTrend, cvdFeatures, bollinger, ichiCloud, session, localHourDow };
+// Sona eklenen kolonlar (eventLog AUDIT_COLS'ta; EXTRA_COLS sırası değişmez)
+const EXTRA_AUDIT_COLS = ['wick_5mc', 'clv_5mc', 'wick_15mc', 'clv_15mc', 'bar5Pct', 'bar15Pct', 'volPeakXc', 'miss60', 'futQ60t'];
+
+module.exports = { extraFeatures, EXTRA_COLS, EXTRA_AUDIT_COLS, emaTrend, cvdFeatures, bollinger, ichiCloud, session, localHourDow };

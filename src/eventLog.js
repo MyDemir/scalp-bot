@@ -21,7 +21,10 @@
  *   Doğruluk : sameBar (sonuç mumunda hem düşüş hem devam eşiği vardı, 1/0) · cardWhen (en erken kart: önce / arada / sonra;
  *              arada = tepe < kart ≤ düşüş anı (düşüş yoksa pencere sonu)) · contSkipped (önceki kayıttan beri seyreltmeyle atlanan
  *              devam adayı) · rsi15c / rsi1hc / rsi4hc (yalnız kapanmış mumlarla RSI) · cfgMinTFs / cfgRsiMin / cfgDropPct /
- *              cfgContPct (kayıt anındaki ayarlar)
+ *              cfgContPct (kayıt anındaki ayarlar) · wick_5mc/clv_5mc/wick_15mc/clv_15mc (son KAPANMIŞ
+ *              mumdan; wick_5m vb. kısmi) · bar5Pct/bar15Pct (devam eden mumun ilerlemesi 0–100) · volPeakXc (volPeakX, payda
+ *              gerçek mum sayısı, tepe mumu hariç) · miss60 (tepeden önceki 60 dk'da eksik 1m mum) · futQ60t/spotQ60/spotShare60t
+ *              (futures ve spot 60 dk, ikisi de tepe anında biten aynı aralık)
  *   Dipte    : tepeden sonraki 60 dk'nın en düşüğü — %, dk, en yakın destek ve EMA21 merdiveni
  *
  * Kartı ve tetik kurallarını ETKİLEMEZ. Rapor dili "eşlik eden durum"dur; kazanç/kayıp hesabı yoktur.
@@ -31,7 +34,7 @@ const { evaluate, separationPct } = require('./infoEngine');
 const ta = require('./ta');
 const { tfIndicators, vwapSet, vwapFeatures, refLevels, nearest, TF_COLS, VWAP_COLS } = require('./marketSnap');
 const { maLadder, stopOf } = require('./levelTouch');
-const { extraFeatures, EXTRA_COLS } = require('./peakFeatures');
+const { extraFeatures, EXTRA_COLS, EXTRA_AUDIT_COLS } = require('./peakFeatures');
 const { basisPct, ENRICH_COLS, LIQ_COLS } = require('./marketData');
 
 const MIN = 60_000;
@@ -84,7 +87,8 @@ const PEAK_COLS = ['pumpPct', 'pumpMin', 'pkLv', 'pkLvKind', 'pkLvDist', 'pkLvTo
 const TROUGH_COLS = ['trPct', 'trMin', 'trLv', 'trLvKind', 'trLvDist', 'trLvTouches', 'trNear', 'trEma', 'trFalling'];
 const OUTCOME_COLS = ['outcome', 'upBeforeDrop', 't1', 't2', 't3', 'c5Red', 'c5Engulf', 'c5BelowPrev', 'c5ClosePct', 'c5Next60Low'];
 // H46 veri doğruluğu kolonları — eski CSV'lerle kıyas bozulmasın diye hep SONA eklenir
-const AUDIT_COLS = ['sameBar', 'cardWhen', 'contSkipped', 'rsi15c', 'rsi1hc', 'rsi4hc', 'cfgMinTFs', 'cfgRsiMin', 'cfgDropPct', 'cfgContPct'];
+const AUDIT_COLS = ['sameBar', 'cardWhen', 'contSkipped', 'rsi15c', 'rsi1hc', 'rsi4hc', 'cfgMinTFs', 'cfgRsiMin', 'cfgDropPct', 'cfgContPct',
+  ...EXTRA_AUDIT_COLS, 'spotQ60', 'spotShare60t'];
 const FEATURE_COLS = [...BASE_COLS, ...PEAK_COLS, ...TF_COLS, ...VWAP_COLS, ...EXTRA_COLS, 'basisPct', ...LIQ_COLS, ...ENRICH_COLS, ...TROUGH_COLS, ...OUTCOME_COLS, ...AUDIT_COLS];
 
 /** Tepe anının tam fotoğrafı */
@@ -104,7 +108,7 @@ function peakFeatures(series, s, ctx, high, pump, loT, tc, history = null) {
     ...extraFeatures(series, { s, ctx, price: snap.price, t: tc, pumpPct: pump, pumpMin: Math.round((tc - loT) / MIN), atr1h: tfi.atr_1h, funding: prem, history }),
     basisPct: basisPct(prem),
     ...(ctx.liq ? ctx.liq(sym, tc, q15) : Object.fromEntries(LIQ_COLS.map(k => [k, null]))),
-    ...Object.fromEntries(ENRICH_COLS.map(k => [k, null])),
+    ...Object.fromEntries(ENRICH_COLS.map(k => [k, null])), spotQ60: null, spotShare60t: null,
     // yalnız KAPANMIŞ mumlarla RSI (rsi15/rsi1h/rsi4h kısmi mumludur)
     rsi15c: num(ta.rsiLast(series.col('15m', 'c', false), s.rsiPeriod), 1),
     rsi1hc: num(ta.rsiLast(series.col('1h', 'c', false), s.rsiPeriod), 1),
@@ -230,7 +234,12 @@ function createDropLedger(opts = {}) {
     if (E.enrich) {
       const d = series.d['1m'], n = d.q.length;
       let q60 = 0; for (let i = Math.max(0, n - 60); i < n; i++) q60 += d.q[i];
-      const merge = r => { if (r) for (const [k, v] of Object.entries(r)) if (!(k.startsWith('ob') && e.feat[k] != null)) e.feat[k] = v; };
+      const merge = r => {
+        if (r) for (const [k, v] of Object.entries(r)) if (!(k.startsWith('ob') && e.feat[k] != null)) e.feat[k] = v;
+        // K22: spot (t−60dk…t−1dk) ile aynı aralıkta futures; spotShare60 (commit anı q60'lı) aynen kalır
+        const sq = e.feat.spotQ60, fq = e.feat.futQ60t;
+        if (sq != null && fq != null && sq + fq > 0) e.feat.spotShare60t = num(sq / (sq + fq), 3);
+      };
       const r = E.enrich(e.symbol, { t: e.t, price: e.price, futQ60: q60 });   // canlıda Promise (saniyeler), testte düz nesne olabilir
       if (r && typeof r.then === 'function') r.then(merge).catch(() => {}); else merge(r);
     }
@@ -536,7 +545,7 @@ function teyitText(rows, { title = '', E = DEFAULTS, minN = 5 } = {}) {
 • Satır: o durum varken / yokken adayların yüzde kaçı düştü, parantezde varken adet (en az ${minN}). Fark ≥ 3 puan olanlar
 • Aynı pompadan birden fazla aday olabilir (devam en fazla ${E.sampleGapMin} dk'da bir) — adaylar birbirinden bağımsız değildir
 • 5dk teyit mumu: tepeden sonraki ilk tam 5dk mum; oran mumun kapanışından sonraki 60 dk'ya göre
-• CSV: sameBar = sonuç mumunda iki eşik birden vardı · cardWhen = kart tepeye göre önce/arada/sonra · contSkipped = atlanan devam adayı · rsi15c/rsi1hc/rsi4hc = kapanmış mumlu RSI · cfg* = kayıt anı ayarı
+• CSV: sameBar = sonuç mumunda iki eşik birden vardı · cardWhen = kart tepeye göre önce/arada/sonra · contSkipped = atlanan devam adayı · rsi15c/rsi1hc/rsi4hc = kapanmış mumlu RSI · cfg* = kayıt anı ayarı · *c = kapanmış mum, miss60 = eksik dk, *60t = tepe anında biten pencere
 • Kazanç/kayıp değildir, "eşlik eden durum"dur; az örnekte farklar tesadüf olabilir</blockquote>`,
   ].filter(Boolean);
   return parts.join('\n\n').slice(0, 4096);

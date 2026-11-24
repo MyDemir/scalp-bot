@@ -193,9 +193,65 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   ok(`/teyit: ${all.length} aday (${drops(all).length} düştü), ${T.length} koşul karşılaştırıldı, satır ≤ ${maxLine}`);
 }
 
+// ── 8) H46 K19-K22 yeni kolonlar ──
+{
+  const { extraFeatures } = require(`${REPO}/src/peakFeatures`);
+  const mk = (n, gapAt = [], tStart = t0) => { const S = new Series('XUSDT'); const a = [];
+    for (let i = 0; i < n; i++) { if (gapAt.includes(i)) continue; a.push({ t: tStart + i * MIN, o: 100, h: 101, l: 99, c: 100, v: 1, tb: 1, q: 100, tq: 50, closed: true }); }
+    S.seed('1m', a); return S; };
+  // (a) kısmi 5m mum (t0+10dk açılış; tepe anı t0+12dk → %40) ile son kapanmış mum farklı
+  {
+    const S = mk(120); const T5 = 5 * MIN, tp = t0 + 120 * MIN + 2 * MIN;   // t: 5dk sınırından 2 dk sonra
+    const b = t0 + 120 * MIN;   // devam eden 5m mum açılışı
+    S.seed('5m', [{ t: b - T5, o: 100, h: 110, l: 100, c: 102, v: 1, q: 1, tq: 1, tb: 1, closed: true }]);   // kapanmış: fitil 8/10, clv 0.2
+    S.part['5m'] = { t: b, o: 102, h: 106, l: 102, c: 106, v: 1, q: 1, tq: 1, tb: 1 };                       // kısmi: clv 1
+    const f = extraFeatures(S, { t: tp });
+    assert.strictEqual(f.clv_5m, 1, 'kısmi mum clv aynen'); assert.strictEqual(f.clv_5mc, 0.2, 'kapanmış mum clv');
+    assert.notStrictEqual(f.clv_5mc, f.clv_5m); assert.strictEqual(f.wick_5mc, 0.8);
+    assert.strictEqual(f.bar5Pct, 40, 'bar5Pct: ' + f.bar5Pct); assert.strictEqual(f.bar15Pct, 100 * ((tp % (15 * MIN)) / (15 * MIN)) === 100 ? 100 : +((tp % (15 * MIN)) / (15 * MIN) * 100).toFixed(1));
+    assert.strictEqual(extraFeatures(S, { t: b }).bar5Pct, 100, 'sınırda 100');
+    assert.strictEqual(f.clv_15mc, null, 'kapanmış 15m yok → null');
+  }
+  // (b) kısa geçmiş: 20 mum, pumpMin 60 → payda 19 (gerçek), tepe mumu 10x hacim
+  {
+    const S = mk(20); S.d['1m'].q[19] = 1000;
+    const f = extraFeatures(S, { t: t0 + 20 * MIN, pumpMin: 60 });
+    assert.strictEqual(f.volPeakXc, 10, 'volPeakXc: ' + f.volPeakXc);
+    assert.strictEqual(f.volPeakX, +(1000 / ((19 * 100 + 1000) / 60)).toFixed(2), 'volPeakX eski formül aynen: ' + f.volPeakX);
+    assert.strictEqual(extraFeatures(mk(1), { t: t0 + MIN }).volPeakXc, null);
+  }
+  // (c) 3 dk boşluk → miss60 = 3; eksiksiz → 0; (d) futQ60t aralığı
+  {
+    const S = mk(200, [150, 151, 152]); const t = t0 + 200 * MIN;
+    const f = extraFeatures(S, { t });
+    assert.strictEqual(f.miss60, 3, 'miss60: ' + f.miss60); assert.strictEqual(f.futQ60t, 5700);
+    assert.strictEqual(extraFeatures(mk(200), { t }).miss60, 0);
+    assert.strictEqual(extraFeatures(mk(200, [139]), { t }).miss60, 0, 'pencere dışı boşluk sayılmaz (139 < t−60dk)');
+    assert.strictEqual(extraFeatures(mk(200), { t: t0 + 190 * MIN }).futQ60t, 6000, 't sonrası mum pencereye girmez');
+  }
+  // (d) uçtan uca: enrich spotQ60 verir; futQ60t tepe anında biten pencere, commit anı q60'tan farklı
+  {
+    const calls = []; const SQ = 3e6;
+    const r = run(path1, { overrides: ov, opts: { enrich: (sym, o) => { calls.push(o); return { spotShare60: 0.5, spotQ60: SQ }; } } });
+    await new Promise(res => setImmediate(res));
+    const x = drops(r.ev)[0];
+    const T = x.t; const want = r.m1.filter(c => c.t >= T - 60 * MIN && c.t < T).reduce((a, c) => a + c.q, 0);
+    assert(Math.abs(x.feat.futQ60t - want) < 0.02 * 60, 'futQ60t tepe anı penceresi: ' + x.feat.futQ60t + ' vs ' + want);
+    const call = calls.find(o => o.t === T);
+    assert(Math.abs(call.futQ60 - x.feat.futQ60t) > 1, 'commit anı q60 farklı: ' + call.futQ60 + ' vs ' + x.feat.futQ60t);
+    assert.strictEqual(x.feat.spotShare60t, +(SQ / (SQ + x.feat.futQ60t)).toFixed(3));
+    assert.strictEqual(x.feat.spotShare60, 0.5, 'eski spotShare60 aynen'); assert.strictEqual(x.feat.spotQ60, SQ);
+    assert.strictEqual(x.feat.miss60, 0);
+    const noSp = drops(run(path1, { overrides: ov, opts: { enrich: () => ({ spotShare60: 0.5 }) } }).ev)[0];
+    assert.strictEqual(noSp.feat.spotShare60t, null, 'spot yoksa null');
+  }
+  ok('H46 K19–K22: *c kapanmış mum, bar%, volPeakXc gerçek payda, miss60, futQ60t / spotShare60t');
+}
+
 // ── 7) H46 veri doğruluğu kolonları ──
 {
-  const AUD = ['sameBar', 'cardWhen', 'contSkipped', 'rsi15c', 'rsi1hc', 'rsi4hc', 'cfgMinTFs', 'cfgRsiMin', 'cfgDropPct', 'cfgContPct'];
+  const AUD = ['sameBar', 'cardWhen', 'contSkipped', 'rsi15c', 'rsi1hc', 'rsi4hc', 'cfgMinTFs', 'cfgRsiMin', 'cfgDropPct', 'cfgContPct',
+    'wick_5mc', 'clv_5mc', 'wick_15mc', 'clv_15mc', 'bar5Pct', 'bar15Pct', 'volPeakXc', 'miss60', 'futQ60t', 'spotQ60', 'spotShare60t'];
   assert.deepStrictEqual(dropCols().slice(-AUD.length), AUD, 'yeni kolonlar sütun sırasının SONUNDA');
   const old = flatDrop({ id: 'x', out: {}, feat: {} }); assert(AUD.every(k => old[k] == null), 'eski kayıtta boş');
   // sameBar: tepeden sonraki mumda hem −%1.5 hem tepe üstü

@@ -59,6 +59,7 @@ function createEnricher({ client, spotBase = process.env.BINANCE_SPOT_BASE_URL |
       const sp = parseFloat(k[k.length - 1][4]) * mult;
       return {
         spotPrem: sp > 0 && futPrice > 0 ? num((futPrice - sp) / sp * 100, 3) : null,
+        spotQ60: num(sq, 2),   // H46 K22: spot 60 dk quote toplamı, açılış t−60dk…t−1dk (endTime=t−1); futures eşi eventLog'da futQ60t
         spotShare60: sq + futQ60 > 0 ? num(sq / (sq + futQ60), 3) : null,
       };
     } catch { return {}; }
