@@ -130,7 +130,7 @@ Ayrıntılar bellekte tutulur (son 3000 kart); bot yeniden başlayınca eski kar
 - **EMA21** 3m/5m: fiyata uzaklığı (%) ve ATR cinsinden ayrışma (geri çekilme hedefleri)
 - **Negatif tepe** (1m/3m): fiyat eşit ya da daha yüksek tepe yaparken RSI daha düşük tepe — ardışık sayı
   ("2–3 tepe negatif yapıp çakarsa"). Son tepe 6 mumdan eskiyse sayılmaz. ≥2 ise `#NEGTEPE`.
-- **Hacim sayacı** (60 dk ve 15 dk): 1m gövde ≥ %1 / ≥ %1.5 ve hacim ≥ 2× (önceki 20 **dakikadaki** mumların ortalaması; veri boşluğunda bulunan mumlara bölünür, 10'dan az mum varsa sayılmaz);
+- **Hacim sayacı** (60 dk ve 15 dk): 1m gövde ≥ %1 / ≥ %1.5 ve hacim ≥ 2× (önceki 20 **dakikadaki** mumların ortalaması; veri boşluğunda bulunan mumlara bölünür, pencerenin yarısından az mum varsa sayılmaz);
   taker alış > %55 → alım, < %45 → satış, arası nötr. Art arda gelen patlama mumları tek patlama sayılır.
 - Hashtag'ler (Detay mesajında; dokununca o sınıftaki tüm kartlar listelenir): `#COIN #DERECE1/2/3/4 #DIRENCTE/#YAKLASIYOR #HACIM #SERI #SAHTEKIRILIM #FIYATKESFI #NEGTEPE #AYRISMA #TAKIP`
 - **Bildirim:** her yeni kart sesli gelir (`/ayarlar` → "Kart sesli" kapatılırsa yalnız 🔴🔴🔴 ve takipteki coinler sesli).
