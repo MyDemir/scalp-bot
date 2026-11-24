@@ -315,4 +315,60 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   assert.strictEqual(C.incomplete('5m', 5), 0, 'seed yarım mumu (öncesi tam kabul) tam');
   ok('A11 Series.incomplete: boşluksuz 0; eksik dk → o mum işaretli, değerler aynı; seed tam');
 }
+// ── K33: backtest döngüsünde üst TF look-ahead güvenliği ──
+{ const { TF_MS, KEEP } = require(`${REPO}/src/series`); const ta = require(`${REPO}/src/ta`);
+  const HT = ['3m', '5m', '15m', '1h', '4h']; const N = 6000; const t0 = Math.floor(Date.UTC(2026, 0, 1) / (240 * MIN)) * 240 * MIN + 37 * MIN;  // 4h sınırında değil
+  let seed = 11; const rnd = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
+  const arr = []; let p = 100;
+  for (let i = 0; i < N; i++) { const o = p; p *= 1 + (rnd() - 0.5) * 0.004; const h = Math.max(o, p) * (1 + rnd() * 0.001), l = Math.min(o, p) * (1 - rnd() * 0.001), v = 50 + rnd() * 100;
+    arr.push({ t: t0 + i * MIN, o, h, l, c: p, v, tb: v * 0.5, q: v * p, tq: v * 0.5 * p, closed: true }); }
+  // referans: ham 1m'lerden [ps, ps+ms) ∩ (t < now) toplama
+  const oracle = (from, to, ps, ms) => { if (from === 0 && ps < arr[bstart].t && ps + 1 > arr[0].t && oracle.bt) from = bstart; let a = null; for (let j = from; j <= to; j++) { const c = arr[j]; if (c.t < ps) continue; if (c.t >= ps + ms) break; if (!a) a = { t: ps, o: c.o, h: c.h, l: c.l, c: c.c, v: c.v, q: c.q };
+    else { a.h = Math.max(a.h, c.h); a.l = Math.min(a.l, c.l); a.c = c.c; a.v += c.v; a.q += c.q; } } return a; };
+  oracle.bt = false;
+  const near = (a, b) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
+  const same = (g, w, m) => { assert(g && w, m + ' yok'); for (const k of ['t', 'o', 'h', 'l', 'c', 'v', 'q']) assert(near(g[k], w[k]), `${m}: ${k} ${g[k]} != ${w[k]}`); };
+  const lastOf = (S, tf) => { const d = S.d[tf], n = d.t.length - 1; return { t: d.t[n], o: d.o[n], h: d.h[n], l: d.l[n], c: d.c[n], v: d.v[n], q: d.q[n] }; };
+
+  // backtest yolu: üst TF'ler başlangıçtan ÖNCEKİ kapanmış mumlarla tohumlanır (fetchBefore gibi), 1m tohumlanır, sonra döngü
+  const bstart = 5000, btSeries = () => { const S = new Series('BT'); const st = arr[bstart].t;
+    for (const tf of ['1d', '4h', '1h', '15m', '5m', '3m']) { const ms = TF_MS[tf], out = [];
+      for (let ps = Math.floor((st - 1) / ms) * ms; out.length < KEEP[tf] && ps >= arr[0].t - ms; ps -= ms) { if (ps + ms > st) continue; const a = oracle(0, bstart - 1, ps, ms); if (a && a.t === ps && arr[0].t <= ps) out.unshift({ ...a, tb: a.v * 0.5, tq: a.q * 0.5, closed: true }); }
+      S.seed(tf, out); }
+    S.seed('1m', arr.slice(Math.max(0, bstart - KEEP['1m']), bstart)); return S; };
+  oracle.bt = false; const BT = btSeries(), LIVE = new Series('LIVE'); for (let i = 0; i < bstart; i++) LIVE.apply1m(arr[i]);
+  oracle.bt = true;   // döngüde başlangıçtan önce açılmış periyodun yalnız start sonrası 1m'leri BT'de var (start'ta açık mum tohumlanmaz; 'eksik' işaretlenir); gelecek veri değil, eksik veri
+  let nClosed = 0, nPart = 0, cmp = 0;
+  for (let i = bstart; i < N; i++) {
+    const t = arr[i].t + MIN;                                  // karar anı: bu 1m kapandı
+    const closed = BT.apply1m(arr[i]); LIVE.apply1m(arr[i]);
+    for (const tf of HT) { const ms = TF_MS[tf];
+      if (closed.has(tf)) { const g = lastOf(BT, tf); assert(g.t + ms <= t, `${tf}: kapanmış mum t'den sonra bitiyor`); same(g, oracle(0, i, g.t, ms), `${tf}@${i} kapanmış`); assert.strictEqual(g.t + ms, t, 'closed kümesi yalnız tam bu anda biten mum'); nClosed++; }
+      else assert.strictEqual(BT.lastT(tf) + ms <= t, true);
+      // kısmi mum: yalnız t'ye kadarki 1m'ler
+      const pt = BT.part[tf]; if (pt) { const ps = Math.floor(arr[i].t / ms) * ms; assert.strictEqual(pt.t, ps); assert(pt.t + ms > t, 'kısmi mum aslında kapanmış olmalıydı');
+        same(pt, oracle(0, i, ps, ms), `${tf}@${i} kısmi`); assert.strictEqual(BT.col(tf, 't', true).at(-1), ps); assert(near(BT.col(tf, 'h', true).at(-1), oracle(0, i, ps, ms).h)); nPart++; }
+      else assert(closed.has(tf), `${tf}: kısmi yok ama mum kapanmadı`);
+    }
+    // canlı yol = backtest yolu: anlık rsi/ema/macd (kısmi mum dahil ve hariç), 3m/5m/15m (tampon dolu); 1m
+    for (const tf of ['1m', '3m', '5m', '15m']) for (const wp of [true, false]) {
+      if (i < bstart + 15) continue;                           // start'ta açık olan ilk 15 dk'lık periyotlar tohumda yok (yukarıdaki not)
+      const a = BT.col(tf, 'c', wp), b = LIVE.col(tf, 'c', wp), ka = a.slice(-KEEP[tf]), kb = b.slice(-KEEP[tf]);
+      assert.deepStrictEqual(ka.slice(-60), kb.slice(-60), `${tf} kapanışlar t=${t}`);
+      if (tf === '1m' || i % 7 === 0) { assert.strictEqual(ta.rsiLast(ka, 14), ta.rsiLast(kb, 14), `rsi ${tf} t=${t}`); assert.strictEqual(ta.emaLast(ka, 20), ta.emaLast(kb, 20), `ema ${tf} t=${t}`);
+        assert.deepStrictEqual(ta.macdTail(ka), ta.macdTail(kb), `macd ${tf} t=${t}`); cmp++; } }
+  }
+  // gelecek bozulursa t anı değişmez: i'den sonraki 1m'ler bozuk bir seriyle, i anındaki durum birebir aynı
+  { const cut = 5800, A = btSeries(), B = btSeries();
+    for (let i = bstart; i <= cut; i++) { A.apply1m(arr[i]); B.apply1m(arr[i]); }
+    const snap = S => JSON.stringify([S.d, S.part, [...HT.map(tf => [...S.inc[tf]])]]);
+    assert.strictEqual(snap(A), snap(B)); const before = snap(B);
+    // B'ye "gelecek" yalnız sonra verilir; A'nın t anı durumu gelecekteki (bozuk) mumlardan etkilenmemiş olmalı
+    for (let i = cut + 1; i < cut + 40; i++) B.apply1m({ ...arr[i], h: arr[i].h * 3, c: arr[i].c * 2, l: arr[i].l * 0.5 });
+    assert.strictEqual(snap(A), before, 'A durumu gelecek mumlarla değişti'); assert.notStrictEqual(snap(B), before); }
+  assert(nClosed > 400 && nPart > 2000 && cmp > 600, `kapsam ${nClosed}/${nPart}/${cmp}`);
+  // tam seri, uçtan uca: canlı (boştan) ve backtest tamponu, ham 1m'den toplananla birebir
+  for (const tf of ['3m', '5m', '15m']) { const g = BT.d[tf], l = LIVE.d[tf], n = g.t.length; assert.deepStrictEqual(g.t.slice(-100), l.t.slice(-100)); assert(near(g.c[n - 5], oracle(0, N - 1, g.t[n - 5], TF_MS[tf]).c)); }
+  ok(`K33 look-ahead: ${nClosed} üst TF kapanışı ve ${nPart} kısmi mum, t'ye kadarki 1m'lerden toplananla birebir (sonraki 1m'ler katılmıyor); canlı ve backtest yolu ${cmp} ölçümde rsi/ema/macd aynı; gelecek mum bozulunca t anı değişmiyor`);
+}
 console.log(R.join('\n'));
