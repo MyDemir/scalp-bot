@@ -43,6 +43,12 @@ assert(w.md.indexOf('## Kurulum tablosu (pompa başına ilk aday, giriş 1dk kap
 assert(w.md.includes('# Haftalık istatistik — 2026-H40') && w.md.includes('## Düşüşler (1)') && w.md.includes('**BUSDT**') && w.md.includes('tepki: Günlük VWAP +2σ') && w.md.includes('dip −%3.1 (18 dk) 15dk EMA21') && w.md.includes('kart ❌ eksik: seviye'));
 assert(w.md.includes('## Kartlar (2)') && w.md.includes('**AUSDT** #1 derece 3'));
 assert(!w.md.includes('Eski derece'), 'gradeOld olmayan eski kartlarda eski derece satırı yok');
+{ // alanı olmayan eski kartlardan oluşan hafta: filtre dışı satırı çıkmaz
+  const stO = createCardStore({ file: dir + '/oldcards.db', logger: { log() {}, error: x => { throw new Error(x); } } });
+  stO.add({ id: 'O1', kind: 'card', symbol: 'AUSDT', t: old, seq: 1, price: 1, data: { grade: 3, hits: 2, rsi: { '3m': 91, '5m': 92, '15m': 88 } } });
+  const wo = await W.buildWeekly(stO, { now, s: cfg.info, E: cfg.events });
+  assert(wo.counts.cards === 1 && !wo.md.includes('Filtre dışı kart:'), 'snapOk alanı olmayan haftada filtre dışı satırı yok'); stO.close();
+}
 const dcsv = Z['tepeler.csv'];
 assert(dcsv.startsWith('\uFEFF') && dcsv.split('\n')[0].includes('rsi_4h') && dcsv.split('\n')[0].includes('pkLv') && dcsv.trim().split('\n').length === 2);
 assert(Z['temaslar.csv'].split('\n')[0].trim().split(',').slice(-2).join() === 'pb0,belowMin', 'temaslar.csv başlığı: pb0,belowMin sonda');
@@ -55,7 +61,7 @@ assert(Z['temaslar.csv'].split('\n')[0].trim().split(',').slice(-2).join() === '
   const rowOf = sym => L.slice(1).find(l => l.includes(sym));
   assert.strictEqual(pick(rowOf('AUSDT'), 'filterBypass'), '', 'eski kartta boş'); assert.strictEqual(pick(rowOf('AUSDT'), 'bypassBy'), '');
   assert.strictEqual(pick(rowOf('CUSDT'), 'filterBypass'), '1'); assert.strictEqual(pick(rowOf('CUSDT'), 'bypassBy'), 'sfp'); assert.strictEqual(pick(rowOf('CUSDT'), 'snapOk'), '0');
-  assert(w.md.includes('Filtre dışı kart: 1 (SFP 1 · patlama 0 · hareket 0); 60 dk sonra aşağı %100 (1)'), 'MD filtre dışı satırı');
+  assert(w.md.includes('Filtre dışı kart: 1 (SFP 1 · patlama 0 · hareket 0); 60 dk sonra aşağı %100 (1); kayıtlı 1 kart'), 'MD filtre dışı satırı');
   assert(w.md.includes('- Filtre dışı kart (kartlar.csv'), 'Sütunlar açıklaması');
 }
 assert(Z['kartlar.csv'].trim().split('\n').length === 3 && Z['temaslar.csv'].includes('3dk EMA21'));

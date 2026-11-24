@@ -160,11 +160,12 @@ async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = n
   const grade = g => cards.filter(c => c.grade === g).length;
   const gradeOld = g => cards.filter(c => c.gradeOld === g).length;
   const oldN = cards.filter(c => c.gradeOld != null).length;
-  const byp = cards.filter(c => c.filterBypass === 1);
+  const snapCards = cards.filter(c => c.snapOk != null);   // alanı olmayan eski kartlar sayılmaz
+  const byp = snapCards.filter(c => c.filterBypass === 1);
   const bypBy = k => byp.filter(c => c.bypassBy === k).length;
   const bypFull = byp.filter(c => c.fwd?.[60]?.close != null && c.fwd[60].full !== false);
   const bypDown = bypFull.filter(c => c.fwd[60].close < 0).length;
-  const bypLine = `Filtre dışı kart: ${byp.length} (SFP ${bypBy('sfp')} · patlama ${bypBy('burst')} · hareket ${bypBy('move')}); 60 dk sonra aşağı ${bypFull.length ? '%' + (bypDown / bypFull.length * 100).toFixed(0) : '—'} (${bypFull.length})`;
+  const bypLine = snapCards.length ? `Filtre dışı kart: ${byp.length} (SFP ${bypBy('sfp')} · patlama ${bypBy('burst')} · hareket ${bypBy('move')}); 60 dk sonra aşağı ${bypFull.length ? '%' + (bypDown / bypFull.length * 100).toFixed(0) : '—'} (${bypFull.length}); kayıtlı ${snapCards.length} kart` : null;
   const oc = { düştü: counts.drops, devam: acc.oc('devam'), yatay: acc.oc('yatay') };
   const md = [
     `# Haftalık istatistik — ${label}`,
