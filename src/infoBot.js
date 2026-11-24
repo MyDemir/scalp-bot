@@ -81,7 +81,7 @@ let premium   = new Map();
 const oiCache = new Map();
 let vols24    = new Map();
 
-const stats = { closes: 0, cards: 0, cardsToday: 0, day: null, seeded: 0, seedErrors: 0, gapFills: 0 };
+const stats = { closes: 0, cards: 0, cardsToday: 0, blockedEvals: 0, blockedEvalsToday: 0, blockedEvalsWin: 0, day: null, seeded: 0, seedErrors: 0, gapFills: 0 };
 const gapMetrics = { runs: 0, lastDurationMs: 0, lastSymbols: 0, lastRecoveredCandles: 0, lastFetchMs: 0, lastProcessMs: 0, lastFailures: 0, lastSkippedBusy: 0, lastPeakConcurrency: 0, lastIncomplete: 0, lastStale: 0, lastCoverage: {} };
 const seedMetrics = { runs: 0, lastLabel: null, lastSymbols: 0, lastFailures: 0, lastIncomplete: 0, lastPeakConcurrency: 0, lastDurationMs: 0 };
 const MAX_COVERAGE_REPORT = 50;   // panelde gösterilen sorunlu coin sayısı
@@ -284,9 +284,15 @@ async function oiChange(sym) {
   return v;
 }
 
+// Kurtarma kilidinde atlanan 1m değerlendirme sayısı (tek sayaç; coin başına veri yok)
+function countBlocked() {
+  rollDay();
+  stats.blockedEvals++; stats.blockedEvalsToday++; stats.blockedEvalsWin++;
+}
+
 function rollDay() {
   const day = new Date().toISOString().slice(0, 10);
-  if (stats.day !== day) { stats.day = day; stats.cardsToday = 0; }
+  if (stats.day !== day) { stats.day = day; stats.cardsToday = 0; stats.blockedEvalsToday = 0; }
 }
 
 async function emitCard(card) {
@@ -335,7 +341,8 @@ function processCandle0(sr, c, live) {
   stats.closes++;
   const closed = sr.apply1m(c);
   store?.onCandle(sr.symbol, c);
-  if (!live || recoveryBlocked.has(sr.symbol)) return;
+  if (!live) return;
+  if (recoveryBlocked.has(sr.symbol)) { countBlocked(); return; }
   if (sr.ready()) {
     try {
       for (const e of touches.observe(sr, closed, settings.get())) store?.addTouch(e);
@@ -394,6 +401,7 @@ function onKline(symbol, tf, k, isFinal) {
   const sr = series.get(symbol);
   if (!sr) return;
   if (recoveryBlocked.has(symbol)) {
+    countBlocked();
     if (!pending.has(symbol)) pending.set(symbol, []);
     pending.get(symbol).push(c);
     return;
@@ -652,7 +660,7 @@ function statusText() {
   const up = Math.round((Date.now() - startedAt) / 60000);
   const mem = Math.round(process.memoryUsage().rss / 1024 / 1024);
   return `🟢 <b>Bilgi botu</b> · ${Math.floor(up / 60)}s ${up % 60}dk çalışıyor
-Coin: ${series.size} izleniyor · ${readyCount()} hazır${busy.size ? ` · ${busy.size} yükleniyor` : ''}${failed.size ? ` · ${failed.size} hata` : ''}${recoveryBlocked.size ? ` · ${recoveryBlocked.size} kurtarma/sinyal kilidi` : ''}
+Coin: ${series.size} izleniyor · ${readyCount()} hazır${busy.size ? ` · ${busy.size} yükleniyor` : ''}${failed.size ? ` · ${failed.size} hata` : ''}${recoveryBlocked.size ? ` · ${recoveryBlocked.size} kurtarma/sinyal kilidi` : ''}${stats.blockedEvals ? ` · kilitte atlanan 1m değerlendirme: ${stats.blockedEvalsToday} bugün / ${stats.blockedEvals} toplam` : ''}
 ${(() => { const st = staleList(); return st.length ? `⚠️ Geride (son 3 dk mum yok): ${st.length} coin — ${st.slice(0, 8).join(', ')}${st.length > 8 ? '…' : ''}` : '✅ Tüm hazır coinlerde son 3 dk mumu var'; })()}
 Son 5 dk: ${diagText(lastDiag && lastDiag.n ? lastDiag : diag)}
 Evren: 24s hacim ≥ ${s.minVolumeM}M $${s.tradfi ? ` · hisse/emtia açık (${tradfiCount()} izleniyor)` : ''}
@@ -706,6 +714,8 @@ function heartbeat() {
   lastCloses = stats.closes;
   const cards = stats.cards;
   stats.cards = 0;
+  const blockedWin = stats.blockedEvalsWin;
+  stats.blockedEvalsWin = 0;
   store?.sweep();
   touches.sweep();
   drops.sweep();
@@ -718,11 +728,13 @@ function heartbeat() {
     ` | son ${mins}dk: ${closes} 1m kapanış, ${ws?.skipped ?? 0} ara güncelleme atlandı, ${cards} kart` +
     ` | coin: ${readyCount()}/${series.size} hazır${busy.size ? `, ${busy.size} yükleniyor` : ''}${stale.length ? `, ${stale.length} GERİDE` : ''}` +
     ` | ${dTxt}` +
+    `${blockedWin ? ` | kilitte atlanan 1m değerlendirme: ${blockedWin}` : ''}` +
     ` | ${loadText(load)}` +
     ` | takipte ${store?.openCount() ?? 0} kart, ${touches.openCount()} seviye teması, ${drops.openCount()} tepe adayı · ek veri ${delta('enrOk', enricher.stats.ok)} (atlanan ${delta('enrSkip', enricher.stats.skipped)}) · likidasyon mesajı ${delta('liq', liqStream.stats().messages)}${flow?.enabled() ? ` · akış ${delta('flowRows', flow.stats.rows)} satır/${delta('flowChg', flow.stats.changes)} değişim` : ''}${bigTrades ? ` · 🐋 ${delta('big', bigTrades.stats.big)} büyük işlem (${delta('bigMsg', bigTrades.stats.messages)} mesaj)` : ''}` +
     ` | telegram: ${tg.sent} gönderildi, ${tg.queued} kuyrukta${tg.failed ? `, ${tg.failed} BAŞARISIZ` : ''}` +
     ` | bellek: ${mem} MB`,
   );
+  if (blockedWin) console.warn(`[KİLİT] Son ${mins}dk: kurtarma kilidinde ${blockedWin} 1m değerlendirme atlandı (bugün ${stats.blockedEvalsToday}, toplam ${stats.blockedEvals})`);
   if (ws && ws.open > 0 && closes === 0 && !seedingAll) {
     console.warn(`[UYARI] Son ${mins} dakikada hiç 1m kapanışı işlenmedi — veri akışı kontrol edilmeli`);
   }
