@@ -93,7 +93,8 @@ const OUTCOME_COLS = ['outcome', 'upBeforeDrop', 't1', 't2', 't3', 'c5Red', 'c5E
 // H46 veri doğruluğu kolonları — eski CSV'lerle kıyas bozulmasın diye hep SONA eklenir
 const AUDIT_COLS = ['sameBar', 'cardWhen', 'contSkipped', 'rsi15c', 'rsi1hc', 'rsi4hc', 'cfgMinTFs', 'cfgRsiMin', 'cfgDropPct', 'cfgContPct',
   ...EXTRA_AUDIT_COLS, 'spotQ60', 'spotShare60t',
-  'rsi3c', 'rsi5c', 'sep3c', 'sep5c', 'cfgPeakWindowMin', 'cfgSampleGapMin', 'cfgVer', 'dropC15', 'lowC15', 'closeC60'];
+  'rsi3c', 'rsi5c', 'sep3c', 'sep5c', 'cfgPeakWindowMin', 'cfgSampleGapMin', 'cfgVer', 'dropC15', 'lowC15', 'closeC60',
+  'incTf', 'inc5', 'inc15'];
 const FEATURE_COLS = [...BASE_COLS, ...PEAK_COLS, ...TF_COLS, ...VWAP_COLS, ...EXTRA_COLS, 'basisPct', ...LIQ_COLS, ...ENRICH_COLS, ...TROUGH_COLS, ...OUTCOME_COLS, ...AUDIT_COLS];
 
 /** Tepe anının tam fotoğrafı */
@@ -121,6 +122,9 @@ function peakFeatures(series, s, ctx, high, pump, loT, tc, history = null) {
     rsi3c: num(ta.rsiLast(series.col('3m', 'c', false), s.rsiPeriod), 1),
     rsi5c: num(ta.rsiLast(series.col('5m', 'c', false), s.rsiPeriod), 1),
     sep3c: sepClosed(series, '3m'), sep5c: sepClosed(series, '5m'),
+    // eksik 1m ile kapanmış mum işareti (son 14 kapanmış mum; series.incomplete)
+    incTf: ['3m', '5m', '15m', '1h', '4h'].filter(tf => series.incomplete(tf, 14) > 0).join('|'),
+    inc5: series.incomplete('5m', 14), inc15: series.incomplete('15m', 14),
   });
 }
 

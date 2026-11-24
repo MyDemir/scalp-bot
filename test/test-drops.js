@@ -14,7 +14,7 @@ const t0 = Date.UTC(2026, 0, 1);
 const hist = Array.from({ length: 3000 }, (_, i) => 100 + Math.sin(i / 9) * 0.15);
 const candle = (i, c, o, hOver) => ({ t: t0 + i * MIN, o, h: hOver ?? Math.max(o, c) * 1.0004, l: Math.min(o, c) * 0.9996, c, v: 100, tb: 55, q: 100 * c, tq: 55 * c, closed: true });
 const drops = ev => ev.filter(e => e.outcome === 'düştü');
-function run(livePath, { overrides = {}, cards = [], opts = {}, ctx = {}, sets = s } = {}) {
+function run(livePath, { overrides = {}, cards = [], opts = {}, ctx = {}, sets = s, skip = [] } = {}) {
   const all = [...hist, ...livePath];
   const m1 = all.map((c, i) => candle(i, c, i ? all[i - 1] : c, overrides[i - hist.length]));
   const S = new Series('DROPUSDT');
@@ -25,6 +25,7 @@ function run(livePath, { overrides = {}, cards = [], opts = {}, ctx = {}, sets =
   S.seed('1m', m1.filter(c => c.t < T0).slice(-240));
   const L = createDropLedger({ ...cfg.events, ...opts }); const ev = [];
   for (const c of m1.filter(c => c.t >= T0)) {
+    if (skip.includes((c.t - T0) / MIN)) continue;     // 1m veri boşluğu (mum hiç gelmedi)
     S.apply1m(c);
     for (const k of cards) if (k.t === c.t + MIN) L.noteCard('DROPUSDT', k.t, k.grade);
     ev.push(...L.observe(S, sets, ctx));
@@ -252,7 +253,7 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
 {
   const AUD = ['sameBar', 'cardWhen', 'contSkipped', 'rsi15c', 'rsi1hc', 'rsi4hc', 'cfgMinTFs', 'cfgRsiMin', 'cfgDropPct', 'cfgContPct',
     'wick_5mc', 'clv_5mc', 'wick_15mc', 'clv_15mc', 'bar5Pct', 'bar15Pct', 'volPeakXc', 'miss60', 'futQ60t', 'spotQ60', 'spotShare60t',
-    'rsi3c', 'rsi5c', 'sep3c', 'sep5c', 'cfgPeakWindowMin', 'cfgSampleGapMin', 'cfgVer', 'dropC15', 'lowC15', 'closeC60'];
+    'rsi3c', 'rsi5c', 'sep3c', 'sep5c', 'cfgPeakWindowMin', 'cfgSampleGapMin', 'cfgVer', 'dropC15', 'lowC15', 'closeC60', 'incTf', 'inc5', 'inc15'];
   assert.deepStrictEqual(dropCols().slice(-AUD.length), AUD, 'yeni kolonlar sütun sırasının SONUNDA');
   const old = flatDrop({ id: 'x', out: {}, feat: {} }); assert(AUD.every(k => old[k] == null), 'eski kayıtta boş');
   // sameBar: tepeden sonraki mumda hem −%1.5 hem tepe üstü
@@ -328,6 +329,17 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   const sh = run(path1, { overrides: ov, opts: { windows: [5] } }).ev.find(x => x.outcome === 'düştü');
   assert(sh && sh.feat.lowC15 === null && sh.feat.closeC60 === null && sh.feat.dropC15 === null, 'eksik pencere null');
   ok('Aşama 1: rsi3c/rsi5c, sep3c, cfg*, dropC15/lowC15/closeC60 (peak≠price dönüşüm, eksik pencere null)');
+}
+
+// ── 9) A11: eksik 1m ile kapanan mum tepe kaydında işaretlenir (göstergeler aynı) ──
+{
+  const clean = drops(run(path1, { overrides: ov }).ev)[0];
+  assert(clean.feat.incTf === '' && clean.feat.inc5 === 0 && clean.feat.inc15 === 0, 'boşluksuz akış: eksik yok');
+  const gp = drops(run(path1, { overrides: ov, skip: [76, 77] }).ev)[0];
+  assert(gp && gp.feat.inc5 === 1 && gp.feat.inc15 === 1, 'inc5/inc15: ' + gp?.feat.inc5 + '/' + gp?.feat.inc15);
+  assert(gp.feat.incTf.split('|').includes('5m') && gp.feat.incTf.split('|').includes('15m') && gp.feat.incTf.split('|').includes('3m'), 'incTf: ' + gp.feat.incTf);
+  assert(flatDrop(gp).incTf === gp.feat.incTf && flatDrop(gp).inc5 === 1, 'CSV satırında');
+  ok('A11: tepe kaydı incTf/inc5/inc15 (boşluksuz: boş/0/0; 2 eksik dk: 3m|5m|15m işaretli)');
 }
 
 console.log('\n' + R.join('\n'));
