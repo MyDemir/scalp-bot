@@ -338,7 +338,7 @@ const results = []; const ok = s => results.push('✅ ' + s);
     const names = tg.docs.slice(d0).map(d => d.documentName);
     assert.deepStrictEqual(names, ['veri-son1gun.zip']);
     const Z = require('./unzip')(tg.docs[d0].documentBuf);
-    assert.deepStrictEqual(Object.keys(Z), ['tepeler.csv', 'kartlar.csv', 'temaslar.csv']);
+    assert.deepStrictEqual(Object.keys(Z), ['tepeler.csv', 'yollar.csv', 'kartlar.csv', 'temaslar.csv']);
     assert(Number(tg.docs[d0].chat_id) === ADMIN && Object.values(Z).every(t => /^\uFEFF?(id|symbol),/.test(t)), 'özelden zip: ' + Object.values(Z).map(t => t.slice(0, 20)).join(' | '));
     const kc = Z['kartlar.csv'].split('\n').filter(Boolean);
     assert(kc.length === cards.length + 1 && kc[0].includes('rsi_3m') && kc[0].includes('fwd_60_low'), 'kartlar.csv: ' + kc[0].slice(0, 200));

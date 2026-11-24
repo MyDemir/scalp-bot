@@ -22,7 +22,7 @@ const WINDOWS = [5, 15, 30, 60, 240];          // kart sonrası (dk) — eski ve
 const KEEP_DAYS = 90;
 const TOUCH_KEEP_DAYS = 60;
 const EVENT_KEEP_DAYS = 60;
-const PATH_KEEP_DAYS = 60;                     // paths: yalnız bu budamayla silinir (haftalık rapor purgeBefore'a dahil DEĞİL)
+const PATH_KEEP_DAYS = 60;                     // paths: haftalık rapordan sonra purgeBefore ile silinir; bu 60 gün güvenlik ağı
 const PATH_MIN = 15;                           // tepeden sonraki 1m yolu: en çok dakika
 const EVENT_WINDOWS = [5, 15, 30, 60, 240];    // tepe adayı sonrası (dk)
 const TOUCH_SNAPS = [5, 15, 30];               // seviye teması kısa pencereleri (60 dk ayrıca)
@@ -203,6 +203,7 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
         cards: db.prepare('DELETE FROM cards WHERE t < ?').run(cutoff).changes,
         touches: db.prepare('DELETE FROM touches WHERE t < ?').run(cutoff).changes,
         events: db.prepare('DELETE FROM events WHERE t < ?').run(cutoff).changes,
+        paths: db.prepare('DELETE FROM paths WHERE t < ?').run(cutoff).changes,
       }), 'silme');
       for (const [sym, arr] of open) {
         for (let k = arr.length - 1; k >= 0; k--) if (arr[k].t < cutoff) { arr.splice(k, 1); openN--; }

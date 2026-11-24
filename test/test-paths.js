@@ -66,16 +66,15 @@ const seen = []; const n = await st.forEachPath({ batch: 3 }, r => { seen.push(r
 assert.strictEqual(n, 9); assert.strictEqual(seen.length, 9);
 assert(seen.every(r => r.buf instanceof Float32Array && r.buf.length === r.n * 3) && Math.abs(seen[1].buf[7] - 0.7) < 1e-6);
 assert.strictEqual(await st.forEachPath({ since: now - 2 * DAY, until: now - 2 * DAY + 3 * MIN }, () => {}), 3, 'since/until');
-st.purgeBefore(now - DAY);                       // haftalık silme paths'e dokunmaz
-assert.strictEqual(await st.forEachPath({}, () => {}), 9, 'purgeBefore paths silmez');
 
-// (d) haftalık zip + dışa aktarma (budamadan önce: OLD 7 günlük pencerenin dışında)
+st.addEvent({ id: 'E1', symbol: 'AUSDT', t: now - 3 * DAY - MIN, price: 2, dropT: null, dropMin: null, card: false, cardGrade: null, feat: {}, out: {} });   // kapsam başlangıcı (from)
+// (d) haftalık zip + dışa aktarma
 const w = await W.buildWeekly(st, { now, s: cfg.info, E: cfg.events });
 const Z = unzip(w.files.find(f => f.name.endsWith('.zip')).buf);
 const lines = Z['yollar.csv'].replace(/^﻿/, '').trim().split('\n');
 assert.strictEqual(lines[0], PATH_COLS.join(','));
 assert(lines[0].startsWith('id,symbol,time,entry,n,h1,l1,c1,') && lines[0].endsWith(',h15,l15,c15'));
-assert.strictEqual(lines.length, 1 + 8, 'son 7 günün 8 yolu (OLD hariç)');
+assert.strictEqual(lines.length, 1 + 9, 't < cutoff: 9 yolun hepsi (alt sınır yok)');
 const part = lines.find(l => l.startsWith('PART,AUSDT,'));
 assert(part && part.includes(',2,4,0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1,1.1,') && part.split(',').length === PATH_COLS.length, 'eksik yol: n=4, kalan boş');
 assert(w.md.includes('yollar.csv'), 'MD sütun notu');
@@ -89,6 +88,11 @@ st.sweep(now);
 const left = []; await st.forEachPath({}, r => { left.push(r.id); });
 assert.strictEqual(left.length, 8); assert(!left.includes('OLD'), '61 günlük yol budandı');
 ok('60 gün budaması: 61 günlük yol silindi, 8 kaldı');
+// haftalık silme: purgeBefore paths'i de siler
+const pr = st.purgeBefore(now - 2 * DAY + 3 * MIN);
+assert.strictEqual(pr.paths, 4, 'silinen yol: PART + P0..P2');
+assert.strictEqual(await st.forEachPath({}, () => {}), 4, 'kalan yol');
+ok('purgeBefore paths tablosunu da siler (4 silindi, 4 kaldı)');
 R.forEach(l => console.log(l));
 st.close();
 })().catch(err => { console.error(err); process.exit(1); });

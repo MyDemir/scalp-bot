@@ -418,13 +418,13 @@ ${mv.join('\n')}` : ''}`.slice(0, 4000);
       const uid = msg.from?.id;
       const { files, counts } = await buildExports(store, days, Date.now(), { base: `veri-son${days}gun`, flow: typeof flow === 'function' ? flow() : flow });
       for (const [k, f] of files.entries()) {
-        const ok = await telegram.sendDocumentPrivate(uid, f.name, f.buf, k === 0 ? `📤 son ${days} gün · tepeler ${counts.tepeler} · kartlar ${counts.kartlar} · temaslar ${counts.temaslar} · akış ${counts.akis ?? 0} satır (zip içinde CSV)` : null, f.type);
+        const ok = await telegram.sendDocumentPrivate(uid, f.name, f.buf, k === 0 ? `📤 son ${days} gün · tepeler ${counts.tepeler} · kartlar ${counts.kartlar} · temaslar ${counts.temaslar} · yollar ${counts.yollar ?? 0} · akış ${counts.akis ?? 0} satır (zip içinde CSV)` : null, f.type);
         if (!ok) {
           const bot = telegram.getBotUsername?.();
           return `❌ Özelden gönderemedim. Önce bota özelden bir kez /start yaz${bot ? `: https://t.me/${bot}` : ''} — sonra tekrar /disaaktar.`;
         }
       }
-      return `📤 ${files.length} zip özelden gönderildi (son ${days} gün): tepeler.csv ${counts.tepeler} · kartlar.csv ${counts.kartlar} · temaslar.csv ${counts.temaslar} · akis.csv ${counts.akis ?? 0}`;
+      return `📤 ${files.length} zip özelden gönderildi (son ${days} gün): tepeler.csv ${counts.tepeler} · kartlar.csv ${counts.kartlar} · temaslar.csv ${counts.temaslar} · yollar.csv ${counts.yollar ?? 0} · akis.csv ${counts.akis ?? 0}`;
     })),
 
     haftalik: adminOnly((args, msg) => heavy(async () => {

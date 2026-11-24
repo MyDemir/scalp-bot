@@ -147,10 +147,10 @@ async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = n
     });
   }
   await te.end();
-  // Yollar (tepe sonrası 1m): haftalık rapordan sonra SİLİNMEZ (60 gün budama) → tekrarı önlemek için son 7 gün
+  // Yollar (tepe sonrası 1m): kapsam diğerleri gibi t < cutoff
   if (store.forEachPath) {
     let pe = null;   // yol yoksa dosya açılmaz
-    await store.forEachPath({ since: cutoff - 7 * DAY, until: cutoff }, async r => {
+    await store.forEachPath({ until: cutoff }, async r => {
       if (!pe) pe = zip.entry('yollar.csv', csvHeader(PATH_COLS));
       await pe.write(csvLine(pathRow(r), PATH_COLS));
     });
@@ -205,7 +205,7 @@ async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = n
     '- rsi_<tf> · ema21_<tf> (EMA21\'e uzaklık %) · macd_<tf> (down/up/zayıf/güçlü) · hist_<tf> (% fiyat) · stk_/std_<tf> (Stoch RSI) · atr_<tf> (%) · volx_<tf> (son mum hacmi / önceki 20 ortalama) · buy_<tf> (taker alış %) — tf: 1m 3m 5m 15m 1h 4h',
     '- VWAP: vwD/vwW/vwM_pct ve _sig (günlük/haftalık/aylık; % ve σ), vw90_pct/_sig (kayan 90 dk), vw24h_pct, vw7d_pct, avwLow_pct (pompa dibinden sabitlenmiş)',
     '- Tepe: pkLv / pkLvKind / pkLvDist / pkLvTouches (tepki seviyesi ve önceki ~100 günde kaç kez test edildiği), pkNear (%0.5 içindeki tüm seviyeler) · Dip: trPct, trMin, trLv, trLvDist, trLvTouches, trNear, trEma (3/5/15dk EMA21 merdiveni), trFalling',
-    '- yollar.csv: her tepe adayının sonraki 15 dk 1m yolu; entry = tepe anı 1dk kapanışı, h/l/c<k> = k. dakikanın en yüksek/en düşük/kapanış değişimi (% , entry\'ye göre), n = kaydedilen dakika (<15 ise eksik). Son 7 günün adayları; 60 gün saklanır, haftalık rapordan sonra silinmez',
+    '- yollar.csv: her tepe adayının sonraki 15 dk 1m yolu; entry = tepe anı 1dk kapanışı, h/l/c<k> = k. dakikanın en yüksek/en düşük/kapanış değişimi (% , entry\'ye göre), n = kaydedilen dakika (<15 ise eksik). t < cutoff kapsamındaki adaylar; haftalık rapordan sonra diğer kayıtlarla silinir (en fazla 60 gün)',
     '- temaslar.csv: lvTouches = seviyenin önceki ~100 günde (4s mumlar) kaç ayrı kez test edildiği · kartlar.csv: level_touches',
     '- Kart şartı: rsiOk, hits, ok, fails (rsi|seviye…), score, checkOk · sonrası: low/high/close 5, 15, 30, 60, 240 (tepeye göre %)',
     '',

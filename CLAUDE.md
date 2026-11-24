@@ -70,8 +70,8 @@ gösterim + Telegram komutu) her alan ayrı iş sayılır, ortak ARAYÜZ
   - `src/cardStore.js` → `cards.db`: `cards` (kart + 5/15/30/60/240 dk
     sonrası; `kind = tepe` tepe bildirimleri), `touches` (seviye
     tepkisi, `src/levelTouch.js`), `events` (tepe defteri,
-    `src/eventLog.js`), `paths` (tepe sonrası 15 dk 1m yolu, `onPath`; 60 gün,
-    haftalık rapordan sonra silinmez, `purgeBefore`'a dahil değil).
+    `src/eventLog.js`), `paths` (tepe sonrası 15 dk 1m yolu, `onPath`; en fazla 60 gün;
+    haftalık rapordan sonra diğer kayıtlarla silinir, gönderim başarısızsa silinmez).
     Saklama: kart 90 gün, temas ve tepe 60 gün, yol 60 gün.
   - `src/spotFlow.js` + `src/bigTrades.js` → `flow.db`: `flow`,
     `flow_label`, `flow_changes`, `flow_big` (1s 30 gün, 4s 180 gün,
