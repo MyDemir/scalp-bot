@@ -3,8 +3,7 @@
 /**
  * Haftalık istatistik dosyası — her Pazartesi 03:01 (TSİ) gruba gönderilir, sonra veritabanından silinir.
  *
- *   Dosyalar : haftalik-<yıl>-H<hafta>.md  — okunur özet + olay listesi (kartlar, düşüşler, seviye temasları)
- *              veri-<yıl>-H<hafta>.zip — tepeler.csv (tüm tepe adayları) · kartlar.csv · temaslar.csv (Sheets / Excel / Python)
+ *   Dosya    : veri-<yıl>-H<hafta>.zip (tek belge) — haftalik-<yıl>-H<hafta>.md (okunur özet + olay listesi) · tepeler.csv (tüm tepe adayları) · kartlar.csv · temaslar.csv (Sheets / Excel / Python)
  *              Zip 40 MB'ı aşarsa (Telegram sınırı 50 MB) kalan satırlar veri-…-2.zip'e geçer.
  *   Bellek   : tepe adayları (haftada on binlerce, 214 sütun) ve seviye temasları (haftada ~50 bin) veritabanından PARÇA
  *              PARÇA okunur, CSV satırı doğrudan zip'e sıkıştırılır; özet sayaçlarla / yalnız özetin kullandığı alanlarla
@@ -166,7 +165,7 @@ async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = n
     '',
     `Kapsam: ${fmt(from)} → ${fmt(cutoff)} (TSİ) · ${counts.cards} kart · ${counts.peaks} tepe adayı (${counts.drops} düştü) · ${counts.touches} seviye teması`,
     '',
-    'Bu dosya botun kaydettiği olayların dökümüdür; kazanç/kayıp hesabı yoktur, "eşlik eden durum"dur. Sayısal analiz için aynı mesajdaki zip içindeki CSV dosyalarını kullan.',
+    'Bu dosya botun kaydettiği olayların dökümüdür; kazanç/kayıp hesabı yoktur, "eşlik eden durum"dur. Sayısal analiz için bu zip içindeki CSV dosyalarını kullan.',
     '',
     '## Kartlar',
     `Derece: 🔴 ${grade(1)} · 🔴🔴 ${grade(2)} · 🔴🔴🔴 ${grade(3)} · 🔴🔴🔴🔴 ${grade(4)}`,
@@ -212,7 +211,11 @@ async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = n
     '',
   ].join('\n');
 
-  const files = [{ name: `haftalik-${label}.md`, buf: Buffer.from(md, 'utf8'), type: 'text/markdown' }, ...(await zip.finish())];
+  // MD de zip'in içinde (tek belge); özet en sonda bilindiği için girdi en son kapanır (tek zip'te arşivin son girdisi)
+  const mz = zip.entry(`haftalik-${label}.md`);
+  await mz.write(md);
+  await mz.end();
+  const files = await zip.finish();
   return { label, md, files, counts, cutoff, from };
 }
 

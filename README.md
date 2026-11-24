@@ -299,6 +299,8 @@ haftalık rapor veritabanını **parça parça** okur (100 satır, araya olay d�
 özetler sayaçlarla hesaplanır, `/kacan` yalnız "düştü"leri rapor alanlarıyla tutar. Bu raporlardan aynı anda yalnız biri çalışır. Backtest de aynı defteri hesaplar
 (`backtest-results/tepeler-*.csv`, gruba rapor + teyit tablosu).
 
+**Haftalık rapor belgesi:** Pazartesi 03:01'de gruba tek belge gider: `veri-<yıl>-H<hafta>.zip`; içinde `haftalik-<yıl>-H<hafta>.md` (özet + olay listesi) ve CSV'ler (`kartlar`, `temaslar`, `tepeler`, varsa `yollar`). Çok büyük haftada zip parçalara bölünür (Telegram 50 MB sınırı; `veri-…-1.zip`, `-2.zip`…; MD özeti en son hazırlandığı için son parçadadır). Silme akışı aynı: hepsi gittikten sonra.
+
 **Haftalık rapor "Kurulum tablosu"** (`src/setupTable.js`, "Teyit adayları"ndan sonra): tepe adayları aynı sembolde adaylar arası < 60 dk ise tek pompa sayılır; her grupta (tüm pompalar · pompa ≥ %5 · EMA21 ayrışma · 1s RSI bandı · 15dk RSI · bu 3 şarttan ≥ 2 · 3dk hacim ≥ 10 kat) pompa başına gruba uyan İLK aday alınır. Ölçüler 1dk kapanıştan (giriş): n pompa, "60 dk sonra aşağıda" %, "60 dk sonra ≤ −%1" % (düşüşün büyüklüğü), medyan 60 dk, "15 dk içinde −%1,5" %, kapsamın ilk / ikinci yarısı ayrı "aşağıda" %. Eşikler ayardan (`sepPct2` 2, `gradeRsi1h` 80, `gradeRsi1hMax` 88, `gradeRsi15m` 85). n < 20 satır "(az örnek)"; 60 dk sonucu olmayan (eksik takip) aday ölçüye girmez, sayısı tablonun altında yazılır. Bu tablo "ilk eşleşen aday"dır. İkinci tablo "Pompanın ilk adayı (grup şartı pompanın ilk anında)": her pompada yalnız ilk aday alınır ve grup şartı o adayda sınanır (şart sağlanmıyorsa pompa o gruba girmez); böylece grup ve taban aynı anı ölçer, aynı sütunlar. Alt notta örnek küçükse ± güven aralığı uyarısı vardır (n=100'de ±10 puan, %95; sütun eklenmez). Yalnız ölçümdür; kural önerisi değildir. Bellek: aday başına ~21 bayt (ek ölçü yok, ≤ −%1 mevcut close60'tan hesaplanır) (haftada ~45 bin aday ≈ 1 MB).
 
 Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı konularına** gönderilebilir.
@@ -354,7 +356,7 @@ geçmişi, yanda son 7 günün etiket güncellemeleri. Taker alış "piyasa emri
 | `/kacan [gün]` | herkes | tepe defteri: pompa tepesinden düşüşler, kartlı/kartsız, kartsızlarda eksik şart |
 | `/teyit [gün]` | herkes | short teyidi: hangi koşul varken tepe adayları daha sık düştü (varken / yokken) |
 | `/disaaktar [gün]` | yönetici | istatistik verisi CSV olarak özelden (tepeler, kartlar, temaslar, akış) |
-| `/haftalik` | yönetici | haftalık dosyaların (MD + zip) ön izlemesi özelden (silmez); asıl dosyalar Pazartesi 03:01'de gruba gider |
+| `/haftalik` | yönetici | haftalık dosyanın (MD'yi de içeren tek zip) ön izlemesi özelden (silmez); asıl dosya Pazartesi 03:01'de gruba gider |
 | `/seviye [gün] [ad]` | herkes | seviye tepkisi: temastan sonra çekilme / 3dk EMA21'e dönüş / kırılım (ör. `/seviye 7 fib`) |
 | `/konu [ad]` · `/konu sil ad` | liste herkes, bağlama yönetici | konulu grupta yönlendirme |
 | `/durum` · `/benkimim` · `/yardim` | herkes | `/durum`: izlenen/hazır coin, **geride kalan coinler** (son 3 dk'da 1m mumu gelmeyen), son 5 dk'da işlenen mum sayısı, **gecikme** (mum kapanışı → bot işledi; ort / en fazla, Binance ve yerel kısım ayrı) ve işlem yükü. Heartbeat ayrıca CPU %, steal % (paylaşımlı CPU kotası) ve event loop gecikmesini yazar. Gecikme 20 sn'yi aşarsa ya da geride coin varsa `fly logs`'ta `[UYARI]` |
@@ -422,7 +424,7 @@ src/
 ├── bigTrades.js      # Spot büyük alım/satım sayacı (aggTrade akışı, coin başına eşik) → flow.db
 ├── exportData.js     # CSV dışa aktarma (/disaaktar ve komut satırı)
 ├── marketSnap.js     # 1m–4h göstergeleri, VWAP seti, tepki/destek seviyesi eşleştirme (istatistik kaydı)
-├── weeklyReport.js   # Haftalık MD + zip (CSV'ler; Pazartesi 03:01 TSİ) → gruba, sonra veritabanından silme
+├── weeklyReport.js   # Haftalık tek zip (MD + CSV'ler; Pazartesi 03:01 TSİ) → gruba, sonra veritabanından silme
 ├── zipWriter.js      # Küçük ZIP yazıcı (zlib): büyük CSV'ler satır satır sıkıştırılır, 40 MB'da bölünür
 ├── levelTouch.js     # Seviye tepkisi: dirence alttan temas → 60 dk çekilme / EMA21 / kırılım (canlı + backtest ortak)
 ├── infoBacktest.js   # Bilgi botu backtest'i

@@ -31,9 +31,10 @@ const unzip = require('./unzip');
 (async () => {
 const w = await W.buildWeekly(st, { now, s: cfg.info, E: cfg.events });
 assert.deepStrictEqual(w.counts, { cards: 1, touches: 1, drops: 1, peaks: 1 }, 'son 5 saat kapsam dışı');
-assert.deepStrictEqual(w.files.map(f => f.name), ['haftalik-2026-H40.md', 'veri-2026-H40.zip']);
-const Z = unzip(w.files[1].buf);
-assert.deepStrictEqual(Object.keys(Z).sort(), ['kartlar.csv', 'temaslar.csv', 'tepeler.csv']);
+assert.deepStrictEqual(w.files.map(f => f.name), ['veri-2026-H40.zip'], 'tek belge: yalnız zip');
+const Z = unzip(w.files[0].buf);
+assert.deepStrictEqual(Object.keys(Z).sort(), ['haftalik-2026-H40.md', 'kartlar.csv', 'temaslar.csv', 'tepeler.csv']);
+assert.strictEqual(Z['haftalik-2026-H40.md'], w.md, 'zip içindeki MD = md alanı');
 assert(w.md.includes('## Teyit adayları'), 'MD teyit bölümü');
 assert(w.md.indexOf('## Kurulum tablosu (pompa başına ilk aday, giriş 1dk kapanış)') > w.md.indexOf('## Teyit adayları') && w.md.includes('Nasıl okunur'), 'MD kurulum tablosu teyitten sonra');
 assert(w.md.includes('# Haftalık istatistik — 2026-H40') && w.md.includes('## Düşüşler (1)') && w.md.includes('**BUSDT**') && w.md.includes('tepki: Günlük VWAP +2σ') && w.md.includes('dip −%3.1 (18 dk) 15dk EMA21') && w.md.includes('kart ❌ eksik: seviye'));
@@ -43,6 +44,7 @@ assert(dcsv.startsWith('\uFEFF') && dcsv.split('\n')[0].includes('rsi_4h') && dc
 assert(Z['temaslar.csv'].split('\n')[0].trim().split(',').slice(-2).join() === 'pb0,belowMin', 'temaslar.csv başlığı: pb0,belowMin sonda');
 assert(Z['kartlar.csv'].trim().split('\n').length === 2 && Z['temaslar.csv'].includes('3dk EMA21'));
 fs.writeFileSync(dir + '/' + w.files[0].name, w.files[0].buf);
+assert(w.files.every(f => !f.name.endsWith('.md')));
 console.log(w.md.split('\n').slice(0, 40).join('\n'));
 ok(`Dosyalar: ${w.files.map(f => f.name).join(', ')} (zip: ${Object.keys(Z).join(', ')}) — kapsam rapordan 5 saat öncesine kadar (son 5 saat sonraki haftaya); MD'de özet + olay satırları (tepki seviyesi, VWAP σ, dip ve destek, eksik şart)`);
 
@@ -62,14 +64,14 @@ ok(`Dosyalar: ${w.files.map(f => f.name).join(', ')} (zip: ${Object.keys(Z).join
   assert.strictEqual(await job.tick(t1 + 5 * MIN), null, '10 dk dolmadan tekrar denenmez');
   fail = false;
   assert.strictEqual(await job.tick(t1 + 11 * MIN), 'sent');
-  assert(sent.length === 1 && sent[0].files.length === 2 && sent[0].cap.includes('Haftalık istatistik'));
+  assert(sent.length === 1 && sent[0].files.length === 1 && /^veri-\d{4}-H\d\d\.zip$/.test(sent[0].files[0]) && sent[0].cap.includes('Haftalık istatistik'));
   assert.strictEqual(st.since(0).length, 0, 'gönderildi → kartlar silindi');
   assert.strictEqual(st.eventsSince(0).length, 0); assert.strictEqual(st.touchesSince(0).length, 0);
   assert.strictEqual(await job.tick(t1 + 30 * MIN), null, 'aynı hafta ikinci kez yok');
   const state = JSON.parse(fs.readFileSync(dir + '/weekly-state.json', 'utf8'));
   assert.strictEqual(state.lastSlot, Date.UTC(2026, 9, 12, 0, 1));
   st.close();
-  ok('İş: ilk kurulumda gönderim/silme yok (ilk rapor sonraki Pazartesi); gönderim hatasında veri silinmedi, 10 dk sonra tekrar; gönderilince MD + zip, kartlar/temaslar/düşüşler silindi (VACUUM); aynı hafta tekrar yok; durum dosyaya yazıldı');
+  ok('İş: ilk kurulumda gönderim/silme yok (ilk rapor sonraki Pazartesi); gönderim hatasında veri silinmedi, 10 dk sonra tekrar; gönderilince tek zip (MD içinde), kartlar/temaslar/düşüşler silindi (VACUUM); aynı hafta tekrar yok; durum dosyaya yazıldı');
 }
 
 // ── 4) Büyük hafta: 30 000 tepe adayı + 50 000 temas — parça parça okunur, bellek sınırlı, zip 40 MB sınırında bölünür ──
@@ -92,17 +94,17 @@ ok(`Dosyalar: ${w.files.map(f => f.name).join(', ')} (zip: ${Object.keys(Z).join
   const wb = await W.buildWeekly(st2, { now, s: cfg.info, E: cfg.events, maxZipBytes: 1.5e5 });
   const ms = Date.now() - t1; clearInterval(iv); clearInterval(lagIv);
   assert.strictEqual(wb.counts.peaks, N); assert.strictEqual(wb.counts.drops, N / 5); assert.strictEqual(wb.counts.touches, NT);
-  assert(wb.files.length > 2 && wb.files.slice(1).every(f => f.buf.length < 0.5e6), 'zip bölündü: ' + wb.files.map(f => f.name + ' ' + f.buf.length).join(', '));
-  let rows = 0; for (const f of wb.files.slice(1)) for (const [k, v] of Object.entries(unzip(f.buf))) if (k.startsWith('tepeler')) rows += v.trim().split('\n').length - 1;
+  assert(wb.files.length > 1 && wb.files.every(f => f.buf.length < 0.5e6), 'zip bölündü: ' + wb.files.map(f => f.name + ' ' + f.buf.length).join(', '));
+  let rows = 0; for (const f of wb.files) for (const [k, v] of Object.entries(unzip(f.buf))) if (k.startsWith('tepeler')) rows += v.trim().split('\n').length - 1;
   assert.strictEqual(rows, N, 'tüm satırlar zip parçalarında');
-  let trows = 0; for (const f of wb.files.slice(1)) for (const [k, v] of Object.entries(unzip(f.buf))) if (k.startsWith('temaslar')) trows += v.trim().split('\n').length - 1;
+  let trows = 0; for (const f of wb.files) for (const [k, v] of Object.entries(unzip(f.buf))) if (k.startsWith('temaslar')) trows += v.trim().split('\n').length - 1;
   assert.strictEqual(trows, NT, 'tüm temaslar zip parçalarında');
   assert(wb.md.includes(`${NT} temas`), 'MD seviye tepkisi özeti');
   assert(wb.md.includes(`… ve ${N / 5 - 300} düşüş daha`) && wb.md.length < 400e3, 'MD sınırlı');
   assert(peak < 150e6, 'bellek artışı sınırlı: ' + (peak / 1e6).toFixed(0) + ' MB');
   assert(ticks >= ms / 20 * 0.3, 'olay döngüsü bloklanmadı: ' + ticks + ' tik / ' + ms + ' ms');
   st2.close();
-  ok(`Büyük hafta: ${N} tepe adayı + ${NT} seviye teması ${(ms / 1000).toFixed(1)} sn'de, bellek artışı en fazla ${(peak / 1e6).toFixed(0)} MB, ${wb.files.length - 1} zip parçası (sınır 150 KB), MD'de ilk 300 düşüş; olay döngüsü dönmeye devam etti (${ticks} tik)`);
+  ok(`Büyük hafta: ${N} tepe adayı + ${NT} seviye teması ${(ms / 1000).toFixed(1)} sn'de, bellek artışı en fazla ${(peak / 1e6).toFixed(0)} MB, ${wb.files.length} zip parçası (sınır 150 KB), MD'de ilk 300 düşüş; olay döngüsü dönmeye devam etti (${ticks} tik)`);
 }
   console.log('\n' + R.join('\n'));
 })().catch(e => { console.error(e); process.exit(1); });

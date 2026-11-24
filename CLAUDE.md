@@ -82,7 +82,7 @@ gösterim + Telegram komutu) her alan ayrı iş sayılır, ortak ARAYÜZ
     `src/marketData.js`; özet ve medyanlar `src/infoStats.js`.
   - Dışa aktarma: `src/exportData.js` (`/disaaktar`), haftalık
     `src/weeklyReport.js` + `src/zipWriter.js` (Pazartesi 03:01 TSİ:
-    MD + zip gruba gider, ancak hepsi gittikten sonra kapsamdaki
+    MD'yi de içeren tek zip gruba gider, ancak hepsi gittikten sonra kapsamdaki
     kayıtlar silinir; gönderim başarısızsa silme yok).
 - Kurallar: kayıt hatası botu ya da kart gönderimini durdurmaz
   (logla, devam et). Kazanç/kayıp hesaplanmaz; "sonrası" yalnız fiyat
