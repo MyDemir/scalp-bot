@@ -132,6 +132,9 @@ function checklist(snap, s) {
   if (ref) {
     for (const L of levels) {
       if (L.name === ref.name || L.kind === 'fib' || L.name === '1h tepe') continue;
+      // Çakışan seviye de direnç tarafında olmalı (ref seçimiyle aynı yön/mesafe süzgeci).
+      // dist = (fiyat − seviye)/seviye·100: seviye fiyatın üstündeyse ≤ 0 ("kala"), altındaysa > 0 ("üstünde").
+      if (L.dist > s.dipAbovePct || L.dist < -s.levelMaxPct) continue;
       const gapPct = Math.abs(L.value - ref.value) / ref.value * 100;
       if (gapPct <= s.confluencePct && (!conf || gapPct < conf.gapPct)) conf = { ...L, gapPct };
     }

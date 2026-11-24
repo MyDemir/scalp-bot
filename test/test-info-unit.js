@@ -120,6 +120,16 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   assert.strictEqual(eng.rsiGrade({ ...sn(false, 70, 86), atr5Pct: 1.1 }, G3), 2, 'ATR < 1.2 sayılmaz');
   assert.strictEqual(eng.rsiGrade({ ...sn(false, 70, 86), atr5Pct: 3 }, { ...G3, gradeAtr5Pct: 0 }), 2, 'ATR şartı kapalı (0)');
   assert.strictEqual(eng.rsiGrade({ ...sn(true, 88.2, 86, undefined, 86.5), atr5Pct: 2 }, G3), 2, 'kaçak pompada ATR de tavanı aşmaz');
+  // K15: çakışma adayı da direnç tarafında olmalı — ref'in altında kalan (dist > dipAbovePct) seviye conf sayılmaz
+  { const lv = [{ name: '1d MA200', value: 100.3, dist: -0.3 }, { name: '4h EMA200', value: 100.3, dist: g.dipAbovePct + 1.5 }];
+    ck = eng.checklist({ ...base, rsi: rsi(90, 90, 90), levels: lv, level: lv[0] }, g);
+    assert(!ck.items[1].ok && ck.confluence === null, 'fiyatın altındaki seviye çakışma sayılmaz');
+    const lv2 = [lv[0], { name: '4h EMA200', value: 100.3, dist: -0.3 }];
+    ck = eng.checklist({ ...base, rsi: rsi(90, 90, 90), levels: lv2, level: lv2[0] }, g);
+    assert(ck.items[1].ok, 'direnç tarafındaki çakışan seviye sayılır');
+    const lv3 = [lv[0], { name: '4h EMA200', value: 100.3, dist: -(g.levelMaxPct + 1) }];
+    ck = eng.checklist({ ...base, rsi: rsi(90, 90, 90), levels: lv3, level: lv3[0] }, g);
+    assert(!ck.items[1].ok, 'levelMaxPct dışındaki seviye çakışma sayılmaz'); }
   ck = eng.checklist({ ...base, rsi: rsi(90, 90, 90), levels: [{ name: '4h EMA200', value: 101, dist: -1 }], level: { name: '4h EMA200', value: 101, dist: -1, zone: 'near' } }, g);
   assert(!ck.items[0].ok && ck.items[0].text.includes('içinde yok'));   // yalnız 4h seviye → günlük madde yok
   ok('Derece (sart3: 1 + ayrışma + 1s RSI ≥ 80 + 15dk RSI ≥ 85; liste: kontrol skoru) · hacim 🔴/🔴🔴(≥3×)/🔴🔴🔴(+yön ≥%65) · kart derecesi puanla (9 madde; EMA21 üstü ayrışma %2/%5/%10 → 1/2/3 puan, altı 0; MACD 3m/5m sat kesişimi +1): 10 puan → 4 daire, 5 → 3, 3 → 2; RSI bandı 95–100; EMA21 yakın uyarısı; yalnız 4h seviyede günlük madde yok');
