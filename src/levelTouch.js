@@ -16,6 +16,8 @@
  *   60 dk    : en derin geri çekilme (o ana kadarki en yüksekten, %) ve dibe kaç dk · 3m EMA21'e dönüş ve kaç dk ·
  *              kırılım (5m kapanış seviyenin %dipAbovePct üstünde) ve kaç dk · EMA21'e döndükten SONRA kırılım ·
  *              60. dk kapanışı seviyenin üstünde mi · seviyeye göre en yüksek / en düşük / kapanış (%)
+ *   pb0 / belowMin: pb0 = temas mumunun tepesinden kapanışına geri çekilme (%, h→c; mum içi low sırası bilinmez, pb'ye girmez);
+ *              belowMin = temastan sonra 1m kapanışın seviyenin ALTINDA kaldığı ilk dakika (temas mumu altında kapandıysa 0; yoksa null)
  *   Nerede durdu: en derin çekilmenin dibi, o andaki hareketli ortalama merdiveniyle (3dk / 5dk / 15dk EMA21 —
  *              canlı mum dahil, grafikte görünen değer) kıyaslanır. Dibin ulaştığı (±%0.2) EN ALTTAKİ
  *              ortalama = "indiği ortalama" (stop). Hiçbirine inmediyse 'yok'. Dip 55. dk'dan sonraysa hâlâ düşüyor (falling).
@@ -94,6 +96,7 @@ function createTouchTracker({ window = WINDOW, touchPct = TOUCH_PCT } = {}) {
       pb: +e.pb.toFixed(3), pbMin: e.pbMin,
       emaMin: e.emaMin, brokeMin: e.brokeMin, brokeAfterEma: e.brokeAfterEma,
       held: c > v,
+      pb0: e.pb0, belowMin: e.belowMin ?? null,
       up: +((e.hi - v) / v * 100).toFixed(3), dn: +((e.lo - v) / v * 100).toFixed(3), c60: +((c - v) / v * 100).toFixed(3),
       ...Object.fromEntries(SNAPS.flatMap(w => ['pb', 'dn', 'c'].map(k => [`${k}${w}`, e.snap?.[w]?.[k] ?? null]))),
     };
@@ -125,6 +128,7 @@ function createTouchTracker({ window = WINDOW, touchPct = TOUCH_PCT } = {}) {
           if (h > e.peak) e.peak = h;
           const dd = (e.peak - l) / e.peak * 100;
           if (dd > e.pb) { e.pb = dd; e.pbMin = m; e.troughLow = l; e.mas = mas || (mas = maLadder(series)); }
+          if (e.belowMin == null && c < e.value) e.belowMin = m;
           if (h > e.hi) e.hi = h;
           if (l < e.lo) e.lo = l;
           if (e.emaMin == null && ema != null && l <= ema) e.emaMin = m;
@@ -163,6 +167,7 @@ function createTouchTracker({ window = WINDOW, touchPct = TOUCH_PCT } = {}) {
         const e = {
           id: `${sym}-${tClose}-${L.name}-${L.value}`, symbol: sym, t: tClose, name: L.name, kind: L.kind, value: L.value, lvTouches: L.touches ?? null,
           rsi, hits, rsiOk: hits >= s.minTFs, emaGap: ema ? +((c - ema) / ema * 100).toFixed(3) : null,
+          pb0: +((h - c) / h * 100).toFixed(3), belowMin: c < L.value ? 0 : null,
           peak: h, pb: 0, pbMin: 0, hi: h, lo: l, troughLow: null, mas: null,
           emaMin: ema != null && l <= ema ? 0 : null, brokeMin: null, brokeAfterEma: false,
         };

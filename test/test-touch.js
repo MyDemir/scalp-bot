@@ -45,6 +45,9 @@ assert.strictEqual(ev.length, 1, 'tek olay (110 hiç değmedi; toparlanmadaki ik
 const e = ev[0];
 console.log(JSON.stringify(e));
 assert.strictEqual(e.name, 'Fib 0.786');
+assert.strictEqual(e.pb0, +((100.1 - 99.2) / 100.1 * 100).toFixed(3), 'pb0: temas mumu tepe→kapanış: ' + e.pb0);
+assert.strictEqual(e.belowMin, 0, 'temas mumu seviyenin altında kapandı → belowMin 0');
+assert(e.pb > 0 && e.pb !== e.pb0, 'pb anlamı değişmedi (temas sonrası mumlar)');
 assert.strictEqual(e.lvTouches, 5, 'seviyenin test sayısı kayda geçmeli');
 assert.strictEqual(e.t, m1[touchIdx].t + MIN);
 assert(e.rsiOk && e.hits >= 2, 'temasta RSI şartı: ' + JSON.stringify(e.rsi));
@@ -87,6 +90,36 @@ ok(`Temas: Fib 0.786 (100) — çekilme %${e.pb.toFixed(2)} (${e.pbMin} dk, dip 
   ok('Yukarıdan inerken seviyeyi geçen fiyat temas sayılmadı (yalnız alttan gelen)');
 }
 
+// pb0 / belowMin: temas mumu seviyenin üstünde kapanır
+{
+  const run = tail => {
+    const P = []; for (let i = 0; i < 3000; i++) P.push(80 + 17 * i / 2999 + Math.sin(i / 7) * 0.05);
+    for (let k = 1; k <= 24; k++) P.push(97 + 2.4 * k / 24);
+    const ti = P.length; P.push(100.05); tail(P);
+    const M = P.map((c, i) => { const o = i ? P[i - 1] : c; return { t: t0 + i * MIN, o, h: i === ti ? 100.1 : Math.max(o, c) * 1.0003, l: Math.min(o, c) * 0.9997, c, v: 100, tb: 60, q: 100 * c, tq: 60 * c, closed: true }; });
+    const TT = M[ti - 24 - 36].t, S3 = new Series('T2USDT');
+    for (const [tf, mm] of Object.entries({ '1d': 1440, '4h': 240, '1h': 60, '15m': 15, '5m': 5, '3m': 3 })) {
+      const m = new Map(); for (const c of M) { if (c.t >= TT) break; const ps = Math.floor(c.t / (mm * MIN)) * mm * MIN; const a = m.get(ps);
+        if (!a) m.set(ps, { ...c, t: ps }); else { a.h = Math.max(a.h, c.h); a.l = Math.min(a.l, c.l); a.c = c.c; a.v += c.v; } }
+      S3.seed(tf, [...m.values()].filter(c => c.t + mm * MIN <= TT)); }
+    S3.seed('1m', M.filter(c => c.t < TT).slice(-240));
+    const tr = createTouchTracker(), out = [];
+    for (const c of M.filter(c => c.t >= TT)) {
+      const cl = S3.apply1m(c);
+      S3._lv = { key: `${S3.lastT('1h')}:${S3.lastT('4h')}:${S3.lastT('1d')}:true:true:3:3:true`, levels: [LV[0]], leg: null };
+      out.push(...tr.observe(S3, cl, s));
+    }
+    return out;
+  };
+  const seg2 = (P, from, to, n) => { for (let k = 1; k <= n; k++) P.push(from + (to - from) * k / n); };
+  const a = run(P => seg2(P, 100.05, 101.5, 70));            // hiç altına kapanmaz
+  assert.strictEqual(a.length, 1); assert.strictEqual(a[0].belowMin, null, 'hiç altında kapanmadı → null');
+  assert.strictEqual(a[0].pb0, +((100.1 - 100.05) / 100.1 * 100).toFixed(3));
+  const b = run(P => { seg2(P, 100.05, 100.4, 4); P.push(99.5); seg2(P, 99.5, 101, 70); });   // 5. dk altında kapanır
+  assert.strictEqual(b.length, 1); assert.strictEqual(b[0].belowMin, 5, 'belowMin: ' + b[0].belowMin);
+  ok('pb0 / belowMin: üstte kapanan temas mumu pb0 küçük, hiç altında kapanmazsa null, 5. dk altına kapanırsa 5');
+}
+
 // Kayıt (SQLite) + tablo
 {
   const file = require('./_tmp') + '/touch-test.db'; for (const f of [file, file + '-wal', file + '-shm']) try { fs.unlinkSync(f); } catch { /* yok */ }
@@ -104,6 +137,8 @@ ok(`Temas: Fib 0.786 (100) — çekilme %${e.pb.toFixed(2)} (${e.pbMin} dk, dip 
   st.addTouch(rows[1]);                                            // aynı id tekrar → yok sayılır
   const back = st.touchesSince(Date.now() - 86_400_000);
   assert.strictEqual(back.length, 5);
+  { const x = back.find(r => r.id === e.id); assert.strictEqual(x.pb0, e.pb0); assert.strictEqual(x.belowMin, e.belowMin);
+    const { rowToTouch } = require(`${REPO}/src/cardStore`); const ks = Object.keys(rowToTouch({ t: 0 })); assert.deepStrictEqual(ks.slice(-2), ['pb0', 'belowMin'], 'CSV: yeni iki kolon sonda'); }
   const b0 = back.find(x => x.id === e.id);
   for (const k of ['name', 'rsiOk', 'card', 'pbMin', 'emaMin', 'brokeMin', 'brokeAfterEma', 'held', 'stop', 'stopDepth', 'falling', 'lvTouches', 'pb5', 'pb15', 'dn30', 'c30']) assert.deepStrictEqual(b0[k], e[k], k);
   const g = touchGroups(back);

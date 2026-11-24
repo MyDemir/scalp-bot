@@ -94,7 +94,8 @@ const MD_DROP_LINES = 300;          // MD'deki düşüş satırı sınırı (tam
 /** Seviye tepkisi özetinin (infoStats.touchText / touchSum) okuduğu alanlar — temasın geri kalanı yalnız CSV'ye gider */
 const TOUCH_TEXT_FIELDS = ['t', 'name', 'rsiOk', 'card', 'lvTouches', 'pb', 'pbMin', 'emaMin', 'brokeMin', 'brokeAfterEma', 'held', 'stop', 'falling', 'pb5', 'pb15', 'pb30'];
 const slimTouch = r => { const o = {}; for (const k of TOUCH_TEXT_FIELDS) o[k] = r[k]; return o; };
-const touchRow = r => flatten({ ...r, time: new Date(r.t).toISOString() });
+// pb0 / belowMin en sona (time'dan sonra): mevcut kolonların sırası değişmez
+const touchRow = r => { const { pb0, belowMin, ...q } = r; return flatten({ ...q, time: new Date(r.t).toISOString(), pb0, belowMin }); };
 const TOUCH_COLS = Object.keys(touchRow(rowToTouch({ t: 0 })));
 
 /**

@@ -206,6 +206,10 @@ aynı (Fib 0.236–0.786, günlük bölge / trend çizgisi, 7/30g en yüksek, MA
   ortalamalarla kıyaslanır — 3dk / 5dk / 15dk EMA21 (grafikte görünen, canlı mum dahil).
   Dip bir ortalamanın ±%0.5'inde durduysa o ortalama (ör. "5dk EMA21"); birini %0.5'ten fazla delip alttakine inmediyse
   "5dk–15dk EMA21 arası"; 15dk EMA21'i de deldiyse "15dk EMA21 altı"; hiçbirine inmediyse "ortalamaya inmedi".
+- **pb0 / belowMin (temaslar.csv, en sonda):** `pb0` = temas mumunun tepesinden kapanışına geri çekilme
+  (%, (h − c) / h × 100, 3 ondalık; mum içi dibin sırası bilinmediği için tepe→kapanış). `belowMin` = temastan sonra
+  1m kapanışın seviyenin ALTINDA kaldığı ilk dakika (temas mumu altında kapandıysa 0; 60 dk içinde hiç yoksa boş).
+  `pb` ve `held` ANLAMI DEĞİŞMEDİ (pb yalnız temas sonrası mumlardan; held yalnız 60. dk kapanışı). Eski kayıtlarda boş.
 - **Seviye gücü:** her temasta seviyenin daha önce kaç kez test edildiği (`lvTouches`); `/seviye` raporunda "💪 Seviye gücüne
   göre" (4+ kez / 1–3 kez / ilk kez: ret %, çekilme, kırıp kalan), `/kacan`'da "Tepki seviyesinin gücü".
 - `/seviye [gün] [ad]` — telefona göre kısa satırlar: 🔥 **Pompa (RSI 85+)**: temas · ret / kırdı (hangisi önce) ·
