@@ -129,14 +129,17 @@ function formatCard(card, s, opt = {}) {
 
   if ((s.gradeBy ?? 'sart3') !== 'liste' && snap.grade > 0) {
     const gc = gradeConds(snap, s), m = b => (b ? '✅' : '▫️');
-    const raw = Math.min(4, 1 + gc.sep + gc.h1 + gc.r15 + gc.atr);
+    const raw = Math.min(4, 1 + gc.sep + gc.h1 + gc.r15 + gc.atr + gc.macd + gc.stoch + gc.rsi3hi);
     const cap = raw > snap.grade ? (gc.runaway ? 'kaçak pompa' : !snap.level && !T.sfp ? 'direnç yok' : null) : null;
     const sp = snap.sepPct || {};
     sec(`🏅 <b>Derece ${snap.grade}/4</b> ${circles(snap.grade, 'red')}${cap ? ` · ${cap} → en fazla ${snap.grade}` : ''}`, [
-      `${m(gc.sep)} EMA21 ayrışma: 3dk ${ps(sp['3m'], 1)} · 5dk ${ps(sp['5m'], 1)} (≥ %${s.sepPct2 ?? 2})`,
+      `${m(gc.sep)} EMA21 ayrışma: 3dk ${ps(sp['3m'], 1)} · 5dk ${ps(sp['5m'], 1)} (≥ %${s.sepPct2 ?? 3})`,
       `${m(gc.h1)} 1s RSI ${f1(snap.conf?.h1)} (${s.gradeRsi1h ?? 80}–${s.gradeRsi1hMax ?? 88})`,
       `${m(gc.r15)} 15dk RSI ${f1(snap.rsi?.['15m']?.v)} (≥ ${s.gradeRsi15m ?? 85})`,
       `${m(gc.atr)} 5dk ATR ${pa(snap.atr5Pct)} (≥ %${s.gradeAtr5Pct ?? 1.2})`,
+      s.gradeMacd5m !== false ? `${m(gc.macd)} 5dk MACD zayıflıyor: ${snap.macd?.['5m']?.text ?? '—'}` : null,
+      s.gradeStoch5m !== false ? `${m(gc.stoch)} 5dk Stoch RSI aşağı kesişim: K ${f1(snap.stoch?.k)} · D ${f1(snap.stoch?.d)}` : null,
+      (s.gradeRsi3m ?? 90) > 0 ? `${m(gc.rsi3hi)} 3dk RSI ${f1(snap.rsi?.['3m']?.v)} (≥ ${s.gradeRsi3m ?? 90})` : null,
       gc.runaway ? `🚀 Kaçak pompa: 1s RSI ${f1(snap.conf?.h1)} · 4s RSI ${f1(snap.conf?.h4)} — bu durumda tepe çoğu zaman sürdü` : null,
     ]);
   }

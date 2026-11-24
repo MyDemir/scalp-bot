@@ -29,7 +29,20 @@ function flatten(o, prefix = '', out = {}) {
   }
   return out;
 }
-const colsOf = rows => { const set = new Set(); for (const r of rows) for (const k of Object.keys(r)) set.add(k); return [...set]; };
+/** Derece kayıt alanları (kartlar.csv'de `partial`'dan sonra, sabit sırayla; eski satırlarda boş) */
+const GRADE_COLS = ['gradeOld', 'g_sep', 'g_h1', 'g_r15', 'g_atr', 'g_macd', 'g_stoch', 'g_rsi3hi', 'g_runaway',
+  'cfgGradeRsi15m', 'cfgGradeAtr5Pct', 'cfgGradeMacd5m', 'cfgGradeStoch5m', 'cfgSepPct2', 'cfgGradeRsi3m', 'gradeVer'];
+/** Kart istatistiği → düz CSV satırı: mevcut kolonlar eski sırada, derece alanları en sonda (hep 16 kolon) */
+function cardRow(r, partialFirst = false) {
+  const { bursts, text, kind, done, ...rest } = r;
+  const g = {};
+  for (const k of GRADE_COLS) { g[k] = rest[k] ?? null; delete rest[k]; }
+  // eski sıra korunur: haftalıkta partial, time'dan önce; /disaaktar'da sonra
+  if (!partialFirst) delete rest.partial;
+  return { ...flatten({ ...rest, time: new Date(r.t).toISOString(), partial: r.partial ? 1 : 0 }), ...g };
+}
+/** Kolon birleşimi (ilk görülene göre); derece kolonları birleşimden çıkarılıp başlığın en sonuna sabit sırayla eklenir */
+const colsOf = rows => { const set = new Set(); for (const r of rows) for (const k of Object.keys(r)) set.add(k); for (const k of GRADE_COLS) set.delete(k); return [...set, ...GRADE_COLS]; };
 
 /**
  * Tek zip: tepeler.csv · kartlar.csv · temaslar.csv · akis.csv (flow verilirse; 40 MB'ı aşarsa veri-…-2.zip …). Tepe adayları parça parça okunur.
@@ -51,10 +64,7 @@ async function buildExports(store, days = 30, now = Date.now(), { maxZipBytes = 
     });
     if (pe) await pe.end();
   }
-  const cards = store.since(since).map(rowToStat).filter(r => r.kind === 'card').map(r => {
-    const { bursts, text, kind, partial, done, ...rest } = r;
-    return flatten({ ...rest, time: new Date(r.t).toISOString(), partial: partial ? 1 : 0 });
-  });
+  const cards = store.since(since).map(rowToStat).filter(r => r.kind === 'card').map(cardRow);
   const writeRows = async (name, rows, key) => {
     const c = colsOf(rows), e = zip.entry(name, csvHeader(c));
     for (const r of rows) await e.write(csvLine(r, c));
@@ -75,7 +85,7 @@ async function buildExports(store, days = 30, now = Date.now(), { maxZipBytes = 
   return { files: await zip.finish(), counts };
 }
 
-module.exports = { buildExports, flatten };
+module.exports = { buildExports, flatten, cardRow, GRADE_COLS, colsOf };
 
 if (require.main === module) {
   const a = process.argv.slice(2);

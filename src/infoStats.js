@@ -37,6 +37,7 @@ function compact(c) {
     sep5: Number.isFinite(sn.sepPct?.['5m']) ? +sn.sepPct['5m'].toFixed(2) : null,
     oiChg60: Number.isFinite(c.oi?.changePct) ? +c.oi.changePct.toFixed(2) : null,
     trend_1h: c.trend1h ?? null,
+    ...(c.gradeAudit || {}),   // düz sayılar; CSV'de sona taşınır (exportData.cardRow)
     fwd: c.fwd,
   };
 }

@@ -114,6 +114,7 @@ function createZipSet(base, { maxBytes = 40e6 } = {}) {
       async end() {
         if (h.ended) return;
         h.ended = true;
+        if (!started && part > 1) { await cur.end(); return; }   // sınırda bölündü, devam parçası boş: girdi eklenmez
         if (!started) await cur.write(header);
         const e = await cur.end(); zips[zips.length - 1].push(e); used += e.csize;
       },

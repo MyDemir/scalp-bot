@@ -3,8 +3,7 @@
 /**
  * Haftalık istatistik dosyası — her Pazartesi 03:01 (TSİ) gruba gönderilir, sonra veritabanından silinir.
  *
- *   Dosyalar : haftalik-<yıl>-H<hafta>.md  — okunur özet + olay listesi (kartlar, düşüşler, seviye temasları)
- *              veri-<yıl>-H<hafta>.zip — tepeler.csv (tüm tepe adayları) · kartlar.csv · temaslar.csv (Sheets / Excel / Python)
+ *   Dosya    : veri-<yıl>-H<hafta>.zip (tek belge) — haftalik-<yıl>-H<hafta>.md (okunur özet + olay listesi) · tepeler.csv (tüm tepe adayları) · kartlar.csv · temaslar.csv (Sheets / Excel / Python)
  *              Zip 40 MB'ı aşarsa (Telegram sınırı 50 MB) kalan satırlar veri-…-2.zip'e geçer.
  *   Bellek   : tepe adayları (haftada on binlerce, 214 sütun) ve seviye temasları (haftada ~50 bin) veritabanından PARÇA
  *              PARÇA okunur, CSV satırı doğrudan zip'e sıkıştırılır; özet sayaçlarla / yalnız özetin kullandığı alanlarla
@@ -26,7 +25,7 @@ const { createSetupAcc } = require('./setupTable');
 const { flatDrop, dropCols, dropText, teyitText, createTeyitAcc, slimDrop, csvLine, csvHeader } = require('./eventLog');
 const { createZipSet } = require('./zipWriter');
 const { touchText } = require('./infoStats');
-const { flatten } = require('./exportData');
+const { flatten, cardRow, colsOf } = require('./exportData');
 
 const MIN = 60_000, HOUR = 3_600_000, DAY = 86_400_000, WEEK = 7 * DAY, MONDAY0 = 4 * DAY;
 const TZ = process.env.DISPLAY_TZ || 'Europe/Istanbul';
@@ -110,8 +109,7 @@ async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = n
   for (const r of cards) if (r.t < from) from = r.t;
 
   const zip = createZipSet(`veri-${label}`, { maxBytes: maxZipBytes });
-  const cardRows = cards.map(r => { const { bursts, text, kind, done, ...rest } = r; return flatten({ ...rest, time: new Date(r.t).toISOString(), partial: r.partial ? 1 : 0 }); });
-  const colsOf = rows => { const set = new Set(); for (const r of rows) for (const k of Object.keys(r)) set.add(k); return [...set]; };
+  const cardRows = cards.map(r => cardRow(r, true));
   {
     const cols = colsOf(cardRows), e = zip.entry('kartlar.csv', csvHeader(cols));
     for (const r of cardRows) await e.write(csvLine(r, cols));
@@ -160,16 +158,19 @@ async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = n
   drops.sort((a, b) => a.t - b.t);
 
   const grade = g => cards.filter(c => c.grade === g).length;
+  const gradeOld = g => cards.filter(c => c.gradeOld === g).length;
+  const oldN = cards.filter(c => c.gradeOld != null).length;
   const oc = { düştü: counts.drops, devam: acc.oc('devam'), yatay: acc.oc('yatay') };
   const md = [
     `# Haftalık istatistik — ${label}`,
     '',
     `Kapsam: ${fmt(from)} → ${fmt(cutoff)} (TSİ) · ${counts.cards} kart · ${counts.peaks} tepe adayı (${counts.drops} düştü) · ${counts.touches} seviye teması`,
     '',
-    'Bu dosya botun kaydettiği olayların dökümüdür; kazanç/kayıp hesabı yoktur, "eşlik eden durum"dur. Sayısal analiz için aynı mesajdaki zip içindeki CSV dosyalarını kullan.',
+    'Bu dosya botun kaydettiği olayların dökümüdür; kazanç/kayıp hesabı yoktur, "eşlik eden durum"dur. Sayısal analiz için bu zip içindeki CSV dosyalarını kullan.',
     '',
     '## Kartlar',
     `Derece: 🔴 ${grade(1)} · 🔴🔴 ${grade(2)} · 🔴🔴🔴 ${grade(3)} · 🔴🔴🔴🔴 ${grade(4)}`,
+    oldN ? `Eski derece (MACD 5m, Stoch 5m ve 3dk RSI şartsız, gradeOld; ${oldN} kart): 🔴 ${gradeOld(1)} · 🔴🔴 ${gradeOld(2)} · 🔴🔴🔴 ${gradeOld(3)} · 🔴🔴🔴🔴 ${gradeOld(4)}` : null,
     '',
     '## Düşüş defteri (özet)',
     '```',
@@ -208,11 +209,18 @@ async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = n
     '- Tepe: pkLv / pkLvKind / pkLvDist / pkLvTouches (tepki seviyesi ve önceki ~100 günde kaç kez test edildiği), pkNear (%0.5 içindeki tüm seviyeler) · Dip: trPct, trMin, trLv, trLvDist, trLvTouches, trNear, trEma (3/5/15dk EMA21 merdiveni), trFalling',
     '- yollar.csv: her tepe adayının sonraki 15 dk 1m yolu; entry = tepe anı 1dk kapanışı, h/l/c<k> = k. dakikanın en yüksek/en düşük/kapanış değişimi (% , entry\'ye göre), n = kaydedilen dakika (<15 ise eksik). t < cutoff kapsamındaki adaylar; haftalık rapordan sonra diğer kayıtlarla silinir (en fazla 60 gün)',
     '- temaslar.csv: lvTouches = seviyenin önceki ~100 günde (4s mumlar) kaç ayrı kez test edildiği · kartlar.csv: level_touches',
+    '- tepeler.csv doğruluk sütunları (sonda): sameBar, cardWhen, contSkipped, rsi15c/rsi1hc/rsi4hc/rsi3c/rsi5c (kapanmış mumlu RSI), sep3c/sep5c, cfg* (kayıt anı ayarı; cfgVer = package.json sürümü; dataVer = el ile artırılan kayıt/derece sürümü), wick_/clv_ 5mc/15mc, bar5Pct/bar15Pct, volPeakXc (tepe 1dk hacmi / pompa süresindeki mumların ortalaması; payda gerçek mum sayısı), miss60, futQ60t/spotQ60/spotShare60t, dropC15/lowC15/closeC60 (girişe göre), incTf/inc5/inc15 (eksik 1m\'li mum), lvZoneHiN/lvZoneLoN, pkLvTouchUp/pkLvTouchDn',
+    '- Derece alanları (tepeler.csv sonda; kartlar.csv son 16 kolon): grade = o anki kart derecesi (gradeVer 2: 1 + ayrışma + 1s + 15dk + ATR + MACD 5m + Stoch 5m + 3dk RSI), gradeOld = MACD/Stoch/3dk RSI şartsız eski formül (ayrışma eşiği güncel), g_sep/g_h1/g_r15/g_atr/g_macd/g_stoch/g_rsi3hi/g_runaway (0/1), cfgGradeRsi15m/cfgGradeAtr5Pct/cfgGradeMacd5m/cfgGradeStoch5m/cfgSepPct2/cfgGradeRsi3m (o andaki ayar). Eski satırlarda boş',
+    '- temaslar.csv: pb0, belowMin (sonda)',
     '- Kart şartı: rsiOk, hits, ok, fails (rsi|seviye…), score, checkOk · sonrası: low/high/close 5, 15, 30, 60, 240 (tepeye göre %)',
     '',
-  ].join('\n');
+  ].filter(x => x != null).join('\n');
 
-  const files = [{ name: `haftalik-${label}.md`, buf: Buffer.from(md, 'utf8'), type: 'text/markdown' }, ...(await zip.finish())];
+  // MD de zip'in içinde (tek belge); özet en sonda bilindiği için girdi en son kapanır (tek zip'te arşivin son girdisi)
+  const mz = zip.entry(`haftalik-${label}.md`);
+  await mz.write(md);
+  await mz.end();
+  const files = await zip.finish();
   return { label, md, files, counts, cutoff, from };
 }
 

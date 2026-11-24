@@ -17,7 +17,7 @@ acc.add(mk('AUSDT', 99, { ...base, pumpPct: 9 }, o(0, 20)));               // ü
 // Pompa A2 (AUSDT): 60 dk ve üstü boşluk → ayrı pompa; close60 yok (eksik)
 acc.add(mk('AUSDT', 99 + 60, { ...base, pumpPct: 6 }, o(-1, null)));
 // Ayrı sembol BUSDT: kurulum şartları (sep, rsi1h bandı, rsi15) tam; hacim 12 kat; close60 +10 tepeye göre → 110*1.1/100-1 = +21% (yukarıda)
-acc.add(mk('BUSDT', 400, { pumpPct: 12, sep3: 2.5, sep5: 2.1, rsi1h: 82, rsi15: 86, volx_3m: 12 }, o(-2, 10)));
+acc.add(mk('BUSDT', 400, { pumpPct: 12, sep3: 3.5, sep5: 3.1, rsi1h: 82, rsi15: 86, volx_3m: 12 }, o(-2, 10)));
 // Sıra karışık gelsin: AUSDT'nin erken adayı en sona yazılır (rowid sırası zaman sırası değil)
 acc.add(mk('AUSDT', 20, { ...base }, o(-13.6, -10)));                      // pompa A'nın ilk adayından sonra, aynı pompa
 
@@ -44,14 +44,29 @@ assert.strictEqual(R['1s RSI bandı'].n, 1);
 assert.strictEqual(R['15dk RSI'].n, 1);
 assert.strictEqual(R['Bu 3 şarttan ≥ 2'].n, 1);
 assert.strictEqual(R['3dk hacim ≥ 10 kat'].n, 1);
+assert.strictEqual(R['MACD 5m zayıf'].n, 0, 'macd5 yok → grup boş');
+assert.strictEqual(R['Stoch 5m aşağı'].n, 0);
+assert.strictEqual(R['3dk RSI ≥ 90'].n, 0, 'rsi3 yok → grup boş');
+{ const a3 = createSetupAcc({ s: {} }); a3.add(mk('GUSDT', 0, { ...base, sep3: 2.5, sep5: 2.5, rsi3: 90 }, o(-5, -10))); a3.add(mk('HUSDT', 0, { ...base, sep3: 3, sep5: 3, rsi3: 89.9 }, o(-5, -10)));
+  const Q3 = Object.fromEntries(a3.stats().rows.map(r => [r.name, r])); assert.strictEqual(Q3['3dk RSI ≥ 90'].n, 1, '3dk RSI ≥ 90'); assert.strictEqual(Q3['EMA21 ayrışma'].n, 1, 'varsayılan ayrışma eşiği 3: 2.5 girmez, 3 girer');
+  const Q4 = Object.fromEntries(createSetupAcc({ s: { gradeRsi3m: 85 } }).stats().rows.map(r => [r.name, r])); assert(Q4['3dk RSI ≥ 90'] && true); }
+// MACD 5m zayıf / Stoch 5m aşağı grupları (maskeler 9 bit; Uint16)
+{ const a2 = createSetupAcc({ s: {} });
+  a2.add(mk('CUSDT', 0, { ...base, macd5: 'zayıf' }, o(-5, -10)));
+  a2.add(mk('DUSDT', 0, { ...base, macd5: 'down', stochCross: 'down' }, o(-5, -10)));
+  a2.add(mk('EUSDT', 0, { ...base, macd5: 'güçlü', stochCross: 'up' }, o(-5, -10)));
+  a2.add(mk('FUSDT', 0, { ...base, stochCross: 'down' }, o(-5, -10)));
+  const Q = Object.fromEntries(a2.stats().rows.map(r => [r.name, r]));
+  assert.strictEqual(Q['MACD 5m zayıf'].n, 2, 'zayıf + aşağı kesişim'); assert.strictEqual(Q['Stoch 5m aşağı'].n, 2); assert.strictEqual(Q['Tüm pompalar'].n, 4);
+  const txt = a2.text(); assert(txt.includes('| MACD 5m zayıf') && txt.includes('| Stoch 5m aşağı'), 'MD tablosunda yeni gruplar'); }
 
 // Yarılar: kapsam orta noktası = (0 + 400)/2 = 200 dk. A (t=0) 1. yarıda (aşağıda), BUSDT (t=400) 2. yarıda (yukarıda)
 assert.deepStrictEqual([all.n1, all.n2, all.h1, all.h2], [1, 1, 100, 0]);
 
-// Eşik ayardan: sepPct2 = 3 → BUSDT ayrışma dışı; gradeRsi1hMax = 80 → 82 bandın dışı (üst sınır dışlayıcı)
+// Eşik ayardan: sepPct2 = 4 → BUSDT ayrışma dışı; gradeRsi1hMax = 80 → 82 bandın dışı (üst sınır dışlayıcı)
 {
-  const a2 = createSetupAcc({ s: { sepPct2: 3, gradeRsi1hMax: 80, gradeRsi1h: 70 } });
-  a2.add(mk('BUSDT', 400, { pumpPct: 12, sep3: 2.5, sep5: 2.1, rsi1h: 82, rsi15: 86, volx_3m: 12 }, o(-2, 10)));
+  const a2 = createSetupAcc({ s: { sepPct2: 4, gradeRsi1hMax: 80, gradeRsi1h: 70 } });
+  a2.add(mk('BUSDT', 400, { pumpPct: 12, sep3: 3.5, sep5: 3.1, rsi1h: 82, rsi15: 86, volx_3m: 12 }, o(-2, 10)));
   const q = Object.fromEntries(a2.stats().rows.map(r => [r.name, r]));
   assert.strictEqual(q['EMA21 ayrışma'].n, 0); assert.strictEqual(q['1s RSI bandı'].n, 0); assert.strictEqual(q['Bu 3 şarttan ≥ 2'].n, 0);
 }

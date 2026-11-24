@@ -345,13 +345,14 @@ const results = []; const ok = s => results.push('✅ ' + s);
     assert(tg.sent.slice(b6).some(m => m.text.includes('📤 1 zip özelden gönderildi')));
     { const d1 = tg.docs.length, nCards = db.prepare('SELECT COUNT(*) n FROM cards').get().n;
       tg.command(CHAT, ADMIN, '/haftalik');
-      await waitFor(() => tg.docs.length >= d1 + 2, 5000, '/haftalik');
+      await waitFor(() => tg.docs.length >= d1 + 1, 5000, '/haftalik');
       const hw = tg.docs.slice(d1).map(d => d.documentName);
-      assert(hw.length === 2 && /^haftalik-\d{4}-H\d\d\.md$/.test(hw[0]) && /^veri-\d{4}-H\d\d\.zip$/.test(hw[1]), 'haftalık ön izleme: ' + hw);
-      assert.deepStrictEqual(Object.keys(require('./unzip')(tg.docs[d1 + 1].documentBuf)).sort(), ['kartlar.csv', 'temaslar.csv', 'tepeler.csv']);
-      assert(tg.docs[d1].documentText.includes('# Haftalık istatistik'));
+      assert(hw.length === 1 && /^veri-\d{4}-H\d\d\.zip$/.test(hw[0]), 'haftalık ön izleme: ' + hw);
+      const hz = require('./unzip')(tg.docs[d1].documentBuf);
+      assert(Object.keys(hz).some(k => /^haftalik-\d{4}-H\d\d\.md$/.test(k)) && ['kartlar.csv', 'temaslar.csv', 'tepeler.csv'].every(k => k in hz), 'zip: ' + Object.keys(hz));
+      assert(Object.entries(hz).find(([k]) => k.endsWith('.md'))[1].includes('# Haftalık istatistik'));
       assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM cards').get().n, nCards, 'ön izleme veri silmemeli'); }
-    ok(`Düşüş defteri — ${eRows.length} olay; /kacan yanıt verdi; /disaaktar üyeye kapalı, yöneticiye zip'i (3 CSV) özelden gönderdi; /haftalik ön izleme (MD + zip) özelden, veri silinmedi (kartlar.csv ${kc.length - 1} satır, rsi_3m · fwd_60_low … sütunları)`); }
+    ok(`Düşüş defteri — ${eRows.length} olay; /kacan yanıt verdi; /disaaktar üyeye kapalı, yöneticiye zip'i (3 CSV) özelden gönderdi; /haftalik ön izleme (tek zip, MD içinde) özelden, veri silinmedi (kartlar.csv ${kc.length - 1} satır, rsi_3m · fwd_60_low … sütunları)`); }
   console._log('\n' + sm.text.replace(/<[^>]+>/g, '').split('\n').slice(0, 12).join('\n'));
 
   // ── Kopukluk: sunucu bağlantıyı kapatır → yeniden bağlan + boşluk doldurma ──

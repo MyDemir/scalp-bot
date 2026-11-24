@@ -142,7 +142,7 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   assert.strictEqual(eng.rsiGrade({ hits: 1, check: { score: 8 } }, L), 0);
   // Varsayılan (sart3): 1 + ayrışma + 1s RSI ≥ 80 + 15m RSI ≥ 85; kontrol listesi skoru dereceyi etkilemez
   const G3 = { ...g, gradeBy: 'sart3', gradeRsi1h: 80, gradeRsi15m: 85 };
-  const sn = (sep, h1, r15, level = { name: '4h tepe' }, h4 = 60) => ({ hits: 2, sepOk: sep, conf: { h1, h4 }, rsi: rsi(90, 90, r15), check: { score: 9 }, level });
+  const sn = (sep, h1, r15, level = { name: '4h tepe' }, h4 = 60) => ({ hits: 2, sepOk: sep, conf: { h1, h4 }, rsi: rsi(89, 90, r15), check: { score: 9 }, level });
   assert.deepStrictEqual([sn(false, 70, 80), sn(true, 70, 80), sn(true, 81, 80), sn(true, 81, 86), sn(false, 85, 90)].map(x => eng.rsiGrade(x, G3)), [1, 2, 3, 4, 3]);
   assert.strictEqual(eng.rsiGrade({ ...sn(true, 90, 90), hits: 1 }, G3), 0, 'RSI kart şartı yoksa derece 0');
   assert.strictEqual(eng.rsiGrade(sn(true, 81, 86, null), G3), 3, 'direnç yok (fiyat keşfi) → en fazla 3');
@@ -155,12 +155,62 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   assert.strictEqual(eng.rsiGrade(sn(true, 84, 86, undefined, 81), G3), 2, '4s ≥ 80 → kaçak');
   assert(eng.gradeConds(sn(true, 90, 86), G3).runaway && !eng.gradeConds(sn(true, 90, 86), G3).h1, '1s ≥ 88 şart sayılmaz');
   assert.strictEqual(eng.rsiGrade(sn(true, 90, 86, undefined, 86), { ...G3, gradeRsi1hMax: 0, gradeRsi4hMax: 0 }), 4, 'kaçak kapalı (0)');
-  assert.strictEqual(eng.rsiGrade({ hits: 2, rsi: rsi(90, 90, null), conf: {} }, G3), 1, 'eksik RSI → şart sayılmaz');
+  assert.strictEqual(eng.rsiGrade({ hits: 2, rsi: rsi(89, 90, null), conf: {} }, G3), 1, 'eksik RSI → şart sayılmaz');
   assert.strictEqual(eng.rsiGrade({ ...sn(false, 70, 86), atr5Pct: 1.3 }, G3), 3, '5dk ATR ≥ 1.2 → +1 daire');
   assert.strictEqual(eng.rsiGrade({ ...sn(true, 81, 86), atr5Pct: 1.3 }, G3), 4, '4 şart → en fazla 4');
   assert.strictEqual(eng.rsiGrade({ ...sn(false, 70, 86), atr5Pct: 1.1 }, G3), 2, 'ATR < 1.2 sayılmaz');
   assert.strictEqual(eng.rsiGrade({ ...sn(false, 70, 86), atr5Pct: 3 }, { ...G3, gradeAtr5Pct: 0 }), 2, 'ATR şartı kapalı (0)');
   assert.strictEqual(eng.rsiGrade({ ...sn(true, 88.2, 86, undefined, 86.5), atr5Pct: 2 }, G3), 2, 'kaçak pompada ATR de tavanı aşmaz');
+  // MACD 5m zayıf + Stoch 5m aşağı kesişim: her biri tek başına +1 daire (gradeVer 2)
+  const cs2 = createSettings;
+  { const MS = { macd: { '5m': { weakening: true } } }, ST = { stoch: { cross: 'down' } }, base0 = sn(false, 70, 80);
+    assert.strictEqual(eng.rsiGrade(base0, G3), 1);
+    assert.strictEqual(eng.rsiGrade({ ...base0, ...MS }, G3), 2, 'MACD 5m zayıf tek başına +1');
+    assert.strictEqual(eng.rsiGrade({ ...base0, ...ST }, G3), 2, 'Stoch 5m aşağı tek başına +1');
+    assert.strictEqual(eng.rsiGrade({ ...base0, macd: { '5m': { weakening: false } }, stoch: { cross: 'up' } }, G3), 1, 'güçlü MACD / yukarı kesişim sayılmaz');
+    assert.strictEqual(eng.rsiGrade({ ...base0, ...MS, ...ST }, G3), 3, 'ikisi birlikte +2');
+    assert.strictEqual(eng.rsiGrade({ ...sn(true, 81, 86), ...MS, ...ST }, G3), 4, 'en fazla 4');
+    assert.strictEqual(eng.rsiGrade({ ...sn(true, 88.2, 86, undefined, 86.5), ...MS, ...ST }, G3), 2, 'kaçak pompa tavanı aynen');
+    assert.strictEqual(eng.rsiGrade({ ...sn(true, 81, 86, null), ...MS, ...ST }, G3), 3, 'seviye yok tavanı aynen');
+    assert.strictEqual(eng.rsiGrade({ ...base0, ...MS, ...ST }, { ...G3, gradeMacd5m: false }), 2, 'gradeMacd5m false → macd şartı 0');
+    assert.strictEqual(eng.rsiGrade({ ...base0, ...MS, ...ST }, { ...G3, gradeStoch5m: false }), 2, 'gradeStoch5m false → stoch şartı 0');
+    assert.strictEqual(eng.rsiGrade({ ...base0, ...MS, ...ST }, { ...G3, gradeMacd5m: false, gradeStoch5m: false }), 1);
+    // liste yolu değişmez
+    assert.strictEqual(eng.rsiGrade({ hits: 2, check: { score: 5 }, ...MS, ...ST }, L), 3, 'liste yolu macd/stoch\'tan etkilenmez');
+    // gölge derece = eski formül; kayıt alanları
+    const full = { ...sn(true, 81, 80), ...MS, ...ST, atr5Pct: 0.5 };
+    assert.strictEqual(eng.rsiGrade(full, G3), 4); assert.strictEqual(eng.gradeOldOf(full, G3), 3, 'gradeOld macd/stoch şartsız');
+    const au = eng.gradeAudit(full, { ...G3, minTFs: 2 });
+    assert.deepStrictEqual(au, { gradeOld: 3, g_sep: 1, g_h1: 1, g_r15: 0, g_atr: 0, g_macd: 1, g_stoch: 1, g_rsi3hi: 0, g_runaway: 0,
+      cfgGradeRsi15m: 85, cfgGradeAtr5Pct: 1.2, cfgGradeMacd5m: 1, cfgGradeStoch5m: 1, cfgSepPct2: g.sepPct2 ?? 3, cfgGradeRsi3m: 90, gradeVer: 2 });
+    // 3dk RSI ≥ gradeRsi3m (90): tek başına +1; 0 = kapalı; gradeOld'da kapalı
+    { const hi = { ...base0, rsi: { '3m': { v: 90.5 }, '5m': { v: 90 }, '15m': { v: 80 } } };
+      assert.strictEqual(eng.rsiGrade(hi, G3), 2, '3dk RSI 90.5 ≥ 90 → +1'); assert.strictEqual(eng.rsiGrade(base0, G3), 1, '3dk 89 → şart yok');
+      assert.strictEqual(eng.rsiGrade(hi, { ...G3, gradeRsi3m: 0 }), 1, 'gradeRsi3m 0 → kapalı');
+      assert.strictEqual(eng.rsiGrade(hi, { ...G3, gradeRsi3m: 91 }), 1, 'eşik ayarlanabilir');
+      assert.strictEqual(eng.rsiGrade({ ...sn(true, 81, 86), ...MS, ...ST, rsi: hi.rsi }, G3), 4, '7 şart en fazla 4');
+      assert.strictEqual(eng.rsiGrade({ ...sn(true, 88.2, 86, undefined, 86.5), ...MS, ...ST, rsi: hi.rsi }, G3), 2, 'kaçak tavanı 3dk şartıyla da aynen');
+      assert.strictEqual(eng.rsiGrade({ ...sn(true, 81, 86, null), ...MS, ...ST, rsi: hi.rsi }, G3), 3, 'seviye tavanı aynen');
+      assert.strictEqual(eng.gradeOldOf(hi, G3), 1, 'gradeOld 3dk şartsız');
+      const a2 = eng.gradeAudit(hi, { ...G3, minTFs: 2 }); assert.strictEqual(a2.g_rsi3hi, 1); assert.strictEqual(a2.gradeOld, 1);
+      assert.strictEqual(eng.gradeAudit(hi, { ...G3, minTFs: 2, gradeRsi3m: 0 }).g_rsi3hi, 0); assert.strictEqual(eng.gradeAudit(hi, { ...G3, minTFs: 2, gradeRsi3m: 0 }).cfgGradeRsi3m, 0);
+      assert.strictEqual(cfg.info.gradeRsi3m, 90); }
+    // sepPct2 varsayılanı 3 (24.11.2026); eski dosyada yoksa 3, dosyada değiştirilmiş değer korunur
+    assert.strictEqual(cfg.info.sepPct2, 3);
+    { const fa = require('path').join(require('./_tmp'), 'old-sep.json'); fs.writeFileSync(fa, JSON.stringify({ values: { rsiMin: 88 } }));
+      const a = cs2({ file: fa, defaults: { ...cfg.info } }); a.load(); assert.strictEqual(a.get().sepPct2, 3, 'eski dosyada sepPct2 yok → 3'); assert.strictEqual(a.get().gradeRsi3m, 90);
+      fs.writeFileSync(fa, JSON.stringify({ values: { sepPct2: 2, gradeRsi3m: 93 } }));
+      const b = cs2({ file: fa, defaults: { ...cfg.info } }); b.load(); assert.strictEqual(b.get().sepPct2, 2, 'dosyadaki değer kalır'); assert.strictEqual(b.get().gradeRsi3m, 93); }
+    assert.strictEqual(eng.gradeAudit(full, { ...G3, minTFs: 2, gradeMacd5m: false }).g_macd, 0);
+    assert.strictEqual(eng.gradeAudit(full, { ...G3, minTFs: 2, gradeMacd5m: false }).cfgGradeMacd5m, 0);
+    assert.strictEqual(eng.gradeAudit(sn(true, 90, 86), { ...G3, minTFs: 2 }).g_runaway, 1);
+    // macdState tanımı: histogram düşüyor ya da ≤ 0 (aşağı kesişim dahil); stochState: yalnız son kapanmış mumdaki aşağı kesişim (K ≥ 80 bölgesinden)
+    const f0 = require('path').join(require('./_tmp'), 'old-settings.json');
+    fs.writeFileSync(f0, JSON.stringify({ values: { gradeRsi15m: 80 } }));
+    const so = cs2({ file: f0, defaults: { ...cfg.info } }); so.load(); const old = so.get(); assert.strictEqual(old.gradeMacd5m, true); assert.strictEqual(old.gradeStoch5m, true); assert.strictEqual(old.gradeRsi15m, 80, 'eski dosya değeri korunur');
+    assert.strictEqual(cfg.info.gradeMacd5m, true); assert.strictEqual(cfg.info.gradeStoch5m, true);
+    assert(so.set('gradeMacd5m', 'false').ok && so.get().gradeMacd5m === false, '/ayarlar ile kapatılabilir');
+  }
   // K15: çakışma adayı da direnç tarafında olmalı — ref'in altında kalan (dist > dipAbovePct) seviye conf sayılmaz
   { const lv = [{ name: '1d MA200', value: 100.3, dist: -0.3 }, { name: '4h EMA200', value: 100.3, dist: g.dipAbovePct + 1.5 }];
     ck = eng.checklist({ ...base, rsi: rsi(90, 90, 90), levels: lv, level: lv[0] }, g);
@@ -264,5 +314,61 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   feed(C, [7, 8, 9]);
   assert.strictEqual(C.incomplete('5m', 5), 0, 'seed yarım mumu (öncesi tam kabul) tam');
   ok('A11 Series.incomplete: boşluksuz 0; eksik dk → o mum işaretli, değerler aynı; seed tam');
+}
+// ── K33: backtest döngüsünde üst TF look-ahead güvenliği ──
+{ const { TF_MS, KEEP } = require(`${REPO}/src/series`); const ta = require(`${REPO}/src/ta`);
+  const HT = ['3m', '5m', '15m', '1h', '4h']; const N = 6000; const t0 = Math.floor(Date.UTC(2026, 0, 1) / (240 * MIN)) * 240 * MIN + 37 * MIN;  // 4h sınırında değil
+  let seed = 11; const rnd = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
+  const arr = []; let p = 100;
+  for (let i = 0; i < N; i++) { const o = p; p *= 1 + (rnd() - 0.5) * 0.004; const h = Math.max(o, p) * (1 + rnd() * 0.001), l = Math.min(o, p) * (1 - rnd() * 0.001), v = 50 + rnd() * 100;
+    arr.push({ t: t0 + i * MIN, o, h, l, c: p, v, tb: v * 0.5, q: v * p, tq: v * 0.5 * p, closed: true }); }
+  // referans: ham 1m'lerden [ps, ps+ms) ∩ (t < now) toplama
+  const oracle = (from, to, ps, ms) => { if (from === 0 && ps < arr[bstart].t && ps + 1 > arr[0].t && oracle.bt) from = bstart; let a = null; for (let j = from; j <= to; j++) { const c = arr[j]; if (c.t < ps) continue; if (c.t >= ps + ms) break; if (!a) a = { t: ps, o: c.o, h: c.h, l: c.l, c: c.c, v: c.v, q: c.q };
+    else { a.h = Math.max(a.h, c.h); a.l = Math.min(a.l, c.l); a.c = c.c; a.v += c.v; a.q += c.q; } } return a; };
+  oracle.bt = false;
+  const near = (a, b) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
+  const same = (g, w, m) => { assert(g && w, m + ' yok'); for (const k of ['t', 'o', 'h', 'l', 'c', 'v', 'q']) assert(near(g[k], w[k]), `${m}: ${k} ${g[k]} != ${w[k]}`); };
+  const lastOf = (S, tf) => { const d = S.d[tf], n = d.t.length - 1; return { t: d.t[n], o: d.o[n], h: d.h[n], l: d.l[n], c: d.c[n], v: d.v[n], q: d.q[n] }; };
+
+  // backtest yolu: üst TF'ler başlangıçtan ÖNCEKİ kapanmış mumlarla tohumlanır (fetchBefore gibi), 1m tohumlanır, sonra döngü
+  const bstart = 5000, btSeries = () => { const S = new Series('BT'); const st = arr[bstart].t;
+    for (const tf of ['1d', '4h', '1h', '15m', '5m', '3m']) { const ms = TF_MS[tf], out = [];
+      for (let ps = Math.floor((st - 1) / ms) * ms; out.length < KEEP[tf] && ps >= arr[0].t - ms; ps -= ms) { if (ps + ms > st) continue; const a = oracle(0, bstart - 1, ps, ms); if (a && a.t === ps && arr[0].t <= ps) out.unshift({ ...a, tb: a.v * 0.5, tq: a.q * 0.5, closed: true }); }
+      S.seed(tf, out); }
+    S.seed('1m', arr.slice(Math.max(0, bstart - KEEP['1m']), bstart)); return S; };
+  oracle.bt = false; const BT = btSeries(), LIVE = new Series('LIVE'); for (let i = 0; i < bstart; i++) LIVE.apply1m(arr[i]);
+  oracle.bt = true;   // döngüde başlangıçtan önce açılmış periyodun yalnız start sonrası 1m'leri BT'de var (start'ta açık mum tohumlanmaz; 'eksik' işaretlenir); gelecek veri değil, eksik veri
+  let nClosed = 0, nPart = 0, cmp = 0;
+  for (let i = bstart; i < N; i++) {
+    const t = arr[i].t + MIN;                                  // karar anı: bu 1m kapandı
+    const closed = BT.apply1m(arr[i]); LIVE.apply1m(arr[i]);
+    for (const tf of HT) { const ms = TF_MS[tf];
+      if (closed.has(tf)) { const g = lastOf(BT, tf); assert(g.t + ms <= t, `${tf}: kapanmış mum t'den sonra bitiyor`); same(g, oracle(0, i, g.t, ms), `${tf}@${i} kapanmış`); assert.strictEqual(g.t + ms, t, 'closed kümesi yalnız tam bu anda biten mum'); nClosed++; }
+      else assert.strictEqual(BT.lastT(tf) + ms <= t, true);
+      // kısmi mum: yalnız t'ye kadarki 1m'ler
+      const pt = BT.part[tf]; if (pt) { const ps = Math.floor(arr[i].t / ms) * ms; assert.strictEqual(pt.t, ps); assert(pt.t + ms > t, 'kısmi mum aslında kapanmış olmalıydı');
+        same(pt, oracle(0, i, ps, ms), `${tf}@${i} kısmi`); assert.strictEqual(BT.col(tf, 't', true).at(-1), ps); assert(near(BT.col(tf, 'h', true).at(-1), oracle(0, i, ps, ms).h)); nPart++; }
+      else assert(closed.has(tf), `${tf}: kısmi yok ama mum kapanmadı`);
+    }
+    // canlı yol = backtest yolu: anlık rsi/ema/macd (kısmi mum dahil ve hariç), 3m/5m/15m (tampon dolu); 1m
+    for (const tf of ['1m', '3m', '5m', '15m']) for (const wp of [true, false]) {
+      if (i < bstart + 15) continue;                           // start'ta açık olan ilk 15 dk'lık periyotlar tohumda yok (yukarıdaki not)
+      const a = BT.col(tf, 'c', wp), b = LIVE.col(tf, 'c', wp), ka = a.slice(-KEEP[tf]), kb = b.slice(-KEEP[tf]);
+      assert.deepStrictEqual(ka.slice(-60), kb.slice(-60), `${tf} kapanışlar t=${t}`);
+      if (tf === '1m' || i % 7 === 0) { assert.strictEqual(ta.rsiLast(ka, 14), ta.rsiLast(kb, 14), `rsi ${tf} t=${t}`); assert.strictEqual(ta.emaLast(ka, 20), ta.emaLast(kb, 20), `ema ${tf} t=${t}`);
+        assert.deepStrictEqual(ta.macdTail(ka), ta.macdTail(kb), `macd ${tf} t=${t}`); cmp++; } }
+  }
+  // gelecek bozulursa t anı değişmez: i'den sonraki 1m'ler bozuk bir seriyle, i anındaki durum birebir aynı
+  { const cut = 5800, A = btSeries(), B = btSeries();
+    for (let i = bstart; i <= cut; i++) { A.apply1m(arr[i]); B.apply1m(arr[i]); }
+    const snap = S => JSON.stringify([S.d, S.part, [...HT.map(tf => [...S.inc[tf]])]]);
+    assert.strictEqual(snap(A), snap(B)); const before = snap(B);
+    // B'ye "gelecek" yalnız sonra verilir; A'nın t anı durumu gelecekteki (bozuk) mumlardan etkilenmemiş olmalı
+    for (let i = cut + 1; i < cut + 40; i++) B.apply1m({ ...arr[i], h: arr[i].h * 3, c: arr[i].c * 2, l: arr[i].l * 0.5 });
+    assert.strictEqual(snap(A), before, 'A durumu gelecek mumlarla değişti'); assert.notStrictEqual(snap(B), before); }
+  assert(nClosed > 400 && nPart > 2000 && cmp > 600, `kapsam ${nClosed}/${nPart}/${cmp}`);
+  // tam seri, uçtan uca: canlı (boştan) ve backtest tamponu, ham 1m'den toplananla birebir
+  for (const tf of ['3m', '5m', '15m']) { const g = BT.d[tf], l = LIVE.d[tf], n = g.t.length; assert.deepStrictEqual(g.t.slice(-100), l.t.slice(-100)); assert(near(g.c[n - 5], oracle(0, N - 1, g.t[n - 5], TF_MS[tf]).c)); }
+  ok(`K33 look-ahead: ${nClosed} üst TF kapanışı ve ${nPart} kısmi mum, t'ye kadarki 1m'lerden toplananla birebir (sonraki 1m'ler katılmıyor); canlı ve backtest yolu ${cmp} ölçümde rsi/ema/macd aynı; gelecek mum bozulunca t anı değişmiyor`);
 }
 console.log(R.join('\n'));
