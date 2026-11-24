@@ -269,6 +269,9 @@ Zip 40 MB'ı aşarsa (Telegram sınırı 50 MB) kalan satırlar `…-2.zip`'e ge
 - `cardWhen` — kartlı kayıtlarda en erken kartın zamanı: `önce` (kart ≤ tepe) · `arada` (tepe < kart ≤ düşüş anı; düşüş yoksa pencere sonu) · `sonra` (sonrası, `cardAfterMin` içinde); kart yoksa boş
 - `contSkipped` — bu kayıttan önce, son kayıttan beri `sampleGapMin` seyreltmesiyle kaydedilmeden atlanan "devam" adayı sayısı
 - `rsi15c`, `rsi1hc`, `rsi4hc` — 15dk / 1s / 4s RSI, yalnız KAPANMIŞ mumlarla (`rsi15`, `rsi1h`, `rsi4h` kısmi mumludur)
+- `rsi3c`, `rsi5c` — 3dk / 5dk RSI, yalnız KAPANMIŞ mumlarla; `sep3c`, `sep5c` — EMA21 ayrışması (%), son KAPANMIŞ 3dk / 5dk mum kapanışı ve kapanmış mumlarla EMA21'e göre (`sep3`, `sep5` canlı fiyatlı ve kısmi mumludur)
+- `cfgPeakWindowMin`, `cfgSampleGapMin`, `cfgVer` — kayıt anındaki tepe penceresi (dk), devam örnekleme aralığı (dk) ve `package.json` sürümü
+- `dropC15` — 1: tepeden sonraki 15 dk içinde fiyat GİRİŞ KAPANIŞININ (`price` sütunu; `peak` sütunu tepe high'ıdır) `cfgDropPct` altına indi (sıra fark etmez); 0: inmedi; pencere eksikse boş. `lowC15` (15 dk en düşük) ve `closeC60` (60 dk kapanış): giriş kapanışına göre %. `outcome` (düştü/devam/yatay) TEPE high'ından ve ilk eşikle ölçülür; giriş kapanışından ölçü için dropC15/lowC15/closeC60.
 - `cfgMinTFs`, `cfgRsiMin`, `cfgDropPct`, `cfgContPct` — adayın oluştuğu andaki ayarlar (minTFs / rsiMin Telegram'dan değişebilir)
 - `wick_5mc`, `clv_5mc`, `wick_15mc`, `clv_15mc` — son KAPANMIŞ 5dk / 15dk mumun üst fitili ve kapanış yeri (`wick_5m`, `clv_5m` vb. devam eden, kısmi mumdandır); `bar5Pct`, `bar15Pct` — tepe anında devam eden 5dk / 15dk mumun kaçta kaçı geçmişti (0–100; mum sınırına denk gelirse 100)
 - `volPeakXc` — `volPeakX` gibi, ama payda gerçekte toplanan mum sayısıyla ve tepe mumu ortalamadan hariç (geçmiş kısaysa `volPeakX` düşük ortalama kullanır; o aynen kalır)

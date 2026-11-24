@@ -251,7 +251,8 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
 // ── 7) H46 veri doğruluğu kolonları ──
 {
   const AUD = ['sameBar', 'cardWhen', 'contSkipped', 'rsi15c', 'rsi1hc', 'rsi4hc', 'cfgMinTFs', 'cfgRsiMin', 'cfgDropPct', 'cfgContPct',
-    'wick_5mc', 'clv_5mc', 'wick_15mc', 'clv_15mc', 'bar5Pct', 'bar15Pct', 'volPeakXc', 'miss60', 'futQ60t', 'spotQ60', 'spotShare60t'];
+    'wick_5mc', 'clv_5mc', 'wick_15mc', 'clv_15mc', 'bar5Pct', 'bar15Pct', 'volPeakXc', 'miss60', 'futQ60t', 'spotQ60', 'spotShare60t',
+    'rsi3c', 'rsi5c', 'sep3c', 'sep5c', 'cfgPeakWindowMin', 'cfgSampleGapMin', 'cfgVer', 'dropC15', 'lowC15', 'closeC60'];
   assert.deepStrictEqual(dropCols().slice(-AUD.length), AUD, 'yeni kolonlar sütun sırasının SONUNDA');
   const old = flatDrop({ id: 'x', out: {}, feat: {} }); assert(AUD.every(k => old[k] == null), 'eski kayıtta boş');
   // sameBar: tepeden sonraki mumda hem −%1.5 hem tepe üstü
@@ -292,6 +293,41 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   assert(cf.length && cf.every(x => x.feat.cfgMinTFs === 3 && x.feat.cfgRsiMin === 77 && x.feat.cfgDropPct === 2 && x.feat.cfgContPct === 0.1), 'cfg değerleri');
   assert(rr.every(x => x.feat.cfgMinTFs === s.minTFs && x.feat.cfgRsiMin === s.rsiMin && x.feat.cfgDropPct === 1.5 && x.feat.cfgContPct === 0));
   ok(`H46 kolonları: sameBar (tek eşik 0 / aynı mum 1), cardWhen önce/arada/sonra/null, contSkipped (en çok ${Math.max(...rr.map(x => x.feat.contSkipped))}), rsi1hc ${re[0].feat.rsi1hc} vs rsi1h ${re[0].feat.rsi1h}, cfg* ayar değişince izleniyor`);
+}
+
+// ── 8) Aşama 1 kalanları: rsi3c/rsi5c, sep3c/sep5c, cfg*, dropC15/lowC15/closeC60 ──
+{
+  const rr = run(path1, { overrides: ov, opts: { peakWindowMin: 15, sampleGapMin: 7 } }).ev.sort((a, b) => a.t - b.t);
+  assert(rr.length && rr.every(x => Number.isFinite(x.feat.rsi3c) && Number.isFinite(x.feat.rsi5c) && Number.isFinite(x.feat.sep3c) && Number.isFinite(x.feat.sep5c)), 'rsi3c/5c, sep3c/5c sayı');
+  assert(rr.some(x => x.feat.rsi3c !== x.feat.rsi3 || x.feat.rsi5c !== x.feat.rsi5), 'rsi*c kısmi mumlu rsi3/rsi5\'ten farklı olabilir');
+  assert(rr.some(x => x.feat.sep3c !== x.feat.sep3), 'sep3c canlı sep3\'ten farklı olabilir');
+  assert(rr.every(x => x.feat.cfgPeakWindowMin === 15 && x.feat.cfgSampleGapMin === 7 && x.feat.cfgVer === require(`${REPO}/package.json`).version), 'cfg* ledger ayarları + sürüm');
+  // sep3c: kapanmış mumla elle hesap (yeni seri; kısmi mum sep3c'yi değiştirmez)
+  {
+    const ta = require(`${REPO}/src/ta`); const { sepClosed } = require(`${REPO}/src/eventLog`);
+    const S = new Series('SEPUSDT'); const T3 = 3 * MIN, b = t0 + 200 * T3;
+    const bars = Array.from({ length: 40 }, (_, i) => { const c = 100 + i * 0.1; return { t: t0 + i * T3, o: c, h: c + 0.1, l: c - 0.1, c, v: 1, q: 1, tq: 1, tb: 1, closed: true }; });
+    S.seed('3m', bars);
+    const cl = bars.map(x => x.c), em = ta.emaSeries(cl, 21), want = +((cl[39] - em[em.length - 1]) / em[em.length - 1] * 100).toFixed(2);
+    S.part['3m'] = { t: b, o: 110, h: 120, l: 110, c: 120, v: 1, q: 1, tq: 1, tb: 1 };
+    assert.strictEqual(sepClosed(S, '3m'), want, 'sep3c kapanmış mumla (kısmi mum 120 etkilemez)');
+    assert.notStrictEqual(want, +((120 - em.at(-1)) / em.at(-1) * 100).toFixed(2));
+    assert.strictEqual(sepClosed(new Series('EMPTYUSDT'), '3m'), null, 'mum yok → null');
+  }
+  // dropC15/lowC15/closeC60: peak ≠ price. Elle dönüşüm: v = peak*(1+x/100)/price − 1
+  const dv = drops(run(path1, { overrides: ov }).ev).find(x => x.price === 106.3);
+  assert(dv && dv.feat.price !== dv.price, 'peak ≠ giriş kapanışı: ' + dv?.price + ' / ' + dv?.feat.price);
+  const cv = (x, pk, pr) => +((pk * (1 + x / 100) / pr - 1) * 100).toFixed(3);
+  assert.strictEqual(dv.feat.lowC15, cv(dv.out[15].low, dv.price, dv.feat.price), 'lowC15 dönüşümü');
+  assert.strictEqual(dv.feat.closeC60, cv(dv.out[60].close, dv.price, dv.feat.price), 'closeC60 dönüşümü');
+  assert(dv.feat.lowC15 !== dv.out[15].low, 'tepeye göre değil, girişe göre');
+  assert.strictEqual(dv.feat.dropC15, dv.feat.lowC15 <= -1.5 ? 1 : 0);
+  // sınır: girişe göre eşik tutmuyorsa (peak girişten yüksek) dropC15 = 0 olabilir; elle kur
+  assert.strictEqual(flatDrop(dv).lowC15, dv.feat.lowC15);
+  // eksik pencere → null (finish'e doğrudan: 5 dk pencereli ledger, out[15]/out[60] yok)
+  const sh = run(path1, { overrides: ov, opts: { windows: [5] } }).ev.find(x => x.outcome === 'düştü');
+  assert(sh && sh.feat.lowC15 === null && sh.feat.closeC60 === null && sh.feat.dropC15 === null, 'eksik pencere null');
+  ok('Aşama 1: rsi3c/rsi5c, sep3c, cfg*, dropC15/lowC15/closeC60 (peak≠price dönüşüm, eksik pencere null)');
 }
 
 console.log('\n' + R.join('\n'));
