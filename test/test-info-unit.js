@@ -127,6 +127,23 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   const saved = JSON.parse(fs.readFileSync(f, 'utf8')); assert(!('burstPct1' in saved.values), 'yalnızca değişenler yazılmalı');
   ok('Ayarlar: sınır/tip doğrulaması, virgüllü sayı, ± adım ve sınıra kırpma, aç-kapa; susturma süresi doluyor; dosyaya yalnızca değişenler yazılıp geri okunuyor');
 }
+// ── Eski ayar dosyası: kaldırılan tepe kurulumu anahtarları açılışta yok sayılır ──
+{ const f = `${require('./_tmp')}/unit-settings-old.json`;
+  fs.writeFileSync(f, JSON.stringify({ values: { rsiMin: 88, peakAlert: false, peakAlertConds: 3, peakAlertFundingMax: 0.02, peakAlertPumpPct: 7, peakAlertGapMin: 60, peakAlertRsiOnly: true, chartPeak: false },
+    mutes: {}, follows: ['SOLUSDT'], topics: { kart: 5, tepe: 9 } }));
+  const st = createSettings({ file: f, defaults: { ...cfg.info } }); st.load();
+  const g = st.get();
+  assert.strictEqual(g.rsiMin, 88, 'geçerli eski ayar korunur');
+  for (const k of ['peakAlert', 'peakAlertConds', 'peakAlertFundingMax', 'peakAlertPumpPct', 'peakAlertGapMin', 'peakAlertRsiOnly', 'chartPeak']) {
+    assert(!(k in g) && !(k in cfg.info), `${k} kaldırıldı`);
+    assert(!st.set(k, true).ok, `${k} artık ayarlanamaz`);
+  }
+  assert(st.isFollowed('SOLUSDT') && st.topic('kart') === 5, 'takip ve konu korunur; eski tepe konusu hata vermez');
+  st.set('rsiMin', 89);   // kayıt eski anahtarlarla çakışmadan yazılır
+  const saved = JSON.parse(fs.readFileSync(f, 'utf8'));
+  assert(!Object.keys(saved.values).some(k => /^peakAlert|^chartPeak/.test(k)), 'eski anahtarlar dosyadan temizlenir');
+  ok('Eski ayar dosyası: peakAlert*/chartPeak anahtarları yok sayıldı, açılış hatasız, kayıtta temizlendi');
+}
 // ── VWAP σ: gün/hafta başında az mumla σ verilmez ──
 { const ta = require(`${REPO}/src/ta`); const { vwapFeatures, refLevels } = require(`${REPO}/src/marketSnap`);
   const h = [1.001, 1.0011], l = [0.9999, 1.0], c = [1.0, 1.0005], v = [100, 120];

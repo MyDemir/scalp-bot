@@ -2,7 +2,7 @@
 
 Tek paket Node.js (CommonJS, Node ≥ 20) projesi: Binance USDT-M Futures
 bilgi / sınıflandırma botu. Koşulu sağlayan coinler için Telegram'a kart
-ve 🔻 tepe kurulumu bildirimi gönderir; otomatik işlem yoktur. Aynı
+gönderir (🔻 tepe kurulumu bildirimi 24.11.2026'da kaldırıldı; tepe defteri kaydı sürer); otomatik işlem yoktur. Aynı
 süreçte salt okunur web paneli (`src/server.js`, port 3000) çalışır.
 Kod `src/`, testler `test/`; kullanıcı kılavuzu `README.md`.
 
@@ -49,8 +49,8 @@ gösterim + Telegram komutu) her alan ayrı iş sayılır, ortak ARAYÜZ
   kullanıcı yanıtları `kind: 'reply'` ile öncelikli; komutlara yalnız
   `TELEGRAM_CHAT_ID` sohbetinden yanıt), `src/infoTelegram.js`
   (komutlar, `/ayarlar` menüsü, butonlar, konu yönlendirme),
-  `src/infoCard.js` (kart metni, Telegram HTML), `src/peakAlert.js`
-  (🔻 tepe kurulumu bildirimi), `src/chart.js` (kart grafiği PNG),
+  `src/infoCard.js` (kart metni, Telegram HTML),
+  `src/chart.js` (kart grafiği PNG),
   `src/infoSettings.js` (ayarlar → `/data/info-settings.json`).
 - Kurallar: kart ve bildirim biçimi, derece daireleri, sesli/sessiz
   ayrımı ve `/konu` yönlendirmesi kullanıcının onaylı tasarımıdır;
@@ -62,7 +62,7 @@ gösterim + Telegram komutu) her alan ayrı iş sayılır, ortak ARAYÜZ
   ayar `config.js` `info` + `/ayarlar` menüsü + README'ye birlikte
   girer. Mesaj sayısını artıran değişiklik (günde kaç mesaj)
   RAPOR'da yazılır.
-- Testler: `node test/run.js telegram-queue info-e2e peak counter chart
+- Testler: `node test/run.js telegram-queue info-e2e counter chart
   gap-dedup`.
 
 ### 3. İstatistik kaydı
@@ -107,7 +107,7 @@ info-bt`.
 - Kurulum: `npm ci` (better-sqlite3 ve @napi-rs/canvas yerel modül; ilk
   kurulum birkaç dakika sürebilir)
 - Testler: `npm test` (tümü, `test/run.js`), tek tek:
-  `node test/run.js peak weekly` (ada göre süzer). Ağ gerekmez; Binance
+  `node test/run.js drops weekly` (ada göre süzer). Ağ gerekmez; Binance
   ve Telegram `test/mockinfo.js` ile taklit edilir. Loglar
   `test/.tmp/logs/<ad>.log`. CI ortamı: `NODE_ENV=test TELEGRAM_OPTIONAL=1`.
 - Lint: yok (package.json'da lint betiği tanımlı değil).
@@ -142,7 +142,7 @@ info-bt`.
   soruları kullanıcıya teker teker gelir.
 - Kanıtsız ve artı/eksisi gösterilmemiş öneri yok. Sinyal kuralı
   önerisi veriyle gelir: dönem, örnek sayısı, "60 dk sonra aşağıda" oranı
-  ve dönemlere bölünmüş sonuç (README'deki tepe kurulumu tablosu gibi).
+  ve dönemlere bölünmüş sonuç (örnek: /teyit çıktısı: dönem, n, oran).
   Tek dönemde tutup diğerinde tutmayan kural öneri olamaz.
 - Bot bilgi verir, karar vermez: kart ve bildirim metni al/sat emri gibi
   yazılmaz; otomatik işlem eklenmez.
@@ -150,7 +150,7 @@ info-bt`.
   `infoCard.js`, `eventLog.js`, `levelTouch.js`). Bir tarafa özel dal
   açılmaz; look-ahead yok.
 - Kart derece / tepe kuralları ve varsayılan eşikleri (`src/config.js`
-  `info`, `src/infoEngine.js` derece hesabı, `src/peakAlert.js`)
+  `info`, `src/infoEngine.js` derece hesabı)
   kullanıcı onayı gerektirir. Kart biçimi değişikliği de onaylıdır.
 - Davranış ya da komut değişikliği aynı dalda `README.md`'ye yansır
   (tablo, örnek kart, komut listesi).
@@ -191,10 +191,10 @@ BİTTİ TANIMI · RAPOR
   imzası, ayar anahtarı, Telegram komutu ve argümanları, kart / CSV
   kolonları, SQLite kolonu, CLI argümanları, çıkış kodları. Yoksa "yok".
 - ONAY KAPILARI: bu iş için kullanıcının önceden verdiği onaylar,
-  açıkça ("src/peakAlert.js funding eşiği: onaylı"). Yazmayan kapı
+  açıkça ("src/config.js funding eşiği: onaylı"). Yazmayan kapı
   kapalıdır.
 - BİTTİ TANIMI: çalıştırılacak komutlar ve beklenen sonuç
-  (ör. `node test/run.js peak` -> 1/1 geçti; `npm test` -> 28/28).
+  (ör. `node test/run.js weekly` -> 1/1 geçti; `npm test` -> 28/28).
 
 ## Ajan ortak kuralları (her ajan uyar)
 0. ALAN: İlk iş bu dosyanın "Her görevin başında" adımlarını uygular;

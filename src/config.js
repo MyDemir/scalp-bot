@@ -68,13 +68,6 @@ module.exports = {
     confRequired:  false,
     macdRequired:  false,
 
-    // 🔻 Tepe kurulumu bildirimi (src/peakAlert.js) — kart biçimine dokunmaz, ayrı mesaj
-    peakAlert:        true,
-    peakAlertConds:   2,     // 3 derece şartından (ayrışma · 1s RSI · 15dk RSI) en az; H42+H43: ≥2 + funding → %73 aşağıda (149 pompa)
-    peakAlertFundingMax: 0.005, // funding (%) bunun altında olmalı; ≥ %0.01 iken aynı şartlar %56
-    peakAlertPumpPct: 5,     // pompa (4 saatlik dipten) en az %
-    peakAlertGapMin:  30,    // coin başına en fazla … dk'da bir
-    peakAlertRsiOnly: false, // true: yalnız RSI kart şartı (rsiMin, minTFs) o an sağlanan coinlerde
 
     // 🌊 Spot/futures akış takibi (src/spotFlow.js) — yalnız /akis komutu ve panel, kartı etkilemez
     flowK:         6,       // etiket için son … pencere (fiyat eğimi + CVD)
@@ -93,7 +86,6 @@ module.exports = {
     moveAlertPct:  2,
     cardSound:     true,
     chart:         true,   // RSI kartları ve /coin
-    chartPeak:     true,   // 🔻 tepe kurulumu bildirimi (RSI kartından bağımsız)
     chartTf:       '1h',
     chartFib:      true,
     chartIchi:     true,

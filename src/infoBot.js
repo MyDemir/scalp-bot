@@ -14,7 +14,6 @@ const { compact } = require('./infoStats');
 const { createCardStore } = require('./cardStore');
 const { createTouchTracker } = require('./levelTouch');
 const { createDropLedger, DEFAULTS: DROP_DEFAULTS } = require('./eventLog');
-const { peakScore, peakSetup, formatPeakAlert } = require('./peakAlert');
 const { createEnricher, createLiqStream } = require('./marketData');
 const { emaTrend } = require('./peakFeatures');
 const ta = require('./ta');
@@ -49,7 +48,7 @@ const touches  = createTouchTracker();
 // Tepe defteri (kartı etkilemez) — canlıda Binance ek verisi (OI, long/short, emir defteri, spot) ve likidasyon akışı
 const enricher = createEnricher({ client: binance });
 const liqStream = createLiqStream();
-const drops    = createDropLedger({ ...cfg.events, enrich: (sym, o) => enricher.enrich(sym, o), orderBook: sym => enricher.orderBook(sym), onCandidate: (sr, e) => onPeakCandidate(sr, e) });
+const drops    = createDropLedger({ ...cfg.events, enrich: (sym, o) => enricher.enrich(sym, o), orderBook: sym => enricher.orderBook(sym) });
 let store = null;
 let flow = null;              // spot/futures akış takibi (src/spotFlow.js) — main'de kurulur
 let bigTrades = null;         // spot büyük alım/satım sayacı (src/bigTrades.js) — akış evreniyle çalışır
@@ -82,7 +81,7 @@ let premium   = new Map();
 const oiCache = new Map();
 let vols24    = new Map();
 
-const stats = { closes: 0, cards: 0, cardsToday: 0, day: null, seeded: 0, seedErrors: 0, gapFills: 0, peakAlerts: 0 };
+const stats = { closes: 0, cards: 0, cardsToday: 0, day: null, seeded: 0, seedErrors: 0, gapFills: 0 };
 const gapMetrics = { runs: 0, lastDurationMs: 0, lastSymbols: 0, lastRecoveredCandles: 0, lastFetchMs: 0, lastProcessMs: 0, lastFailures: 0, lastSkippedBusy: 0, lastPeakConcurrency: 0, lastIncomplete: 0, lastStale: 0, lastCoverage: {} };
 const seedMetrics = { runs: 0, lastLabel: null, lastSymbols: 0, lastFailures: 0, lastIncomplete: 0, lastPeakConcurrency: 0, lastDurationMs: 0 };
 const MAX_COVERAGE_REPORT = 50;   // panelde gösterilen sorunlu coin sayısı
@@ -311,42 +310,6 @@ async function emitCard(card) {
   store?.add({ id: card.id, kind: 'card', symbol: card.symbol, t: card.t, seq: card.seq, price: card.price, data: { ...compact(card), bursts: undefined, fwd: undefined } });
   const lv = card.snap.level;
   console.log(`[KART] ${card.symbol} #${card.seq} derece ${card.grade} · RSI ${card.snap.hits}/3 · ${lv ? `${lv.name} ${lv.dist.toFixed(2)}\%${lv.zone}` : 'seviye yok'} · ${card.silent ? 'sessiz' : 'SESLİ'} · ${card.news.join(' | ')}`);
-}
-
-// ── 🔻 Tepe kurulumu (src/peakAlert.js) ──────────────────────────────────
-// Tepe defterinin her yeni adayında şartlara bakılır; kart biçimine dokunmaz, ayrı mesaj gider.
-const peakLast = new Map();          // sym → son bildirim zamanı
-function onPeakCandidate(sr, e) {
-  const s = settings.get();
-  if (!s.peakAlert || !e?.feat) return;
-  const sym = sr.symbol;
-  const st = peakSetup(e.feat, s);
-  if (!st.ok || !(e.feat.pumpPct >= (s.peakAlertPumpPct ?? 5))) return;
-  if (s.peakAlertRsiOnly && !e.feat.rsiOk) return;          // yalnız RSI kart şartı (rsiMin, minTFs) sağlanan coinler
-  if (settings.isMuted(sym)) return;
-  const last = peakLast.get(sym);
-  if (last != null && e.t - last < (s.peakAlertGapMin ?? 30) * MIN) return;
-  peakLast.set(sym, e.t);
-  if (peakLast.size > 2000) peakLast.delete(peakLast.keys().next().value);
-  stats.peakAlerts++;
-  const sc = peakScore(e.feat);
-  const id = `${sym}-${e.t}-tepe`;
-  let level = null, levels = [];
-  try { levels = eng.levelsOf(sr, s); level = eng.pickLevel(e.feat.price ?? e.price, levels, s).level; } catch { /* grafik seviyesiz */ }
-  const followed = settings.isFollowed(sym);
-  const { text, keyboard, details: det } = formatPeakAlert({ sym, e, st, sc, s, level, followed, id });
-  details.set(id, det);
-  let photo = null;
-  try { if (s.chartPeak) photo = chartOf(sr, s, level, levels, `Tepe kurulumu ${st.n}/3`); } catch { /* grafiksiz */ }
-  const thread = settings.topic('tepe') || settings.topic('kart');
-  telegram.sendCard({ text, keyboard, silent: !s.cardSound && !followed, photo, thread });
-  const f = e.feat;
-  store?.add({ id, kind: 'tepe', symbol: sym, t: e.t, seq: st.n, price: f.price ?? e.price,
-    data: { score: st.n, conds: { sep: st.sep, h1: st.h1, r15: st.r15, fund: st.fund }, trendDown: st.trendDown, peak: e.price, pumpPct: f.pumpPct,
-      funding: f.funding, trend_1h: f.trend_1h, rsi1h: f.rsi1h, rsi15: f.rsi15, sep3: f.sep3, sep5: f.sep5, atr5Pct: f.atr5Pct,
-      rejScore: sc.score, wick_5m: f.wick_5m, clv_1m: f.clv_1m, body_1m: f.body_1m, volx_3m: f.volx_3m, session: f.session,
-      ema21_3m: f.ema21_3m, ema21_5m: f.ema21_5m, ema21_15m: f.ema21_15m } });
-  console.log(`[TEPE] ${sym} kurulum ${st.n}/3${st.trendDown ? ' ⭐' : ''} · funding ${f.funding} · pompa %${f.pumpPct} · tepe ${e.price}`);
 }
 
 // ── Mum işleme ────────────────────────────────────────────────────────────
@@ -741,8 +704,8 @@ function heartbeat() {
   const mins = Math.round(cfg.heartbeatMs / 60000);
   const closes = stats.closes - lastCloses;
   lastCloses = stats.closes;
-  const cards = stats.cards, peaks = stats.peakAlerts;
-  stats.cards = 0; stats.peakAlerts = 0;
+  const cards = stats.cards;
+  stats.cards = 0;
   store?.sweep();
   touches.sweep();
   drops.sweep();
@@ -752,7 +715,7 @@ function heartbeat() {
   diag = newDiag();
   console.log(
     `[HEARTBEAT] WS ${ws?.open ?? 0}/${ws?.connections ?? 0} bağlı (${ws?.streams ?? 0} stream)` +
-    ` | son ${mins}dk: ${closes} 1m kapanış, ${ws?.skipped ?? 0} ara güncelleme atlandı, ${cards} kart, ${peaks} tepe kurulumu` +
+    ` | son ${mins}dk: ${closes} 1m kapanış, ${ws?.skipped ?? 0} ara güncelleme atlandı, ${cards} kart` +
     ` | coin: ${readyCount()}/${series.size} hazır${busy.size ? `, ${busy.size} yükleniyor` : ''}${stale.length ? `, ${stale.length} GERİDE` : ''}` +
     ` | ${dTxt}` +
     ` | ${loadText(load)}` +
@@ -866,4 +829,4 @@ async function main() {
   console.log('\n✅ Bilgi botu çalışıyor.\n');
 }
 
-module.exports = { main, _internal: { onPeakCandidate, series, settings, tracker, touches, drops, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, seedMany, checkCoverage, seedMetrics, health, runReport, PANEL_REPORTS, runRecoveryCycle, scanStaleRecovery, queueRecovery, isFreshSymbol, recoveryBlocked, recoveryQueue, recoveryAttempts, recoveryNotBefore, gapMetrics, statusText, stats, busy, pending, details, getStore: () => store, getFlow: () => flow, getBigTrades: () => bigTrades, getWeekly: () => weekly } };
+module.exports = { main, _internal: { series, settings, tracker, touches, drops, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, seedMany, checkCoverage, seedMetrics, health, runReport, PANEL_REPORTS, runRecoveryCycle, scanStaleRecovery, queueRecovery, isFreshSymbol, recoveryBlocked, recoveryQueue, recoveryAttempts, recoveryNotBefore, gapMetrics, statusText, stats, busy, pending, details, getStore: () => store, getFlow: () => flow, getBigTrades: () => bigTrades, getWeekly: () => weekly } };
