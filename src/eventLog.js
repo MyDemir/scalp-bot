@@ -33,13 +33,14 @@
  * Kartı ve tetik kurallarını ETKİLEMEZ. Rapor dili "eşlik eden durum"dur; kazanç/kayıp hesabı yoktur.
  */
 
-const { evaluate, separationPct } = require('./infoEngine');
+const { evaluate, separationPct, gradeAudit } = require('./infoEngine');
 const ta = require('./ta');
 const { tfIndicators, vwapSet, vwapFeatures, refLevels, nearest, TF_COLS, VWAP_COLS } = require('./marketSnap');
 const { maLadder, stopOf } = require('./levelTouch');
 const { extraFeatures, EXTRA_COLS, EXTRA_AUDIT_COLS } = require('./peakFeatures');
 const { basisPct, ENRICH_COLS, LIQ_COLS } = require('./marketData');
-const PKG_VERSION = String(require('../package.json').version ?? '');
+// Kayıt / derece davranışı değişince elle artır (tepeler.csv cfgVer). 24.11.2026-2: derece = 1 + sep+h1+r15+atr+macd+stoch+rsi3hi; sepPct2 3.
+const DATA_VER = '2026.11.24-3';
 
 const MIN = 60_000;
 const TROUGH_MIN = 60;      // dip: tepeden sonraki 60 dk'nın en düşüğü
@@ -94,7 +95,9 @@ const OUTCOME_COLS = ['outcome', 'upBeforeDrop', 't1', 't2', 't3', 'c5Red', 'c5E
 const AUDIT_COLS = ['sameBar', 'cardWhen', 'contSkipped', 'rsi15c', 'rsi1hc', 'rsi4hc', 'cfgMinTFs', 'cfgRsiMin', 'cfgDropPct', 'cfgContPct',
   ...EXTRA_AUDIT_COLS, 'spotQ60', 'spotShare60t',
   'rsi3c', 'rsi5c', 'sep3c', 'sep5c', 'cfgPeakWindowMin', 'cfgSampleGapMin', 'cfgVer', 'dropC15', 'lowC15', 'closeC60',
-  'incTf', 'inc5', 'inc15', 'lvZoneHiN', 'lvZoneLoN', 'pkLvTouchUp', 'pkLvTouchDn'];
+  'incTf', 'inc5', 'inc15', 'lvZoneHiN', 'lvZoneLoN', 'pkLvTouchUp', 'pkLvTouchDn',
+  // derece denetimi (24.11.2026): grade = yeni derece (gradeVer 2); gradeOld = macd/stoch şartsız eski formül
+  'gradeOld', 'g_sep', 'g_h1', 'g_r15', 'g_atr', 'g_macd', 'g_stoch', 'g_rsi3hi', 'g_runaway', 'cfgGradeRsi15m', 'cfgGradeAtr5Pct', 'cfgGradeMacd5m', 'cfgGradeStoch5m', 'cfgSepPct2', 'cfgGradeRsi3m', 'gradeVer'];
 const FEATURE_COLS = [...BASE_COLS, ...PEAK_COLS, ...TF_COLS, ...VWAP_COLS, ...EXTRA_COLS, 'basisPct', ...LIQ_COLS, ...ENRICH_COLS, ...TROUGH_COLS, ...OUTCOME_COLS, ...AUDIT_COLS];
 
 /** Tepe anının tam fotoğrafı */
@@ -125,6 +128,7 @@ function peakFeatures(series, s, ctx, high, pump, loT, tc, history = null) {
     // eksik 1m ile kapanmış mum işareti (son 14 kapanmış mum; series.incomplete)
     incTf: ['3m', '5m', '15m', '1h', '4h'].filter(tf => series.incomplete(tf, 14) > 0).join('|'),
     inc5: series.incomplete('5m', 14), inc15: series.incomplete('15m', 14),
+    ...gradeAudit(snap, s),
   });
 }
 
@@ -260,7 +264,7 @@ function createDropLedger(opts = {}) {
       feat: peakFeatures(series, s, ctx, c.h, pump, loT, tc, history(sym, x, tc)) };
     // kayıt anındaki geçerli ayarlar (minTFs/rsiMin Telegram'dan değişebilir; observe'e geçen `s` canlıda settings.get())
     Object.assign(e.feat, { cfgMinTFs: s.minTFs ?? null, cfgRsiMin: s.rsiMin ?? null, cfgDropPct: E.dropPct, cfgContPct: E.contPct,
-      cfgPeakWindowMin: E.peakWindowMin, cfgSampleGapMin: E.sampleGapMin, cfgVer: PKG_VERSION });
+      cfgPeakWindowMin: E.peakWindowMin, cfgSampleGapMin: E.sampleGapMin, cfgVer: DATA_VER });
     // Emir defteri tepe anında (coin başına en fazla 60 sn'de bir; araya giren adaylar son fotoğrafı kullanır)
     if (E.orderBook) {
       if (tc - x.obAt >= MIN) {
@@ -500,6 +504,9 @@ const CANDS = [
   ['15dk EMA21 ≥ %5 üstü', 'sep15', f => f.sep15 >= 5],
   ['4+ temaslı seviyede', 'pkLvTouches', f => f.pkLvTouches >= 4],
   ['MACD 3/5dk sat kes.', 'macd3', f => f.macd3 === 'down' || f.macd5 === 'down'],
+  ['3dk RSI ≥ 95', 'rsi3', f => f.rsi3 >= 95],
+  ['MACD 5m zayıf', 'macd5', f => f.macd5 === 'zayıf' || f.macd5 === 'down'],
+  ['Stoch 5m aşağı', 'stochK', f => f.stochCross === 'down'],
   ['Funding negatif', 'funding', f => f.funding < 0],
   ['Funding ≥ +%0.05', 'funding', f => f.funding >= 0.05],
   ['Baz ≥ +%0.1', 'basisPct', f => f.basisPct >= 0.1],
@@ -595,7 +602,7 @@ function teyitText(rows, { title = '', E = DEFAULTS, minN = 5 } = {}) {
 • Satır: o durum varken / yokken adayların yüzde kaçı düştü, parantezde varken adet (en az ${minN}). Fark ≥ 3 puan olanlar
 • Aynı pompadan birden fazla aday olabilir (devam en fazla ${E.sampleGapMin} dk'da bir) — adaylar birbirinden bağımsız değildir
 • 5dk teyit mumu: tepeden sonraki ilk tam 5dk mum; oran mumun kapanışından sonraki 60 dk'ya göre
-• CSV: sameBar = sonuç mumunda iki eşik birden vardı · cardWhen = kart tepeye göre önce/arada/sonra · contSkipped = atlanan devam adayı · rsi15c/rsi1hc/rsi4hc/rsi3c/rsi5c = kapanmış mumlu RSI · sep3c/sep5c = kapanmış mumlu ayrışma · dropC15/lowC15/closeC60 = giriş kapanışından ölçü · cfg* = kayıt anı ayarı · *c = kapanmış mum, miss60 = eksik dk, *60t = tepe anında biten pencere
+• CSV: sameBar = sonuç mumunda iki eşik birden vardı · cardWhen = kart tepeye göre önce/arada/sonra · contSkipped = atlanan devam adayı · rsi15c/rsi1hc/rsi4hc/rsi3c/rsi5c = kapanmış mumlu RSI · sep3c/sep5c = kapanmış mumlu ayrışma · dropC15/lowC15/closeC60 = giriş kapanışından ölçü · cfg* = kayıt anı ayarı · wick_/clv_ 5mc/15mc = kapanmış mum · bar5Pct/bar15Pct = tepe mumunun yüzdesi · volPeakXc = tepe 1dk hacmi / pompa süresindeki (tepe hariç) 1dk mumların ortalaması (payda gerçekte bulunan mum sayısı; kapanmış mum değil) · miss60 = eksik dk · futQ60t/spotQ60 = 60 dk pencere (tepe anında biten) · inc* = eksik 1m'li mum · lvZoneHiN/LoN, pkLvTouchUp/Dn = seviye bölgesi/test sayısı · gradeOld, g_*, cfgGrade* = derece denetimi (gradeVer 2)
 • Kazanç/kayıp değildir, "eşlik eden durum"dur; az örnekte farklar tesadüf olabilir</blockquote>`,
   ].filter(Boolean);
   return parts.join('\n\n').slice(0, 4096);

@@ -39,6 +39,7 @@ assert(w.md.includes('## Teyit adayları'), 'MD teyit bölümü');
 assert(w.md.indexOf('## Kurulum tablosu (pompa başına ilk aday, giriş 1dk kapanış)') > w.md.indexOf('## Teyit adayları') && w.md.includes('Nasıl okunur'), 'MD kurulum tablosu teyitten sonra');
 assert(w.md.includes('# Haftalık istatistik — 2026-H40') && w.md.includes('## Düşüşler (1)') && w.md.includes('**BUSDT**') && w.md.includes('tepki: Günlük VWAP +2σ') && w.md.includes('dip −%3.1 (18 dk) 15dk EMA21') && w.md.includes('kart ❌ eksik: seviye'));
 assert(w.md.includes('## Kartlar (1)') && w.md.includes('**AUSDT** #1 derece 3'));
+assert(!w.md.includes('Eski derece'), 'gradeOld olmayan eski kartlarda eski derece satırı yok');
 const dcsv = Z['tepeler.csv'];
 assert(dcsv.startsWith('\uFEFF') && dcsv.split('\n')[0].includes('rsi_4h') && dcsv.split('\n')[0].includes('pkLv') && dcsv.trim().split('\n').length === 2);
 assert(Z['temaslar.csv'].split('\n')[0].trim().split(',').slice(-2).join() === 'pb0,belowMin', 'temaslar.csv başlığı: pb0,belowMin sonda');

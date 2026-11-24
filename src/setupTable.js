@@ -5,7 +5,7 @@
  *
  * Giriş: tepe defteri satırı r = { symbol, t, price (tepe = 1dk high), feat (price = 1dk kapanış, rsi1h, rsi15, sep3, sep5,
  * pumpPct, volx_3m), out ({15:{low}, 60:{close}} — tepeye göre %) }.
- * Bellek: aday başına yalnız sembol indeksi, t, grup maskesi, iki ölçü (≈ 21 bayt, tipli dizi); satır tutulmaz.
+ * Bellek: aday başına yalnız sembol indeksi, t, grup maskesi, iki ölçü (≈ 22 bayt, tipli dizi); satır tutulmaz.
  */
 const MIN = 60_000;
 const GAP_MS = 60 * MIN;             // aynı sembolde ardışık adaylar arası boşluk < 60 dk → aynı pompa
@@ -23,6 +23,9 @@ const GROUPS = [
   '15dk RSI',
   'Bu 3 şarttan ≥ 2',
   '3dk hacim ≥ 10 kat',
+  'MACD 5m zayıf',
+  'Stoch 5m aşağı',
+  '3dk RSI ≥ 95',
 ];
 
 const num = v => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -31,7 +34,7 @@ const fromEntry = (peak, price, x) => (peak > 0 && price > 0 && x != null ? (pea
 
 /** Eşikler ayardan, yoksa varsayılan; config.js'e anahtar eklenmez */
 function thresholds(s = {}) {
-  return { sep: s.sepPct2 ?? 2, r1h: s.gradeRsi1h ?? 80, r1hMax: s.gradeRsi1hMax ?? 88, r15: s.gradeRsi15m ?? 85 };
+  return { sep: s.sepPct2 ?? 3, r1h: s.gradeRsi1h ?? 80, r1hMax: s.gradeRsi1hMax ?? 88, r15: s.gradeRsi15m ?? 85, r3: s.gradeRsi3m ?? 95 };
 }
 
 /** Grup maskesi (bit i = GROUPS[i]) */
@@ -42,7 +45,10 @@ function maskOf(feat, th) {
   const r1h = num(f.rsi1h) != null && f.rsi1h >= th.r1h && (!(th.r1hMax > 0) || f.rsi1h < th.r1hMax);
   const r15 = num(f.rsi15) != null && f.rsi15 >= th.r15;
   const vol = num(f.volx_3m) != null && f.volx_3m >= VOLX_MIN;
-  const bits = [true, pump, sep, r1h, r15, (sep ? 1 : 0) + (r1h ? 1 : 0) + (r15 ? 1 : 0) >= 2, vol];
+  const macd = f.macd5 === 'zayıf' || f.macd5 === 'down';   // 5dk MACD zayıflıyor (aşağı kesişim dahil)
+  const stoch = f.stochCross === 'down';                     // 5dk Stoch RSI aşağı kesişim
+  const r3 = num(f.rsi3) != null && f.rsi3 >= th.r3;          // 3dk RSI ≥ gradeRsi3m (95)
+  const bits = [true, pump, sep, r1h, r15, (sep ? 1 : 0) + (r1h ? 1 : 0) + (r15 ? 1 : 0) >= 2, vol, macd, stoch, r3];
   return bits.reduce((m, b, i) => m | (b ? 1 << i : 0), 0);
 }
 
@@ -50,11 +56,11 @@ function createSetupAcc({ s = {} } = {}) {
   const th = thresholds(s);
   const syms = new Map();           // sembol → indeks
   let n = 0, cap = 1024;
-  let sy = new Uint32Array(cap), tt = new Float64Array(cap), mk = new Uint8Array(cap), l15 = new Float32Array(cap), c60 = new Float32Array(cap);
+  let sy = new Uint32Array(cap), tt = new Float64Array(cap), mk = new Uint16Array(cap), l15 = new Float32Array(cap), c60 = new Float32Array(cap);
   const grow = () => {
     cap *= 2;
     const g = (A, T) => { const B = new T(cap); B.set(A); return B; };
-    sy = g(sy, Uint32Array); tt = g(tt, Float64Array); mk = g(mk, Uint8Array); l15 = g(l15, Float32Array); c60 = g(c60, Float32Array);
+    sy = g(sy, Uint32Array); tt = g(tt, Float64Array); mk = g(mk, Uint16Array); l15 = g(l15, Float32Array); c60 = g(c60, Float32Array);
   };
 
   /** @param {object} r tepe defteri satırı (yukarıdaki biçim) */

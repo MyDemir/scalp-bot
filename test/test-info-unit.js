@@ -161,6 +161,56 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   assert.strictEqual(eng.rsiGrade({ ...sn(false, 70, 86), atr5Pct: 1.1 }, G3), 2, 'ATR < 1.2 sayılmaz');
   assert.strictEqual(eng.rsiGrade({ ...sn(false, 70, 86), atr5Pct: 3 }, { ...G3, gradeAtr5Pct: 0 }), 2, 'ATR şartı kapalı (0)');
   assert.strictEqual(eng.rsiGrade({ ...sn(true, 88.2, 86, undefined, 86.5), atr5Pct: 2 }, G3), 2, 'kaçak pompada ATR de tavanı aşmaz');
+  // MACD 5m zayıf + Stoch 5m aşağı kesişim: her biri tek başına +1 daire (gradeVer 2)
+  const cs2 = createSettings;
+  { const MS = { macd: { '5m': { weakening: true } } }, ST = { stoch: { cross: 'down' } }, base0 = sn(false, 70, 80);
+    assert.strictEqual(eng.rsiGrade(base0, G3), 1);
+    assert.strictEqual(eng.rsiGrade({ ...base0, ...MS }, G3), 2, 'MACD 5m zayıf tek başına +1');
+    assert.strictEqual(eng.rsiGrade({ ...base0, ...ST }, G3), 2, 'Stoch 5m aşağı tek başına +1');
+    assert.strictEqual(eng.rsiGrade({ ...base0, macd: { '5m': { weakening: false } }, stoch: { cross: 'up' } }, G3), 1, 'güçlü MACD / yukarı kesişim sayılmaz');
+    assert.strictEqual(eng.rsiGrade({ ...base0, ...MS, ...ST }, G3), 3, 'ikisi birlikte +2');
+    assert.strictEqual(eng.rsiGrade({ ...sn(true, 81, 86), ...MS, ...ST }, G3), 4, 'en fazla 4');
+    assert.strictEqual(eng.rsiGrade({ ...sn(true, 88.2, 86, undefined, 86.5), ...MS, ...ST }, G3), 2, 'kaçak pompa tavanı aynen');
+    assert.strictEqual(eng.rsiGrade({ ...sn(true, 81, 86, null), ...MS, ...ST }, G3), 3, 'seviye yok tavanı aynen');
+    assert.strictEqual(eng.rsiGrade({ ...base0, ...MS, ...ST }, { ...G3, gradeMacd5m: false }), 2, 'gradeMacd5m false → macd şartı 0');
+    assert.strictEqual(eng.rsiGrade({ ...base0, ...MS, ...ST }, { ...G3, gradeStoch5m: false }), 2, 'gradeStoch5m false → stoch şartı 0');
+    assert.strictEqual(eng.rsiGrade({ ...base0, ...MS, ...ST }, { ...G3, gradeMacd5m: false, gradeStoch5m: false }), 1);
+    // liste yolu değişmez
+    assert.strictEqual(eng.rsiGrade({ hits: 2, check: { score: 5 }, ...MS, ...ST }, L), 3, 'liste yolu macd/stoch\'tan etkilenmez');
+    // gölge derece = eski formül; kayıt alanları
+    const full = { ...sn(true, 81, 80), ...MS, ...ST, atr5Pct: 0.5 };
+    assert.strictEqual(eng.rsiGrade(full, G3), 4); assert.strictEqual(eng.gradeOldOf(full, G3), 3, 'gradeOld macd/stoch şartsız');
+    const au = eng.gradeAudit(full, { ...G3, minTFs: 2 });
+    assert.deepStrictEqual(au, { gradeOld: 3, g_sep: 1, g_h1: 1, g_r15: 0, g_atr: 0, g_macd: 1, g_stoch: 1, g_rsi3hi: 0, g_runaway: 0,
+      cfgGradeRsi15m: 85, cfgGradeAtr5Pct: 1.2, cfgGradeMacd5m: 1, cfgGradeStoch5m: 1, cfgSepPct2: g.sepPct2 ?? 3, cfgGradeRsi3m: 95, gradeVer: 2 });
+    // 3dk RSI ≥ gradeRsi3m (95): tek başına +1; 0 = kapalı; gradeOld'da kapalı
+    { const hi = { ...base0, rsi: { '3m': { v: 95.5 }, '5m': { v: 90 }, '15m': { v: 80 } } };
+      assert.strictEqual(eng.rsiGrade(hi, G3), 2, '3dk RSI 95.5 ≥ 95 → +1'); assert.strictEqual(eng.rsiGrade(base0, G3), 1, '3dk 90 → şart yok');
+      assert.strictEqual(eng.rsiGrade(hi, { ...G3, gradeRsi3m: 0 }), 1, 'gradeRsi3m 0 → kapalı');
+      assert.strictEqual(eng.rsiGrade(hi, { ...G3, gradeRsi3m: 96 }), 1, 'eşik ayarlanabilir');
+      assert.strictEqual(eng.rsiGrade({ ...sn(true, 81, 86), ...MS, ...ST, rsi: hi.rsi }, G3), 4, '7 şart en fazla 4');
+      assert.strictEqual(eng.rsiGrade({ ...sn(true, 88.2, 86, undefined, 86.5), ...MS, ...ST, rsi: hi.rsi }, G3), 2, 'kaçak tavanı 3dk şartıyla da aynen');
+      assert.strictEqual(eng.rsiGrade({ ...sn(true, 81, 86, null), ...MS, ...ST, rsi: hi.rsi }, G3), 3, 'seviye tavanı aynen');
+      assert.strictEqual(eng.gradeOldOf(hi, G3), 1, 'gradeOld 3dk şartsız');
+      const a2 = eng.gradeAudit(hi, { ...G3, minTFs: 2 }); assert.strictEqual(a2.g_rsi3hi, 1); assert.strictEqual(a2.gradeOld, 1);
+      assert.strictEqual(eng.gradeAudit(hi, { ...G3, minTFs: 2, gradeRsi3m: 0 }).g_rsi3hi, 0); assert.strictEqual(eng.gradeAudit(hi, { ...G3, minTFs: 2, gradeRsi3m: 0 }).cfgGradeRsi3m, 0);
+      assert.strictEqual(cfg.info.gradeRsi3m, 95); }
+    // sepPct2 varsayılanı 3 (24.11.2026); eski dosyada yoksa 3, dosyada değiştirilmiş değer korunur
+    assert.strictEqual(cfg.info.sepPct2, 3);
+    { const fa = require('path').join(require('./_tmp'), 'old-sep.json'); fs.writeFileSync(fa, JSON.stringify({ values: { rsiMin: 88 } }));
+      const a = cs2({ file: fa, defaults: { ...cfg.info } }); a.load(); assert.strictEqual(a.get().sepPct2, 3, 'eski dosyada sepPct2 yok → 3'); assert.strictEqual(a.get().gradeRsi3m, 95);
+      fs.writeFileSync(fa, JSON.stringify({ values: { sepPct2: 2, gradeRsi3m: 90 } }));
+      const b = cs2({ file: fa, defaults: { ...cfg.info } }); b.load(); assert.strictEqual(b.get().sepPct2, 2, 'dosyadaki değer kalır'); assert.strictEqual(b.get().gradeRsi3m, 90); }
+    assert.strictEqual(eng.gradeAudit(full, { ...G3, minTFs: 2, gradeMacd5m: false }).g_macd, 0);
+    assert.strictEqual(eng.gradeAudit(full, { ...G3, minTFs: 2, gradeMacd5m: false }).cfgGradeMacd5m, 0);
+    assert.strictEqual(eng.gradeAudit(sn(true, 90, 86), { ...G3, minTFs: 2 }).g_runaway, 1);
+    // macdState tanımı: histogram düşüyor ya da ≤ 0 (aşağı kesişim dahil); stochState: yalnız son kapanmış mumdaki aşağı kesişim (K ≥ 80 bölgesinden)
+    const f0 = require('path').join(require('./_tmp'), 'old-settings.json');
+    fs.writeFileSync(f0, JSON.stringify({ values: { gradeRsi15m: 80 } }));
+    const so = cs2({ file: f0, defaults: { ...cfg.info } }); so.load(); const old = so.get(); assert.strictEqual(old.gradeMacd5m, true); assert.strictEqual(old.gradeStoch5m, true); assert.strictEqual(old.gradeRsi15m, 80, 'eski dosya değeri korunur');
+    assert.strictEqual(cfg.info.gradeMacd5m, true); assert.strictEqual(cfg.info.gradeStoch5m, true);
+    assert(so.set('gradeMacd5m', 'false').ok && so.get().gradeMacd5m === false, '/ayarlar ile kapatılabilir');
+  }
   // K15: çakışma adayı da direnç tarafında olmalı — ref'in altında kalan (dist > dipAbovePct) seviye conf sayılmaz
   { const lv = [{ name: '1d MA200', value: 100.3, dist: -0.3 }, { name: '4h EMA200', value: 100.3, dist: g.dipAbovePct + 1.5 }];
     ck = eng.checklist({ ...base, rsi: rsi(90, 90, 90), levels: lv, level: lv[0] }, g);
