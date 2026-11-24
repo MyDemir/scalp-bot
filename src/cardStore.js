@@ -225,6 +225,26 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
       return Object.fromEntries(rows.map(r => [r.o, r.n]));
     },
     touchesSince: t => (safe(() => st.tSince.all(t), 'sorgu') || []).map(rowToTouch),
+    /**
+     * Seviye temaslarını PARÇA PARÇA okur (haftalık rapor, /disaaktar) — haftada on binlerce satır tek seferde
+     * okunup kopyalanınca bellek yüzlerce MB şişiyordu (2026-10-26 heap taşması). fn(temas) → (async olabilir)
+     * @param {{since?:number, until?:number, batch?:number}} o
+     * @returns {Promise<number>} okunan satır
+     */
+    async forEachTouch({ since = 0, until = Number.MAX_SAFE_INTEGER, batch = 500 } = {}, fn) {
+      if (!db) return 0;
+      const q = db.prepare('SELECT rowid AS _rid, * FROM touches WHERE rowid > ? AND t >= ? AND t < ? ORDER BY rowid LIMIT ?');
+      let last = 0, n = 0;
+      for (;;) {
+        const rows = safe(() => q.all(last, since, until, batch), 'sorgu') || [];
+        if (!rows.length) break;
+        last = rows[rows.length - 1]._rid;
+        for (const r of rows) { const x = fn(rowToTouch(r)); if (x && typeof x.then === 'function') await x; n++; }
+        if (rows.length < batch) break;
+        await new Promise(res => setImmediate(res));
+      }
+      return n;
+    },
 
     recent: (symbol, n = 10) => safe(() => st.recent.all(symbol, n), 'sorgu') || [],
     since: t => safe(() => st.since.all(t), 'sorgu') || [],

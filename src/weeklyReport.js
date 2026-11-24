@@ -6,8 +6,10 @@
  *   Dosyalar : haftalik-<yıl>-H<hafta>.md  — okunur özet + olay listesi (kartlar, düşüşler, seviye temasları)
  *              veri-<yıl>-H<hafta>.zip — tepeler.csv (tüm tepe adayları) · kartlar.csv · temaslar.csv (Sheets / Excel / Python)
  *              Zip 40 MB'ı aşarsa (Telegram sınırı 50 MB) kalan satırlar veri-…-2.zip'e geçer.
- *   Bellek   : tepe adayları (haftada on binlerce, 214 sütun) veritabanından PARÇA PARÇA okunur, CSV satırı doğrudan
- *              zip'e sıkıştırılır; özet sayaçlarla hesaplanır — hiçbir anda tüm hafta bellekte tutulmaz.
+ *   Bellek   : tepe adayları (haftada on binlerce, 214 sütun) ve seviye temasları (haftada ~50 bin) veritabanından PARÇA
+ *              PARÇA okunur, CSV satırı doğrudan zip'e sıkıştırılır; özet sayaçlarla / yalnız özetin kullandığı alanlarla
+ *              hesaplanır — hiçbir anda tüm hafta bellekte tutulmaz. (Temaslar önceden tümüyle okunup CSV için düz
+ *              kopyası çıkarılıyordu: +300 MB heap → 2026-10-26 03:01'de 512 MB makinede heap taşması.)
  *   Kapsam   : rapor anından 5 saat öncesine kadarki TÜM kayıtlar (kartın 240 dk takibi ve düşüşün 240 dk sonrası
  *              dolmuş olsun diye; son 5 saat bir sonraki haftaya kalır). Önceki raporda gönderilemeyenler de girer.
  *   Silme    : dosyaların HEPSİ gruba gittikten sonra kapsamdaki kartlar, temaslar ve düşüşler silinir (VACUUM ile
@@ -19,7 +21,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { rowToStat } = require('./cardStore');
+const { rowToStat, rowToTouch } = require('./cardStore');
 const { flatDrop, dropCols, dropText, teyitText, createTeyitAcc, slimDrop, csvLine, csvHeader } = require('./eventLog');
 const { createZipSet } = require('./zipWriter');
 const { touchText } = require('./infoStats');
@@ -88,6 +90,12 @@ function cardLine(r) {
 
 const MD_DROP_LINES = 300;          // MD'deki düşüş satırı sınırı (tamamı CSV'de)
 
+/** Seviye tepkisi özetinin (infoStats.touchText / touchSum) okuduğu alanlar — temasın geri kalanı yalnız CSV'ye gider */
+const TOUCH_TEXT_FIELDS = ['t', 'name', 'rsiOk', 'card', 'lvTouches', 'pb', 'pbMin', 'emaMin', 'brokeMin', 'brokeAfterEma', 'held', 'stop', 'falling', 'pb5', 'pb15', 'pb30'];
+const slimTouch = r => { const o = {}; for (const k of TOUCH_TEXT_FIELDS) o[k] = r[k]; return o; };
+const touchRow = r => flatten({ ...r, time: new Date(r.t).toISOString() });
+const TOUCH_COLS = Object.keys(touchRow(rowToTouch({ t: 0 })));
+
 /**
  * @param {object} store  cardStore
  * @returns {Promise<{label, md, files:{name, buf, type}[], counts, cutoff, from}>}
@@ -95,21 +103,31 @@ const MD_DROP_LINES = 300;          // MD'deki düşüş satırı sınırı (tam
 async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = now - LAG_MS, maxZipBytes = 40e6 } = {}) {
   const label = weekLabel(cutoff);
   const cards = store.since(0).filter(r => r.t < cutoff).map(rowToStat).filter(r => r.kind === 'card');
-  const touches = (store.touchesSince ? store.touchesSince(0) : []).filter(r => r.t < cutoff);
-  const counts = { cards: cards.length, touches: touches.length, drops: 0, peaks: 0 };
+  const counts = { cards: cards.length, touches: 0, drops: 0, peaks: 0 };
   let from = cutoff;
   for (const r of cards) if (r.t < from) from = r.t;
-  for (const r of touches) if (r.t < from) from = r.t;
 
   const zip = createZipSet(`veri-${label}`, { maxBytes: maxZipBytes });
   const cardRows = cards.map(r => { const { bursts, text, kind, done, ...rest } = r; return flatten({ ...rest, time: new Date(r.t).toISOString(), partial: r.partial ? 1 : 0 }); });
-  const touchRows = touches.map(r => flatten({ ...r, time: new Date(r.t).toISOString() }));
   const colsOf = rows => { const set = new Set(); for (const r of rows) for (const k of Object.keys(r)) set.add(k); return [...set]; };
-  for (const [name, rows] of [['kartlar.csv', cardRows], ['temaslar.csv', touchRows]]) {
-    const cols = colsOf(rows), e = zip.entry(name, csvHeader(cols));
-    for (const r of rows) await e.write(csvLine(r, cols));
+  {
+    const cols = colsOf(cardRows), e = zip.entry('kartlar.csv', csvHeader(cols));
+    for (const r of cardRows) await e.write(csvLine(r, cols));
     await e.end();
   }
+
+  // Seviye temasları: parça parça oku → CSV satırı zip'e; özet için yalnız gereken alanlar tutulur
+  const touches = [];
+  const tz = zip.entry('temaslar.csv', csvHeader(TOUCH_COLS));
+  const onTouch = async r => {
+    counts.touches++;
+    if (r.t < from) from = r.t;
+    touches.push(slimTouch(r));
+    await tz.write(csvLine(touchRow(r), TOUCH_COLS));
+  };
+  if (store.forEachTouch) await store.forEachTouch({ until: cutoff }, onTouch);
+  else if (store.touchesSince) for (const r of store.touchesSince(0)) if (r.t < cutoff) await onTouch(r);
+  await tz.end();
 
   // Tepe adayları: parça parça oku → CSV satırı zip'e, teyit sayaçları, "düştü"ler sade biçimde (rapor alanları)
   const acc = createTeyitAcc();
