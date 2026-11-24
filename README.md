@@ -266,7 +266,7 @@ Zip 40 MB'ı aşarsa (Telegram sınırı 50 MB) kalan satırlar `…-2.zip`'e ge
 
 `yollar.csv` (zipte yalnız yol kaydı varsa; haftalık raporda da) — her kaydedilen tepe adayının tepeden sonraki 15 dakikasının 1dk yolu, stop/hedef sırası ve giriş gecikmesi ölçülebilsin diye.
 Sütunlar: `id` (tepeler.csv ile aynı), `symbol`, `time` (UTC ISO), `entry` (giriş = tepe anındaki 1dk kapanışı, tepe fiyatı değil), `n` (kaydedilen dakika; 15'ten azsa takip eksiktir, kalan sütunlar boş),
-sonra `h1,l1,c1 … h15,l15,c15`: k. dakikanın en yüksek / en düşük / kapanış değişimi (%, `entry`'ye göre). Kazanç/kayıp değildir. Seyreltmeyle atlanan devam adaylarının yolu yoktur.
+sonra `h1,l1,c1 … h15,l15,c15`: k. dakikanın en yüksek / en düşük / kapanış değişimi (%, `entry`'ye göre). Kazanç/kayıp değildir. Seyreltmeyle atlanan devam adaylarının ve tepeden sonra hiç 1dk mumu gelmeyen (n=0) adayların satırı yoktur.
 Kayıt `/data/cards.db` → `paths` tablosu (`id, symbol, t, entry, n, data` — `data` Float32 BLOB, aday başına ≤180 bayt); **haftalık rapordan sonra diğer kayıtlarla birlikte silinir (gönderim başarısızsa silinmez); en fazla 60 gün** saklanır.
 Haftalık rapor zip'ine kapsamdaki (`t < cutoff`) tüm yollar girer; `/disaaktar` istenen gün sayısı kadarını verir.
 

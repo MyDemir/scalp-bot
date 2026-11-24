@@ -1,5 +1,5 @@
 'use strict';
-// Tepe sonrası 1m yolu: eventLog onPath toplama, cards.db `paths` tablosu (60 gün budama, purgeBefore'a dahil değil), yollar.csv (haftalık + /disaaktar)
+// Tepe sonrası 1m yolu: eventLog onPath toplama, cards.db `paths` tablosu (haftalık raporda purgeBefore ile silinir; 60 gün budama güvenlik ağı), yollar.csv (haftalık + /disaaktar)
 const REPO = require('path').resolve(__dirname, '..'); const assert = require('assert'); const fs = require('fs');
 const { Series } = require(`${REPO}/src/series`); const cfg = require(`${REPO}/src/config`);
 const { createDropLedger } = require(`${REPO}/src/eventLog`);
