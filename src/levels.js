@@ -190,19 +190,20 @@ function fibExtensions(leg, price, max = 2) {
  *   hareketli  : 4h MA200 / EMA200 o mumdaki ortalama değeriyle; 1d MA200 / EMA200 ve günlük trend çizgisi günlük mumlarla.
  * Sonuç her seviyeye `touches` olarak yazılır (grafik ≥ chartMinTouches süzgeci, Detay, istatistik).
  */
-function countTouches(h, c, valueAt, { tol = 0.005, gap = 2, from = 0, range = null } = {}) {
-  let n = 0, lastI = -Infinity;
+function countTouchesDir(h, c, valueAt, { tol = 0.005, gap = 2, from = 0, range = null } = {}) {
+  let up = 0, down = 0, lastI = -Infinity;
   for (let i = Math.max(0, from); i < h.length; i++) {
     const v = valueAt(i);
     if (!(v > 0)) continue;
     const lo = range ? range[0] : v, hi = range ? range[1] : v;
     if (h[i] >= lo * (1 - tol) && c[i] <= hi * (1 + tol)) {
-      if (i - lastI > gap) n++;
+      if (i - lastI > gap) { if (i > 0 && c[i - 1] < lo) up++; else down++; }   // up: alttan yaklaşma (direnç testi); ölçüm, kural değil
       lastI = i;
     }
   }
-  return n;
+  return { up, down };
 }
+function countTouches(h, c, valueAt, o = {}) { const r = countTouchesDir(h, c, valueAt, o); return r.up + r.down; }
 function maSeries(c, n, kind) {
   const out = new Array(c.length).fill(null);
   if (kind === 'ema') { const e = emaSeries(c, n); for (let j = 0; j < e.length; j++) out[j + n - 1] = e[j]; return out; }
@@ -217,20 +218,21 @@ function annotateTouches(levels, { h4, d1 } = {}, o = {}) {
     '4h MA200': H.length ? maSeries(C4, 200, 'sma') : null, '4h EMA200': H.length ? maSeries(C4, 200, 'ema') : null,
     '1d MA200': DH.length ? maSeries(DC, 200, 'sma') : null, '1d EMA200': DH.length ? maSeries(DC, 200, 'ema') : null,
   };
+  const set = (L, r) => { L.touches = r.up + r.down; L.touchesUp = r.up; L.touchesDn = r.down; };
   for (const L of levels) {
     if (dyn[L.name]) {
       const daily = L.name.startsWith('1d');
       const arr = dyn[L.name];
-      L.touches = countTouches(daily ? DH : H, daily ? DC : C4, i => arr[i], { ...o, from: daily ? DH.length - 120 : 0 });
+      set(L, countTouchesDir(daily ? DH : H, daily ? DC : C4, i => arr[i], { ...o, from: daily ? DH.length - 120 : 0 }));
     } else if (L.kind === 'trend' && L.trend && DT.length) {
       const { a, b } = L.trend, k = (Math.log(b.v) - Math.log(a.v)) / (b.t - a.t);
-      L.touches = countTouches(DH, DC, i => (DT[i] >= a.t ? Math.exp(Math.log(a.v) + k * (DT[i] - a.t)) : null), o);
+      set(L, countTouchesDir(DH, DC, i => (DT[i] >= a.t ? Math.exp(Math.log(a.v) + k * (DT[i] - a.t)) : null), o));
     } else {
       const range = L.zoneInfo ? [L.zoneInfo.lo, L.zoneInfo.hi] : null;
-      L.touches = countTouches(H, C4, () => L.value, { ...o, range });
+      set(L, countTouchesDir(H, C4, () => L.value, { ...o, range }));
     }
   }
   return levels;
 }
 
-module.exports = { countTouches, annotateTouches, toWeekly, weeklyZones, roundPx, calcMajorResistance, calcLevelSet, impulseLeg, majorLeg, dailyZones, dailyTrendline, swingHighs, calcExtraLevels, fibExtensions, FIB_RET, FIB_EXT };
+module.exports = { countTouches, countTouchesDir, annotateTouches, toWeekly, weeklyZones, roundPx, calcMajorResistance, calcLevelSet, impulseLeg, majorLeg, dailyZones, dailyTrendline, swingHighs, calcExtraLevels, fibExtensions, FIB_RET, FIB_EXT };
