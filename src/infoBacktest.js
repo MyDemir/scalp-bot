@@ -9,7 +9,8 @@
  *     o ana kadarki 1m'lerden üretilir. Dönem başlangıcı UTC gece yarısına hizalanır (yarım mum kalmaz).
  *   • Kazanç/kayıp hesabı YOK. Her kart için yalnızca "sonrasında fiyat ne yaptı" bilgisi (sonraki
  *     15/60 dk'daki en düşük / en yüksek / kapanış) tutulur — kart sınıflarını kıyaslamak için.
- *   • Funding ve OI geçmişi kullanılmaz (kartlarda "—"); BTC 1h bağlamı geçmişten hesaplanır.
+ *   • Funding ve OI geçmişi kullanılmaz (kartlarda "—"); BTC 1h bağlamı ve ctx.market (btc5/btc15/btcRsi15) geçmişten
+ *     hesaplanır; breadth80/pumping null. Eksik bağlam listesi: LIMITS (konsol + JSON params.limits).
  *
  * Çalıştırma (Binance'e erişen yerde — Fly makinesinde):
  *   node src/infoBacktest.js                         # tüm evren (24s hacim ≥ ayar), son 30 gün
@@ -38,6 +39,7 @@ const eng = require('./infoEngine');
 const { formatCard, toPlain, esc } = require('./infoCard');
 const { createSettings } = require('./infoSettings');
 const { withRetry } = require('./binanceClient');
+const ta = require('./ta');
 const { createTouchTracker } = require('./levelTouch');
 const { createDropLedger, dropText, teyitText, DEFAULTS: DROP_DEFAULTS } = require('./eventLog');
 
@@ -78,6 +80,47 @@ async function fetchBefore(symbol, tf, start, n) {
   return (raw || []).map(k => normKline(k, start)).filter(c => c.closed);
 }
 
+// ── BTC piyasa bağlamı (canlıdaki infoBot marketState'in BTC kısmı) ─────────
+
+/** Backtest'te canlıdan eksik kalan bağlam (konsol + JSON params.limits + README) */
+const LIMITS = [
+  'funding yok (kartlarda "—"; tepe kaydında funding alanları boş)',
+  'likidasyon akışı yok',
+  'breadth80 ve pumping yok (evrenin aynı andaki durumu gerekir; backtest sembol sembol koşar → null)',
+  'spot / emir defteri verisi yok',
+  'sessize alma ve takip (cooldown, seri akışı) canlıdaki gibi işlemez',
+  'evren BUGÜNKÜ 24s hacme göre seçilir (hayatta kalma yanlılığı: dönemde listeden çıkan coinler yok)',
+];
+
+/**
+ * BTC 1m mumlarından t anındaki {btc5, btc15, btcRsi15} (canlı marketState ile aynı tanım ve yuvarlama).
+ * Tek geçişte hesaplanıp zaman indeksli Float64Array'lerde tutulur (365 gün ≈ 13 MB); t için yalnızca
+ * t'den ÖNCE kapanmış 1m'ler kullanılmıştır (look-ahead yok). breadth80 / pumping her zaman null.
+ * @returns {(t:number)=>{breadth80:null,pumping:null,btc5:?number,btc15:?number,btcRsi15:?number}}
+ */
+function createBtcMarket(btc1m) {
+  if (!btc1m || !btc1m.length) return () => ({ breadth80: null, pumping: null, btc5: null, btc15: null, btcRsi15: null });
+  const t0 = btc1m[0].t, N = Math.floor((btc1m[btc1m.length - 1].t - t0) / MIN) + 1;
+  const b5 = new Float64Array(N).fill(NaN), b15 = new Float64Array(N).fill(NaN), rs = new Float64Array(N).fill(NaN);
+  const sr = new Series('BTCUSDT');
+  const bc = [];
+  for (const c of btc1m) {
+    sr.apply1m(c);
+    bc.push(c.c);
+    const n = bc.length, i = Math.floor((c.t - t0) / MIN);
+    const chg = m => (n > m && bc[n - 1 - m] > 0 ? +((bc[n - 1] / bc[n - 1 - m] - 1) * 100).toFixed(2) : NaN);
+    b5[i] = chg(5); b15[i] = chg(15);
+    const r = ta.rsiLast(sr.col('15m', 'c', true), 14);
+    rs[i] = r == null ? NaN : +r.toFixed(1);
+    if (n > 300) bc.splice(0, n - 20);                  // yalnızca son ~20 kapanış gerekir
+  }
+  const g = (a, i) => (i >= 0 && i < N && !Number.isNaN(a[i]) ? a[i] : null);
+  return t => {
+    const i = Math.floor((t - MIN - t0) / MIN);       // t'den önce kapanan son 1m
+    return { breadth80: null, pumping: null, btc5: g(b5, i), btc15: g(b15, i), btcRsi15: g(rs, i) };
+  };
+}
+
 // ── Tek coin ───────────────────────────────────────────────────────────────
 
 function forward(m1, i, price) {
@@ -91,7 +134,7 @@ function forward(m1, i, price) {
   return r;
 }
 
-async function runSymbol(symbol, { start, end, s, btcClose, keepCards }) {
+async function runSymbol(symbol, { start, end, s, btcClose, btcMarket, keepCards }) {
   const sr = new Series(symbol);
   for (const tf of SEED_TFS) sr.seed(tf, await fetchBefore(symbol, tf, start, KEEP[tf]));
   const m1 = await fetch1m(symbol, start - KEEP['1m'] * MIN, end);
@@ -109,6 +152,7 @@ async function runSymbol(symbol, { start, end, s, btcClose, keepCards }) {
       const a = btcClose.get(t - MIN), b = btcClose.get(t - 61 * MIN);
       return a && b ? (a / b - 1) * 100 : null;
     },
+    market: btcMarket || undefined,
   };
   const cards = [], moves = [];
   let gaps = 0;
@@ -250,7 +294,7 @@ async function main() {
 
   const end   = Math.floor(Date.now() / MIN) * MIN;
   const start = Math.floor((end - DAYS * DAY) / DAY) * DAY;
-  const p = { start, end, days: DAYS, symbols, universe };
+  const p = { start, end, days: DAYS, symbols, universe, limits: LIMITS };
 
   console.log('\n════════════════════════════════════════════');
   console.log(`  Bilgi Botu — Backtest${a.kanit ? '  [KANIT MODU: RSI ≥ 70, sıfırlama 60]' : ''}`);
@@ -260,6 +304,7 @@ async function main() {
   console.log(`  Şart      : 3m/5m/15m RSI ≥ ${s.rsiMin} (${s.minTFs}/3)${s.levelRequired ? ` + üstte ≤ %${s.levelMaxPct} seviye` : ''}${s.sepRequired ? ' + ayrışma' : ''}${s.confRequired ? ' + destek' : ''}${s.macdRequired ? ' + MACD' : ''}`);
   console.log(`  Hareket   : 1 dk ≥ %${s.moveAlertPct}${s.moveAlertPct > 0 ? '' : ' (kapalı)'}`);
   console.log(`  Patlama   : gövde ≥ %${s.burstPct1}/%${s.burstPct2} · hacim ≥ ${s.volMult}× (${s.volAvgN} mum) · taker >%${s.takerBuyPct} alım / <%${s.takerSellPct} satış`);
+  console.log(`  Canlıdan eksik bağlam: ${LIMITS.join(' · ')}`);
   console.log(`  Süre      : coin başına ~${Math.ceil(DAYS * 1.44 * (REQ_DELAY_MS + 150) / 1000)} sn veri çekme (1m, ${Math.ceil(DAYS * 1440 / PAGE)} istek)`);
   console.log('════════════════════════════════════════════\n');
 
@@ -267,6 +312,7 @@ async function main() {
   console.log('BTC bağlamı yükleniyor...');
   const btc1m = await fetch1m('BTCUSDT', start - 61 * MIN, end);
   const btcClose = new Map(btc1m.map(c => [c.t, c.c]));
+  const btcMarket = createBtcMarket(btc1m);
 
   const ORNEK = Number(a.ornek ?? 0);
   const all = [], perSym = [], allMoves = [], allTouches = [], allDrops = [];
@@ -274,7 +320,7 @@ async function main() {
   for (const [i, sym] of symbols.entries()) {
     const eta = i ? Math.round((Date.now() - t0) / i * (symbols.length - i) / 60000) : null;
     try {
-      const r = await runSymbol(sym, { start, end, s, btcClose, keepCards: ORNEK > 0 || Boolean(a.telegram) });
+      const r = await runSymbol(sym, { start, end, s, btcClose, btcMarket, keepCards: ORNEK > 0 || Boolean(a.telegram) });
       const cards = r.cards.map(c => ({ ...compact(c), text: c.text }));
       all.push(...cards);
       allMoves.push(...(r.moves || []));
@@ -340,4 +386,4 @@ if (require.main === module) {
   main().catch(err => { console.error('[BACKTEST]', err?.stack || err); process.exit(1); });
 }
 
-module.exports = { runSymbol, fetch1m, setKlineSource: src => { klineSource = src; } };
+module.exports = { runSymbol, createBtcMarket, LIMITS, fetch1m, setKlineSource: src => { klineSource = src; } };

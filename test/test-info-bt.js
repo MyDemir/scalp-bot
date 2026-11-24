@@ -97,5 +97,28 @@ const results = []; const ok = s => results.push('✅ ' + s);
   assert(nLow > J.cards.length, `RSI 70 ile daha çok kart bekleniyordu (${nLow} vs ${J.cards.length})`);
   ok(`--kanit (RSI ≥ 70, sıfırlama 60, yalnızca backtest): ${nLow} kart (RSI 90: ${J.cards.length}); --canli-ayar ile birlikte kullanılınca canlı ayar dosyası değişmedi`);
 
+  // 5) BTC bağlamı: ctx.market(t) elle hesapla eşit, look-ahead yok, breadth80/pumping null, params.limits
+  { const ta = require(`${REPO}/src/ta`); const b1 = market.BTCUSDT.tfs['1m'].filter(c => c.t >= st - 61 * MIN && c.t < nowF);
+    const mk = bt.createBtcMarket(b1);
+    const t = st + 600 * MIN + 7 * MIN;                       // 15m periyodunun ortasında (yarım mum dahil)
+    const upto = b1.filter(c => c.t < t), n = upto.length, cl = upto.map(c => c.c);
+    const hand = m => +((cl[n - 1] / cl[n - 1 - m] - 1) * 100).toFixed(2);
+    const c15 = agg(upto, 15 * MIN, Infinity).map(c => c.c);   // son (yarım) mum dahil
+    const got = mk(t);
+    assert.strictEqual(got.btc5, hand(5)); assert.strictEqual(got.btc15, hand(15));
+    assert.strictEqual(got.btcRsi15, +ta.rsiLast(c15.slice(-300), 14).toFixed(1), 'btcRsi15 elle hesapla eşit olmalı');
+    assert(got.breadth80 === null && got.pumping === null);
+    // look-ahead: t'den sonraki BTC mumlarını bozunca t'deki değerler değişmemeli
+    const b2 = b1.map(c => (c.t >= t ? { ...c, c: c.c * 1.5, h: c.h * 1.5 } : c));
+    assert.deepStrictEqual(bt.createBtcMarket(b2)(t), got, 'look-ahead: gelecek mumlar t anını değiştirdi');
+    assert.notDeepStrictEqual(bt.createBtcMarket(b2)(t + 3 * MIN), mk(t + 3 * MIN));
+    // runSymbol: tepe kaydında BTC alanları dolu
+    const r = await bt.runSymbol('PUMPUSDT', { start: st, end: nowF, s, btcClose, btcMarket: bt.createBtcMarket(market.BTCUSDT.tfs['1m'].filter(c => c.t >= st - 61 * MIN && c.t < nowF)) });
+    const ready = r.drops.filter(d => d.t > st + 6 * 60 * MIN);
+    assert(r.drops.length > 0 && ready.length > 0 && ready.every(d => d.feat.btc5 != null && d.feat.btc15 != null && d.feat.btcRsi15 != null && d.feat.breadth80 == null && d.feat.pumping == null), 'tepe kaydında btc5/btc15/btcRsi15 dolu, breadth80/pumping null');
+    assert(Array.isArray(J.params.limits) && J.params.limits.length >= 5 && J.params.limits.some(x => /breadth80/.test(x)) && J.params.limits.some(x => /funding/.test(x)), 'params.limits');
+    assert(out.includes('Canlıdan eksik bağlam'));
+    ok(`BTC bağlamı: btc5=${got.btc5} btc15=${got.btc15} btcRsi15=${got.btcRsi15} elle hesapla eşit; gelecek mum değişince aynı; ${ready.length} tepe kaydında dolu, breadth80/pumping null; params.limits ${J.params.limits.length} madde + konsol satırı`); }
+
   console.log(results.join('\n')); srv.close(); tg.srv.close(); process.exit(0);
 })().catch(e => { console.log('❌ BAŞARISIZ:', e.stack || e.message); console.log(results.join('\n')); process.exit(1); });

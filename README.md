@@ -388,6 +388,12 @@ coinlerde 1 dk ≥ %2 hareket sayısı, **seviye tepkisi tablosu** (canlıdaki `
 ile süzülür) ve `backtest-results/info-*.json`. Varsayılan ayarlar canlıyla aynıdır.
 **Kanıt modu:** `--kanit` yalnızca o backtest çalışmasında RSI eşiğini 70'e, sıfırlamayı 60'a indirir (çok kart →
 motorun çalıştığı görülür); canlı bota ve ayar dosyasına dokunmaz. `--canli-ayar` ayar dosyasını yalnızca okur.
+**Canlıdan eksik bağlam** (konsolda tek satır, JSON'da `params.limits`): funding yok; likidasyon yok;
+`breadth80` / `pumping` yok (evrenin aynı andaki durumu gerekir, backtest sembol sembol koşar → null);
+spot / emir defteri yok; sessize alma ve takip canlıdaki gibi işlemez; evren BUGÜNKÜ 24s hacme göre
+(hayatta kalma yanlılığı). Tepe kaydındaki `btc5`, `btc15`, `btcRsi15` ise zaten çekilen BTC 1m'den,
+yalnız o andan önce kapanmış mumlarla hesaplanır (canlıyla aynı tanım). `btcRsi15` dönem başında BTC 15m
+geçmişi çekilmediği için ilk ~4 saat boş, sonraki ilk saatlerde ısınma farkı olabilir.
 Süre: coin başına ~`gün × 0.7` sn veri çekme (30 gün ≈ 20–25 sn/coin).
 
 ### Duraklatma
