@@ -12,12 +12,18 @@
  * Saklama sütunludur (t/o/h/l/c/v/tb/q/tq ayrı sayı dizileri) — yüzlerce coinde bellek ve hız için.
  *   tb = taker alış hacmi (baz), q = hacim (USDT), tq = taker alış hacmi (USDT)
  *
+ * Eksik mum işareti (A11): 1m akışında boşluk olursa üst TF mumu eksik 1m ile kapanır (ör. 5m'nin 2 dakikası
+ *   gelmedi). Gösterge değerleri DEĞİŞMEZ; yalnız o mum "eksik" işaretlenir → incomplete(tf, k).
+ *   Yalnız apply1m'den toplanan mumlar sayılır; seed/REST mumları tam kabul edilir. Takip: 3m/5m/15m/1h/4h,
+ *   tf başına Uint8Array(KEEP) (coin başına ≈ 300+300+300+336+600 = 1836 bayt).
+ *
  * Bu modülün yan etkisi yok.
  */
 
 const MIN = 60_000;
 const TF_MS = { '1m': MIN, '3m': 3 * MIN, '5m': 5 * MIN, '15m': 15 * MIN, '1h': 60 * MIN, '4h': 240 * MIN, '1d': 1440 * MIN };
 const HTF = ['3m', '5m', '15m', '1h', '4h', '1d'];
+const INC_TFS = ['3m', '5m', '15m', '1h', '4h'];   // eksik mum izlenen TF'ler
 const COLS = ['t', 'o', 'h', 'l', 'c', 'v', 'tb', 'q', 'tq'];
 
 // Tampon boyları (kapanmış mum). Seed limitleri de bunlardan gelir.
@@ -50,20 +56,28 @@ class Series {
     this.keep = keep;
     this.d = {};
     this.part = {};
+    this.inc = {};                                 // tf → Uint8Array, d[tf].t ile aynı hizada (1 = eksik mum)
     for (const tf of Object.keys(TF_MS)) { this.d[tf] = emptyCols(); this.part[tf] = null; }
+    for (const tf of INC_TFS) this.inc[tf] = new Uint8Array(keep[tf]);
   }
 
   // ── yazma ────────────────────────────────────────────────
 
-  _push(tf, c) {
+  _push(tf, c, inc = 0) {
     const d = this.d[tf];
     const n = d.t.length;
+    const f = this.inc[tf];
     if (n && d.t[n - 1] === c.t) {                 // aynı mum → üstüne yaz
       for (const k of COLS) d[k][n - 1] = c[k] ?? 0;
+      if (f) f[n - 1] = inc;
       return;
     }
     if (n && d.t[n - 1] > c.t) return;             // eski mum → yok say
     for (const k of COLS) d[k].push(c[k] ?? 0);
+    if (f) {
+      if (d.t.length > this.keep[tf]) f.copyWithin(0, 1, n);   // en eskiyi at (dizilerle aynı hizada)
+      f[Math.min(d.t.length, this.keep[tf]) - 1] = inc;
+    }
     if (d.t.length > this.keep[tf]) for (const k of COLS) d[k].shift();
   }
 
@@ -74,6 +88,7 @@ class Series {
   seed(tf, candles) {
     this.d[tf] = emptyCols();
     this.part[tf] = null;
+    if (this.inc[tf]) this.inc[tf].fill(0);
     for (const c of candles) {
       if (c.closed === false) { if (tf !== '1m') this.part[tf] = { ...c }; continue; }
       this._push(tf, c);
@@ -96,16 +111,19 @@ class Series {
       const ms = TF_MS[tf];
       const ps = Math.floor(c.t / ms) * ms;
       let p = this.part[tf];
-      if (p && p.t < ps) { this._push(tf, p); p = null; }          // önceki periyot bitmiş (boşluk vb.)
+      const tracked = !!this.inc[tf], need = ms / MIN;
+      if (p && p.t < ps) { this._push(tf, p, tracked && p.n < need ? 1 : 0); p = null; }   // önceki periyot bitmiş (boşluk vb.) → eksik işaretli
       if (p && p.t > ps) continue;                                  // (olmamalı) daha yeni yarım mum
       if (!p) {
-        p = { t: ps, o: c.o, h: c.h, l: c.l, c: c.c, v: c.v, tb: c.tb || 0, q: c.q || 0, tq: c.tq || 0 };
+        p = { t: ps, o: c.o, h: c.h, l: c.l, c: c.c, v: c.v, tb: c.tb || 0, q: c.q || 0, tq: c.tq || 0, n: 1 };
       } else {
+        if (p.n === undefined) p.n = (c.t - ps) / MIN;      // seed'den gelen yarım mum: öncesi tam kabul
+        p.n++;
         if (c.h > p.h) p.h = c.h;
         if (c.l < p.l) p.l = c.l;
         p.c = c.c; p.v += c.v; p.tb += c.tb || 0; p.q += c.q || 0; p.tq += c.tq || 0;
       }
-      if (end === ps + ms) { this._push(tf, p); this.part[tf] = null; closed.add(tf); }
+      if (end === ps + ms) { this._push(tf, p, tracked && p.n < need ? 1 : 0); this.part[tf] = null; closed.add(tf); }
       else this.part[tf] = p;
     }
     return closed;
@@ -122,6 +140,15 @@ class Series {
 
   /** Bu TF'in son mumu şu an kapalı mı (yarım mum yok)? */
   isClosedNow(tf) { return this.part[tf] == null; }
+
+  /** Son k kapanmış mumdan kaçı eksik 1m ile kapanmış (izlenmeyen TF'te 0) */
+  incomplete(tf, k) {
+    const f = this.inc[tf];
+    if (!f) return 0;
+    let s = 0;
+    for (let i = Math.max(0, this.d[tf].t.length - k); i < this.d[tf].t.length; i++) s += f[i];
+    return s;
+  }
 
   count(tf) { return this.d[tf].t.length; }
 

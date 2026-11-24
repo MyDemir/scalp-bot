@@ -22,7 +22,6 @@ const TOPICS = {
   sistem:   'bot mesajları ("hazır" vb.)',
   backtest: 'backtest raporları (--telegram)',
   rapor:    'haftalık istatistik dosyaları (Pazartesi 03:01; boşsa "sistem" konusuna)',
-  tepe:     '🔻 tepe kurulumu bildirimleri (boşsa "kart" konusuna)',
 };
 
 function normSym(x) {
@@ -47,12 +46,10 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
       sum: v => `gövde ≥ %${v.burstPct1} · hacim ≥ ${v.volMult}×` },
     { id: 'mov', title: '⚡ Hareket', keys: ['moveAlertPct'],
       sum: v => (v.moveAlertPct > 0 ? `1 dk ≥ %${v.moveAlertPct} → RSI kartına eklenir` : 'kapalı') },
-    { id: 'pk', title: '🔻 Tepe kurulumu', keys: ['peakAlert', 'peakAlertConds', 'peakAlertFundingMax', 'peakAlertPumpPct', 'peakAlertRsiOnly', 'peakAlertGapMin'],
-      sum: v => (v.peakAlert ? `şart ≥ ${v.peakAlertConds}/3 · funding < %${v.peakAlertFundingMax} · pompa ≥ %${v.peakAlertPumpPct}${v.peakAlertRsiOnly ? ' · yalnız RSI şartlı' : ''} · ${v.peakAlertGapMin} dk'da bir` : 'kapalı') },
     { id: 'snd', title: '🔔 Bildirim', keys: ['cardSound'],
       sum: v => `kart ${v.cardSound ? 'sesli' : 'sessiz'}` },
-    { id: 'cht', title: '🖼 Grafik', keys: ['chart', 'chartPeak', 'chartTf', 'chartFib', 'chartIchi', 'chartMinTouches'],
-      sum: v => (v.chart || v.chartPeak ? `${v.chart && v.chartPeak ? 'RSI + tepe' : v.chart ? 'yalnız RSI kartı' : 'yalnız tepe kurulumu'} · ${v.chartTf}${v.chartIchi ? ' · Ichimoku' : ''}${v.chartFib ? ' · Fibonacci' : ''}` : 'kapalı') },
+    { id: 'cht', title: '🖼 Grafik', keys: ['chart', 'chartTf', 'chartFib', 'chartIchi', 'chartMinTouches'],
+      sum: v => (v.chart ? `RSI kartı · ${v.chartTf}${v.chartIchi ? ' · Ichimoku' : ''}${v.chartFib ? ' · Fibonacci' : ''}` : 'kapalı') },
     { id: 'flw', title: '🌊 Akış (/akis)', keys: ['flowK', 'flowCvdPct', 'flowPricePct', 'flowStrongX', 'flowWeakX', 'flowBuyPct', 'flowSellPct', 'flowBigPct', 'flowBigMinUsd'],
       sum: v => `son ${v.flowK} pencere · CVD ±%${v.flowCvdPct} · fiyat ±%${v.flowPricePct} · 🐋 günlük hacmin %${v.flowBigPct} (≥ ${v.flowBigMinUsd} $)` },
     { id: 'uni', title: '🌐 İzlenen coinler', keys: ['minVolumeM', 'tradfi'],
@@ -132,8 +129,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
 
   const denied = { text: 'Bu işlem için grup yöneticisi olmalısın.', alert: true };
   // Grup üyelerinin de açıp kapatabildiği ayarlar (yalnız grafik görünümü — sinyal şartlarını değiştirmez).
-  // Tepe kurulumunu istemeyen üye için: /konu tepe ile ayrı konu, üye o konuyu kendi tarafında sessize alır.
-  const OPEN_KEYS = new Set(['chart', 'chartPeak']);
+  const OPEN_KEYS = new Set(['chart']);
   const isOpenSet = (kind, key) => (kind === 't' || kind === 'v' || kind === 'z') && OPEN_KEYS.has(key);
   const detailSent = new Map();
   function detailFor(id) {
@@ -422,13 +418,13 @@ ${mv.join('\n')}` : ''}`.slice(0, 4000);
       const uid = msg.from?.id;
       const { files, counts } = await buildExports(store, days, Date.now(), { base: `veri-son${days}gun`, flow: typeof flow === 'function' ? flow() : flow });
       for (const [k, f] of files.entries()) {
-        const ok = await telegram.sendDocumentPrivate(uid, f.name, f.buf, k === 0 ? `📤 son ${days} gün · tepeler ${counts.tepeler} · kartlar ${counts.kartlar} · temaslar ${counts.temaslar} · akış ${counts.akis ?? 0} satır (zip içinde CSV)` : null, f.type);
+        const ok = await telegram.sendDocumentPrivate(uid, f.name, f.buf, k === 0 ? `📤 son ${days} gün · tepeler ${counts.tepeler} · kartlar ${counts.kartlar} · temaslar ${counts.temaslar} · yollar ${counts.yollar ?? 0} · akış ${counts.akis ?? 0} satır (zip içinde CSV)` : null, f.type);
         if (!ok) {
           const bot = telegram.getBotUsername?.();
           return `❌ Özelden gönderemedim. Önce bota özelden bir kez /start yaz${bot ? `: https://t.me/${bot}` : ''} — sonra tekrar /disaaktar.`;
         }
       }
-      return `📤 ${files.length} zip özelden gönderildi (son ${days} gün): tepeler.csv ${counts.tepeler} · kartlar.csv ${counts.kartlar} · temaslar.csv ${counts.temaslar} · akis.csv ${counts.akis ?? 0}`;
+      return `📤 ${files.length} zip özelden gönderildi (son ${days} gün): tepeler.csv ${counts.tepeler} · kartlar.csv ${counts.kartlar} · temaslar.csv ${counts.temaslar} · yollar.csv ${counts.yollar ?? 0} · akis.csv ${counts.akis ?? 0}`;
     })),
 
     haftalik: adminOnly((args, msg) => heavy(async () => {

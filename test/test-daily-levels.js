@@ -33,14 +33,30 @@ assert(Math.abs(f236 - 0.004856) / 0.004856 < 0.01, 'Fib 0.236 ≈ 0.004856: ' +
 const zones = L.dailyZones(d1.t, d1.h, d1.l);
 const z = zones.find(q => q.lo > price && q.lo < 0.0052 && q.hi > 0.0047);
 assert(z && z.touches >= 3, 'eski destek → direnç bölgesi (~0.0048–0.0050) bekleniyordu: ' + JSON.stringify(zones.map(q => [q.lo.toFixed(5), q.hi.toFixed(5), q.touches])));
+// hiN/loN: tepe ve dip pivotları ayrı sayılır, toplam touches; küme sınırları eski hesapla aynı
+{ const piv = [[10, 'h'], [20, 'l'], [30, 'h'], [40, 'h']]; const n = 60, hh = Array(n).fill(50), ll = Array(n).fill(150);
+  for (const [i, k] of piv) { if (k === 'h') hh[i] = 100; else ll[i] = 99.5; }   // 3 tepe (100) + 1 dip (99.5), diğer pivotlar uzakta
+  const zs = L.dailyZones(Array.from({ length: n }, (_, i) => i), hh, ll, { lookback: n, bars: 3, minTouch: 3 });
+  const zz = zs.find(q => q.lo >= 99 && q.hi <= 100.01);
+  assert(zz && zz.hiN === 3 && zz.loN === 1 && zz.touches === zz.hiN + zz.loN && zz.lo === 99.5 && zz.hi === 100 && zz.last === 40, JSON.stringify(zz));
+  for (const q of zones.concat(L.weeklyZones(d1))) assert.strictEqual(q.hiN + q.loN, q.touches, 'touches = hiN + loN'); }
 const wz = L.weeklyZones(d1);
 assert(wz.some(q => q.lo > 0.0047 && q.lo < 0.0050 && q.touches >= 2) && wz.every(q => q.lo > 0), 'haftalık bölge (haftalık mumlardan) ~0.0048: ' + JSON.stringify(wz.map(q => [q.lo.toFixed(5), q.touches])));
 assert(L.toWeekly(d1).t.every(t => new Date(t).getUTCDay() === 1 && t % 86400000 === 0), 'haftalar Pazartesi 00:00 UTC');
 // Temas sayısı: ayrı testler (art arda değen mumlar tek), üstünde kapanan sayılmaz, hareketli MA kendi değeriyle
 { const h = [], c = []; for (let i = 0; i < 120; i++) { const tch = [10, 11, 30, 50, 51, 52, 80, 100].includes(i); h.push(tch ? 100.2 : 97); c.push(tch ? 99.5 : 96.5); }
   assert.strictEqual(L.countTouches(h, c, () => 100), 5);
+  assert.deepStrictEqual(L.countTouchesDir(h, c, () => 100), { up: 5, down: 0 }, 'alttan yaklaşma = up');
+  // üstten geri geliş = down: 102'den inip 100'e değen mum; sonra alttan (96) gelen = up
+  assert.deepStrictEqual(L.countTouchesDir([103, 100.2, 97, 97, 97, 100.2], [102, 99.5, 96, 96, 96, 99.5], () => 100), { up: 1, down: 1 }, 'yönlü sayım');
+  { let sd = 7; const rnd = () => (sd = (sd * 1664525 + 1013904223) % 4294967296) / 4294967296;
+    for (let t = 0; t < 300; t++) { const n = 30 + Math.floor(rnd() * 120), hh = [], cc = [];
+      for (let i = 0; i < n; i++) { const m = 100 * (1 + (rnd() - 0.5) * 0.04); cc.push(m); hh.push(m * (1 + rnd() * 0.01)); }
+      const o = { gap: 1 + Math.floor(rnd() * 3), range: rnd() < 0.3 ? [99.5, 100.5] : null }, r = L.countTouchesDir(hh, cc, () => 100, o);
+      assert.strictEqual(r.up + r.down, L.countTouches(hh, cc, () => 100, o), 'up+down === countTouches'); } }
   assert.strictEqual(L.countTouches([101, 101], [100.8, 100.9], () => 100), 0, 'üstünde kapanan test sayılmaz');
   assert.strictEqual(L.countTouches([99.9, 97, 97, 99.9], [99, 96, 96, 99], () => 100, { range: [99.5, 101] }), 2, 'bölge aralığı');
+  { const lx = L.annotateTouches([{ name: 'X', value: 100, kind: 'high' }], { h4: { h: [103, 100.2, 97, 97, 97, 100.2], c: [102, 99.5, 96, 96, 96, 99.5] } })[0]; assert(lx.touches === 2 && lx.touchesUp === 1 && lx.touchesDn === 1, 'annotateTouches yönlü alanlar'); }
   const lv = L.annotateTouches([{ name: '4h MA200', value: 1, kind: 'major' }, { name: 'X', value: 100, kind: 'high' }],
     { h4: { h: [...Array(250).fill(97), 100.1], c: [...Array(250).fill(96), 99.8] }, d1: { t: [], h: [], c: [] } });
   assert(lv[1].touches === 1 && Number.isFinite(lv[0].touches), 'annotate: ' + JSON.stringify(lv)); }

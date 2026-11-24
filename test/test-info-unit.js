@@ -27,6 +27,47 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   ok('Hacim sayacı: art arda iki satış mumu tek patlama (kademe 2), alım/nötr ayrı; hacmi yetersiz ve gövdesi küçük mumlar sayılmadı; 15 dk penceresi doğru');
 }
 
+// ── Madde 12 / K16: burstAt ve takerNet zamana bağlı pencere ──
+{ const n = s.volAvgN;
+  // Eski (dizin pencereli) referans uygulamalar
+  const oldAvg = (d, i) => { if (i < n) return null; let sum = 0; for (let j = i - n; j < i; j++) sum += d.v[j]; return sum / n; };
+  const oldNet = (d, w) => { let net = 0; for (let i = Math.max(0, d.t.length - w); i < d.t.length; i++) net += 2 * d.tq[i] - d.q[i]; return net; };
+  const mk = (skip) => { const S = new Series('G'); const t0 = Date.UTC(2026, 0, 1); const arr = [];
+    for (let i = 0; i < 200; i++) { if (skip && i >= skip[0] && i < skip[1]) continue;
+      const v = i < 100 ? 1000 : 100;     // 100 öncesi hacim çok yüksek, sonrası düşük
+      arr.push({ t: t0 + i * MIN, o: 100, h: 100.1, l: 99.9, c: 100, v, tb: v / 2, q: v * 100, tq: v * 50 + i, closed: true }); }
+    return arr; };
+  const addBurst = (arr, tm, body, vol) => { const c = arr.find(x => x.t === tm); c.c = c.o * (1 + body / 100); c.v = vol; c.tb = vol * 0.3; c.q = vol * c.c; c.tq = c.tb * c.c; };
+  // (a) boşluksuz: eski sonuçla birebir
+  { const arr = mk(); addBurst(arr, arr[150].t, -1.5, 400); const S = new Series('A'); S.seed('1m', arr); const d = S.d['1m'];
+    const b = eng.burstAt(d, 150, s); assert(b, 'patlama bulunmalı');
+    assert.strictEqual(b.volX, d.v[150] / oldAvg(d, 150), 'ortalama eskisiyle birebir');
+    for (const w of [1, 15, 60, 150, 500]) assert.strictEqual(eng.takerNet(S, w), oldNet(d, w), 'takerNet eskisiyle birebir w=' + w);
+    // seri başı: i < volAvgN → null (eski kural)
+    const arr2 = mk(); addBurst(arr2, arr2[n - 1].t, -1.5, 5000); const S2 = new Series('A2'); S2.seed('1m', arr2);
+    assert.strictEqual(eng.burstAt(S2.d['1m'], n - 1, s), null, 'i < volAvgN → null'); }
+  // (b) 10 dk boşluk: i=105..114 yok
+  { const arr = mk([105, 115]); const tAfter = Date.UTC(2026, 0, 1) + 116 * MIN;
+    addBurst(arr, tAfter, -1.5, 1500); const S = new Series('B'); S.seed('1m', arr); const d = S.d['1m'];
+    const i = d.t.indexOf(tAfter); const b = eng.burstAt(d, i, s);
+    // pencere [t−n·dk, t): boşluk dışı mumlar; 100 öncesi (v=1000) pencereye girmiş olabilir — beklenen ortalamayı zamandan hesapla
+    const lo = tAfter - n * MIN; let sum = 0, cnt = 0; for (let j = 0; j < i; j++) if (d.t[j] >= lo) { sum += d.v[j]; cnt++; }
+    assert(cnt < n && cnt >= Math.ceil(n / 2), 'senaryo: pencerede boşluk var ama yeterli mum var (cnt=' + cnt + ')');
+    assert(b && Math.abs(b.volX - 1500 / (sum / cnt)) < 1e-9, 'ortalama = gerçek zaman penceresi / bulunan mum sayısı');
+    assert(Math.abs(b.volX - 1500 / oldAvg(d, i)) > 1e-6, 'eski dizin penceresinden farklı (boşluk öncesi mumlar katılmıyor)');
+    // yetersiz veri: boşluk pencerenin çoğunu kapsıyorsa null
+    const arr3 = mk([105, 105 + n]); const t3 = Date.UTC(2026, 0, 1) + (105 + n + 1) * MIN; addBurst(arr3, t3, -1.5, 5000);
+    const S3 = new Series('B3'); S3.seed('1m', arr3); const d3 = S3.d['1m'];
+    assert.strictEqual(eng.burstAt(d3, d3.t.indexOf(t3), s), null, 'bulunan mum < ceil(volAvgN/2) → null');
+    // takerNet: son 60 dk içinde 10 dk boşluk → boşluk öncesi mumlar son 60 dk dışındaysa sayılmaz
+    const SG = new Series('BG'); SG.seed('1m', mk([170, 180])); const dg = SG.d['1m'];   // son 60 dk içinde 10 dk boşluk
+    const last = dg.t[dg.t.length - 1]; const from = last + MIN - 60 * MIN;
+    let exp = 0; for (let j = 0; j < dg.t.length; j++) if (dg.t[j] >= from) exp += 2 * dg.tq[j] - dg.q[j];
+    assert.strictEqual(eng.takerNet(SG, 60), exp, 'takerNet yalnız son 60 DAKİKA');
+    assert.notStrictEqual(eng.takerNet(SG, 60), oldNet(dg, 60), 'dizin penceresinden farklı (60 mum boşluğu aşıp geriye gider)'); }
+  ok('Madde 12/K16: burstAt ortalaması ve takerNet zamana bağlı; boşluksuz seride eskisiyle birebir, boşlukta boşluk öncesi mumlar katılmıyor, yetersiz veride null');
+}
+
 // ── Seviye seçimi ──
 { const lv = [{ name: 'A', value: 100 }, { name: 'B', value: 102 }, { name: 'C', value: 110 }];
   let r = eng.pickLevel(99, lv, s); assert(r.level.name === 'A' && r.level.zone === 'near' && Math.abs(r.level.dist + 1) < 1e-9);
@@ -71,7 +112,7 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   // Kontrol listesi → derece
   const rsi = (a, b, c) => ({ '3m': { v: a }, '5m': { v: b }, '15m': { v: c } });
   const base = { price: 100, hits: 3, levels: [{ name: '1d MA200', value: 100.3, dist: -0.3 }, { name: '30 günlük tepe', value: 100.5, dist: -0.5 }, { name: '4h EMA200', value: 105, dist: -4.8 }],
-    level: { name: '1d MA200', value: 100.3, dist: -0.3, zone: 'dip' }, sepPct: { '3m': 6, '5m': 3 },
+    level: { name: '1d MA200', value: 100.3, dist: -0.3, zone: 'dip' }, sepPct: { '3m': 6, '5m': 5.5 },
     macd: { '3m': { cross: 'down' }, '5m': null }, conf: { h1: 85, h4: 82 }, neg: { '1m': { count: 2 }, '3m': { count: 0 } } };
   let ck = eng.checklist({ ...base, rsi: rsi(96, 96, 96) }, g);
   assert.strictEqual(ck.score, 10, JSON.stringify(ck.items.filter(x => !x.ok)));          // 8 madde × 1 + EMA %5 (2 puan) + MACD; toplam 9 madde
@@ -80,8 +121,17 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   // EMA21 ayrışma yalnız ÜSTTE puan alır: fiyat EMA21'in %12 altındaysa 0 puan
   ck = eng.checklist({ ...base, rsi: rsi(96, 96, 96), sepPct: { '3m': -12, '5m': -11 } }, g);
   assert(!ck.items.find(x => x.key === 'sep').ok && ck.score === 8, 'EMA altı puan almamalı: ' + ck.score);
-  ck = eng.checklist({ ...base, rsi: rsi(96, 96, 96), sepPct: { '3m': 10.5, '5m': 1 } }, g);
-  assert.strictEqual(ck.items.find(x => x.key === 'sep').pts, 3);                         // ≥ %10 → 3 puan
+  ck = eng.checklist({ ...base, rsi: rsi(96, 96, 96), sepPct: { '3m': 10.5, '5m': 10.2 } }, g);
+  assert.strictEqual(ck.items.find(x => x.key === 'sep').pts, 3);                         // ikisi de ≥ %10 → 3 puan
+  // K7: liste dereceyle hizalı — 3m ve 5m'nin KÜÇÜĞÜ puanlanır (eskisi büyüğü)
+  ck = eng.checklist({ ...base, rsi: rsi(96, 96, 96), sepPct: { '3m': 6, '5m': 1 } }, g);
+  assert.strictEqual(ck.items.find(x => x.key === 'sep').pts, 0, 'sep3=6, sep5=1 → 0 puan (eskisi 2)');
+  assert.strictEqual(ck.items.find(x => x.key === 'sep').text, 'EMA21 % ayrışma yok');
+  ck = eng.checklist({ ...base, rsi: rsi(96, 96, 96), sepPct: { '3m': 6, '5m': 5.5 } }, g);
+  assert.strictEqual(ck.items.find(x => x.key === 'sep').pts, 2, 'sep3=6, sep5=5.5 → 2 puan');
+  assert(ck.items.find(x => x.key === 'sep').text.includes('(5.5%)'), 'metin yeni değeri (küçük) gösterir');
+  ck = eng.checklist({ ...base, rsi: rsi(96, 96, 96), sepPct: { '3m': 6 } }, g);
+  assert.strictEqual(ck.items.find(x => x.key === 'sep').pts, 0, '5m yoksa 0');
   ck = eng.checklist({ ...base, rsi: rsi(99, 91, 88), sepPct: { '3m': 0.5, '5m': 0.2 }, macd: {}, conf: { h1: 85, h4: 60 }, neg: { '1m': { count: 1 }, '3m': { count: 0 } } }, g);
   assert(ck.items[2].ok && ck.items[2].text.includes('95–100'));                           // RSI bandı 95–100
   assert(ck.warn && ck.warn.includes('EMA21'));
@@ -97,7 +147,10 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   assert.strictEqual(eng.rsiGrade({ ...sn(true, 90, 90), hits: 1 }, G3), 0, 'RSI kart şartı yoksa derece 0');
   assert.strictEqual(eng.rsiGrade(sn(true, 81, 86, null), G3), 3, 'direnç yok (fiyat keşfi) → en fazla 3');
   assert.strictEqual(eng.rsiGrade(sn(true, 81, 86, null), { ...G3, gradeNoLevelMax: 4 }), 4, 'tavan ayarlanabilir');
-  assert.strictEqual(eng.gradeOf(sn(true, 81, 86, null), G3, { sfp: true }), 4, 'SFP: kırılan seviye direnç sayılır');
+  // SFP kartı da aynı kırpmaya tabi (K14: ölü { sfp } seçeneği kaldırıldı; davranış aynı): seviyesiz → en fazla 3, seviyeli → 4
+  assert.strictEqual(eng.gradeOf(sn(true, 81, 86, null), G3), 3, 'seviyesiz SFP en fazla gradeNoLevelMax');
+  assert.strictEqual(eng.gradeOf(sn(true, 81, 86, null), G3, { sfp: true }), 3, 'eski { sfp } argümanı artık etkisiz');
+  assert.strictEqual(eng.gradeOf(sn(true, 81, 86), G3), 4, 'seviyeli SFP kırpılmaz');
   assert.strictEqual(eng.rsiGrade(sn(true, 88.2, 86, undefined, 86.5), G3), 2, 'kaçak pompa (1s 88 · 4s 86) → en fazla 2');
   assert.strictEqual(eng.rsiGrade(sn(true, 84, 86, undefined, 81), G3), 2, '4s ≥ 80 → kaçak');
   assert(eng.gradeConds(sn(true, 90, 86), G3).runaway && !eng.gradeConds(sn(true, 90, 86), G3).h1, '1s ≥ 88 şart sayılmaz');
@@ -108,6 +161,16 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   assert.strictEqual(eng.rsiGrade({ ...sn(false, 70, 86), atr5Pct: 1.1 }, G3), 2, 'ATR < 1.2 sayılmaz');
   assert.strictEqual(eng.rsiGrade({ ...sn(false, 70, 86), atr5Pct: 3 }, { ...G3, gradeAtr5Pct: 0 }), 2, 'ATR şartı kapalı (0)');
   assert.strictEqual(eng.rsiGrade({ ...sn(true, 88.2, 86, undefined, 86.5), atr5Pct: 2 }, G3), 2, 'kaçak pompada ATR de tavanı aşmaz');
+  // K15: çakışma adayı da direnç tarafında olmalı — ref'in altında kalan (dist > dipAbovePct) seviye conf sayılmaz
+  { const lv = [{ name: '1d MA200', value: 100.3, dist: -0.3 }, { name: '4h EMA200', value: 100.3, dist: g.dipAbovePct + 1.5 }];
+    ck = eng.checklist({ ...base, rsi: rsi(90, 90, 90), levels: lv, level: lv[0] }, g);
+    assert(!ck.items[1].ok && ck.confluence === null, 'fiyatın altındaki seviye çakışma sayılmaz');
+    const lv2 = [lv[0], { name: '4h EMA200', value: 100.3, dist: -0.3 }];
+    ck = eng.checklist({ ...base, rsi: rsi(90, 90, 90), levels: lv2, level: lv2[0] }, g);
+    assert(ck.items[1].ok, 'direnç tarafındaki çakışan seviye sayılır');
+    const lv3 = [lv[0], { name: '4h EMA200', value: 100.3, dist: -(g.levelMaxPct + 1) }];
+    ck = eng.checklist({ ...base, rsi: rsi(90, 90, 90), levels: lv3, level: lv3[0] }, g);
+    assert(!ck.items[1].ok, 'levelMaxPct dışındaki seviye çakışma sayılmaz'); }
   ck = eng.checklist({ ...base, rsi: rsi(90, 90, 90), levels: [{ name: '4h EMA200', value: 101, dist: -1 }], level: { name: '4h EMA200', value: 101, dist: -1, zone: 'near' } }, g);
   assert(!ck.items[0].ok && ck.items[0].text.includes('içinde yok'));   // yalnız 4h seviye → günlük madde yok
   ok('Derece (sart3: 1 + ayrışma + 1s RSI ≥ 80 + 15dk RSI ≥ 85; liste: kontrol skoru) · hacim 🔴/🔴🔴(≥3×)/🔴🔴🔴(+yön ≥%65) · kart derecesi puanla (9 madde; EMA21 üstü ayrışma %2/%5/%10 → 1/2/3 puan, altı 0; MACD 3m/5m sat kesişimi +1): 10 puan → 4 daire, 5 → 3, 3 → 2; RSI bandı 95–100; EMA21 yakın uyarısı; yalnız 4h seviyede günlük madde yok');
@@ -126,6 +189,23 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   assert(st2.get().rsiMin === 91 && st2.get().levelMaxPct === 2 && st2.get().levelRequired === false && st2.isFollowed('SOLUSDT'));
   const saved = JSON.parse(fs.readFileSync(f, 'utf8')); assert(!('burstPct1' in saved.values), 'yalnızca değişenler yazılmalı');
   ok('Ayarlar: sınır/tip doğrulaması, virgüllü sayı, ± adım ve sınıra kırpma, aç-kapa; susturma süresi doluyor; dosyaya yalnızca değişenler yazılıp geri okunuyor');
+}
+// ── Eski ayar dosyası: kaldırılan tepe kurulumu anahtarları açılışta yok sayılır ──
+{ const f = `${require('./_tmp')}/unit-settings-old.json`;
+  fs.writeFileSync(f, JSON.stringify({ values: { rsiMin: 88, peakAlert: false, peakAlertConds: 3, peakAlertFundingMax: 0.02, peakAlertPumpPct: 7, peakAlertGapMin: 60, peakAlertRsiOnly: true, chartPeak: false },
+    mutes: {}, follows: ['SOLUSDT'], topics: { kart: 5, tepe: 9 } }));
+  const st = createSettings({ file: f, defaults: { ...cfg.info } }); st.load();
+  const g = st.get();
+  assert.strictEqual(g.rsiMin, 88, 'geçerli eski ayar korunur');
+  for (const k of ['peakAlert', 'peakAlertConds', 'peakAlertFundingMax', 'peakAlertPumpPct', 'peakAlertGapMin', 'peakAlertRsiOnly', 'chartPeak']) {
+    assert(!(k in g) && !(k in cfg.info), `${k} kaldırıldı`);
+    assert(!st.set(k, true).ok, `${k} artık ayarlanamaz`);
+  }
+  assert(st.isFollowed('SOLUSDT') && st.topic('kart') === 5, 'takip ve konu korunur; eski tepe konusu hata vermez');
+  st.set('rsiMin', 89);   // kayıt eski anahtarlarla çakışmadan yazılır
+  const saved = JSON.parse(fs.readFileSync(f, 'utf8'));
+  assert(!Object.keys(saved.values).some(k => /^peakAlert|^chartPeak/.test(k)), 'eski anahtarlar dosyadan temizlenir');
+  ok('Eski ayar dosyası: peakAlert*/chartPeak anahtarları yok sayıldı, açılış hatasız, kayıtta temizlendi');
 }
 // ── VWAP σ: gün/hafta başında az mumla σ verilmez ──
 { const ta = require(`${REPO}/src/ta`); const { vwapFeatures, refLevels } = require(`${REPO}/src/marketSnap`);
@@ -151,5 +231,38 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   const y = compact({ ...card, oi: undefined, trend1h: undefined, snap: { ...card.snap, funding: null, atr5Pct: null, sepPct: {} } });
   assert(y.funding === null && y.atr5Pct === null && y.sep3 === null && y.oiChg60 === null && y.trend_1h === null);
   ok('Kart kaydı: funding %, 5dk ATR %, 3/5dk ayrışma, OI 1s, 1s trend (tepeler.csv ile aynı birimler); yoksa boş');
+}
+// ── Backtest eksik 60 dk penceresi ──
+{ const { classTable, excluded60, excludedNote } = require(`${REPO}/src/infoStats`);
+  const mk = (close, full) => ({ t: 1, symbol: 'A', seq: 1, silent: false, fwd: { 60: { low: -1, high: 1, close, ...(full === undefined ? {} : { full }) } } });
+  const cards = [mk(1, true), mk(3), mk(100, false)];   // tam, canlı biçimli (full yok), eksik
+  const row = classTable(cards)[0];
+  assert.strictEqual(row.close60, 2, 'full:false kart medyana girmemeli; full alanı olmayan girmeli: ' + row.close60);
+  assert.strictEqual(excluded60(cards), 1);
+  assert.strictEqual(excludedNote(1), ' (1 eksik pencere dışarıda)'); assert.strictEqual(excludedNote(0), '');
+  ok('Medyan: fwd[60].full===false dışarıda (sayısı notta), canlı biçimli kart (full yok) dahil');
+}
+// ── A11: eksik 1m ile kapanan üst TF mumu işaretlenir ──
+{ const T = Date.UTC(2026, 0, 1), mk = (i, c) => ({ t: T + i * MIN, o: c, h: c + 1, l: c - 1, c, v: 1, tb: 0.5, q: c, tq: c / 2, closed: true });
+  const feed = (S, idx) => { for (const i of idx) S.apply1m(mk(i, 100 + i)); };
+  const all = n => Array.from({ length: n }, (_, i) => i);
+  // (a) boşluksuz
+  const A = new Series('A'); feed(A, all(60));
+  for (const tf of ['3m', '5m', '15m', '1h']) assert.strictEqual(A.incomplete(tf, 300), 0, 'boşluksuz ' + tf);
+  assert.strictEqual(A.count('5m'), 12);
+  // (b) 5m mumunun (10-14) 2 dakikası (11,12) gelmedi
+  const B = new Series('B'); feed(B, all(60).filter(i => i !== 11 && i !== 12));
+  assert.strictEqual(B.incomplete('5m', 12), 1, '5m eksik');
+  assert.strictEqual(B.incomplete('5m', 1), 0, 'son 5m tam'); assert.strictEqual(B.incomplete('15m', 4), 1);
+  assert.strictEqual(B.incomplete('1h', 1), 1, '58 dk gelen 1h eksik');
+  // gösterge değerleri aynı: kapanış serisi, eksik dk'lar olmasa da olmasa da aynı
+  assert.deepStrictEqual(B.col('5m', 'c', false), A.col('5m', 'c', false), '5m c değerleri değişmedi');
+  // (c) seed'den gelen mumlar tam; sonrasında boşluk yok
+  const C = new Series('C'); C.seed('5m', Array.from({ length: 5 }, (_, i) => ({ ...mk(i * 5, 100), closed: true })));
+  assert.strictEqual(C.incomplete('5m', 300), 0, 'seed tam');
+  C.seed('5m', [{ ...mk(0, 100), closed: true }, { ...mk(5, 100), closed: false }]);   // yarım mum seed'den
+  feed(C, [7, 8, 9]);
+  assert.strictEqual(C.incomplete('5m', 5), 0, 'seed yarım mumu (öncesi tam kabul) tam');
+  ok('A11 Series.incomplete: boşluksuz 0; eksik dk → o mum işaretli, değerler aynı; seed tam');
 }
 console.log(R.join('\n'));

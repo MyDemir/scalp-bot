@@ -21,14 +21,23 @@ const MIN = 60_000;
  */
 function burstAt(d, i, s) {
   const n = s.volAvgN;
-  if (i < n) return null;
+  if (i < 0) return null;
   const o = d.o[i], c = d.c[i], v = d.v[i];
   if (!(o > 0) || !(v > 0)) return null;
   const body = (c - o) / o * 100;
   if (Math.abs(body) < s.burstPct1) return null;
+  // Ortalama penceresi ZAMANA bağlı: açılışı [t − n·dk, t) aralığındaki mumlar (WS/REST boşluğu varsa
+  // dizin penceresi eski, boşluktan önceki mumları da katardı). Geriye zaman sınırına kadar yürür:
+  // maliyet ≤ eski (en çok n mum), ek dizi/önbellek yok. Toplam eskisi gibi artan sırada (birebir aynı sonuç).
+  const lo = d.t[i] - n * MIN;
+  if (d.t[0] > lo) return null;               // seri pencereyi kapsamıyor (eski i < n kuralının zaman karşılığı)
+  let j0 = i;
+  while (j0 > 0 && d.t[j0 - 1] >= lo) j0--;
+  const found = i - j0;
+  if (found < Math.ceil(n / 2)) return null;  // boşluk yüzünden yetersiz veri
   let sum = 0;
-  for (let j = i - n; j < i; j++) sum += d.v[j];
-  const avg = sum / n;
+  for (let j = j0; j < i; j++) sum += d.v[j];
+  const avg = sum / found;
   if (!(avg > 0) || v < avg * s.volMult) return null;
   const taker = d.tb[i] / v * 100;
   return {
@@ -89,8 +98,13 @@ function burstCounts(series, s, windows) {
 function takerNet(series, w) {
   const d = series.d['1m'];
   const n = d.t.length;
+  if (!n || !(w > 0)) return 0;
+  // Son w DAKİKA: açılışı ≥ son mum açılışı + dk − w·dk olan mumlar (boşluk öncesi mumlar sayılmaz)
+  const lo = d.t[n - 1] + MIN - w * MIN;
+  let i0 = n - 1;
+  while (i0 > 0 && d.t[i0 - 1] >= lo) i0--;
   let net = 0;
-  for (let i = Math.max(0, n - w); i < n; i++) net += 2 * d.tq[i] - d.q[i];
+  for (let i = i0; i < n; i++) net += 2 * d.tq[i] - d.q[i];
   return net;
 }
 
@@ -132,6 +146,9 @@ function checklist(snap, s) {
   if (ref) {
     for (const L of levels) {
       if (L.name === ref.name || L.kind === 'fib' || L.name === '1h tepe') continue;
+      // Çakışan seviye de direnç tarafında olmalı (ref seçimiyle aynı yön/mesafe süzgeci).
+      // dist = (fiyat − seviye)/seviye·100: seviye fiyatın üstündeyse ≤ 0 ("kala"), altındaysa > 0 ("üstünde").
+      if (L.dist > s.dipAbovePct || L.dist < -s.levelMaxPct) continue;
       const gapPct = Math.abs(L.value - ref.value) / ref.value * 100;
       if (gapPct <= s.confluencePct && (!conf || gapPct < conf.gapPct)) conf = { ...L, gapPct };
     }
@@ -141,8 +158,9 @@ function checklist(snap, s) {
   const band = ['3m', '5m'].filter(tf => inBand(r[tf].v));
   const over = ['3m', '5m'].filter(tf => r[tf].v > s.rsiEntryMax);
 
-  // Yalnız EMA21'in ÜSTÜNDEKİ ayrışma puan alır (short kurulumu: fiyat EMA21'den yukarı kopmuş); altındaysa 0
-  const sepPct = Math.max(0, snap.sepPct?.['3m'] ?? 0, snap.sepPct?.['5m'] ?? 0);
+  // Yalnız EMA21'in ÜSTÜNDEKİ ayrışma puan alır (short kurulumu: fiyat EMA21'den yukarı kopmuş); altındaysa 0.
+  // Derece (snap.sepOk) 3m VE 5m'nin ikisini de ister; liste de aynı: ikisinin küçüğü (biri yoksa 0).
+  const sepPct = Math.max(0, Math.min(snap.sepPct?.['3m'] ?? 0, snap.sepPct?.['5m'] ?? 0));
   let sepPts = 0;
   let sepTxt = 'yok';
   if (sepPct >= (s.sepPct10 ?? 10)) { sepPts = 3; sepTxt = `≥%${s.sepPct10 ?? 10} (${sepPct.toFixed(1)}%)`; }
@@ -199,14 +217,15 @@ function gradeConds(snap, s) {
 /**
  * RSI şartından bağımsız derece (1–4).
  * sart3: direnç yoksa (fiyat keşfi) en fazla gradeNoLevelMax (3) — 18–20.10'da direnç yokken 3 şart %60 aşağıda ve
- * 60 dk'da önce medyan +%5.6 yükseldi (direnç varken %77 / +%1.3). SFP kartında kırılan seviye direnç sayılır.
+ * 60 dk'da önce medyan +%5.6 yükseldi (direnç varken %77 / +%1.3). SFP kartı da aynı kırpmaya tabidir
+ * (seviyesiz SFP en fazla gradeNoLevelMax).
  */
-function gradeOf(snap, s, { sfp = false } = {}) {
+function gradeOf(snap, s) {
   if ((s.gradeBy ?? 'sart3') !== 'liste') {
     const c = gradeConds(snap, s);
     let g = Math.min(4, 1 + c.sep + c.h1 + c.r15 + c.atr);
     if (c.runaway) g = Math.min(g, s.gradeRunawayMax ?? 2);
-    return !sfp && !snap.level ? Math.min(g, s.gradeNoLevelMax ?? 3) : g;
+    return !snap.level ? Math.min(g, s.gradeNoLevelMax ?? 3) : g;
   }
   const sc = snap.check ? snap.check.score : 0;
   if (sc >= (s.grade4Min ?? 7)) return 4;
@@ -767,7 +786,6 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
     if (!sfp && !seriesBurst && !moveCard) return null;
     if (!snap.rsiOk) snap = evaluate(series, s, ctx, true);
     inSeries = seriesBurst;
-    if (sfp && !(snap.grade > 0)) snap.grade = gradeOf(snap, s, { sfp: true });
   }
   if (ctx.isMuted && ctx.isMuted(sym, snap.t)) return null;
 

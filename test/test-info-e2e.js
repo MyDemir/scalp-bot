@@ -223,17 +223,19 @@ const results = []; const ok = s => results.push('✅ ' + s);
   tg.click(CHAT, ADMIN, 't:sepRequired');
   await waitFor(() => tg.answers.length >= 3, 3000, 'toggle');
   assert.strictEqual(bot.settings.get().sepRequired, true);
-  tg.click(CHAT, USER, 't:chartPeak');                            // grafik ayarları herkese açık
-  await waitFor(() => bot.settings.get().chartPeak === false, 3000, 'üye grafik ayarı');
-  tg.click(CHAT, USER, 't:chartPeak');
-  await waitFor(() => bot.settings.get().chartPeak === true, 3000, 'üye grafik ayarı geri');
+  const chart0 = bot.settings.get().chart;
+  tg.click(CHAT, USER, 't:chart');                                // grafik ayarı herkese açık
+  await waitFor(() => bot.settings.get().chart === !chart0, 3000, 'üye grafik ayarı');
+  tg.click(CHAT, USER, 't:chart');
+  await waitFor(() => bot.settings.get().chart === chart0, 3000, 'üye grafik ayarı geri');
   await waitFor(() => tg.answers.length >= 5, 3000, 'üye grafik yanıtları');
   tg.answers.splice(3);
-  tg.click(CHAT, USER, 't:peakAlert');
-  await waitFor(() => tg.answers.length >= 4, 3000, 'üye tepe reddi');
-  assert(/yönetici/.test(tg.answers[3].text) && bot.settings.get().peakAlert === true, 'tepe reddi aç/kapa yöneticide');
+  const snd0 = bot.settings.get().cardSound;
+  tg.click(CHAT, USER, 't:cardSound');
+  await waitFor(() => tg.answers.length >= 4, 3000, 'üye bildirim ayarı');
+  assert(/yönetici/.test(tg.answers[3].text) && bot.settings.get().cardSound === snd0, 'kart sesi aç/kapa yöneticide');
   tg.answers.splice(3);
-  ok('Grafik (chartPeak) — üye de açıp kapatabildi; tepe reddi aç/kapa yöneticide kaldı');
+  ok('Grafik (chart) — üye de açıp kapatabildi; kart sesi aç/kapa yöneticide kaldı');
   ok('Ayar butonları — üye basınca "yönetici olmalısın" (değişmedi); yönetici basınca RSI 90→91 ve ayrışma şartı açıldı, menü yerinde güncellendi, dosyaya yazıldı');
 
   const b2 = tg.sent.length;
@@ -336,7 +338,7 @@ const results = []; const ok = s => results.push('✅ ' + s);
     const names = tg.docs.slice(d0).map(d => d.documentName);
     assert.deepStrictEqual(names, ['veri-son1gun.zip']);
     const Z = require('./unzip')(tg.docs[d0].documentBuf);
-    assert.deepStrictEqual(Object.keys(Z), ['tepeler.csv', 'kartlar.csv', 'temaslar.csv']);
+    assert.deepStrictEqual(Object.keys(Z), ['tepeler.csv', 'yollar.csv', 'kartlar.csv', 'temaslar.csv']);
     assert(Number(tg.docs[d0].chat_id) === ADMIN && Object.values(Z).every(t => /^\uFEFF?(id|symbol),/.test(t)), 'özelden zip: ' + Object.values(Z).map(t => t.slice(0, 20)).join(' | '));
     const kc = Z['kartlar.csv'].split('\n').filter(Boolean);
     assert(kc.length === cards.length + 1 && kc[0].includes('rsi_3m') && kc[0].includes('fwd_60_low'), 'kartlar.csv: ' + kc[0].slice(0, 200));
