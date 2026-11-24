@@ -344,5 +344,31 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   ok('A11: tepe kaydı incTf/inc5/inc15 (boşluksuz: boş/0/0; 2 eksik dk: 3m|5m|15m işaretli)');
 }
 
+// ── A10: tepe anı dakika pencereleri zamana göre (boşlukta N dk'dan uzamaz; yarıdan az mumda null) ──
+{
+  const { extraFeatures, cvdFeatures } = require(`${REPO}/src/peakFeatures`);
+  const cs = i => { const q = 100 + (i * 37) % 91, c = 100 + Math.sin(i / 7); return { t: t0 + i * MIN, o: c, h: c + 0.3 + (i % 5) * 0.01, l: c - 0.3, c, v: 1, tb: 1, q, tq: q * (0.3 + (i * 13 % 50) / 100), closed: true }; };
+  const mkS = (n, miss) => { const S = new Series('XUSDT'); S.seed('1m', Array.from({ length: n }, (_, i) => i).filter(i => !miss.includes(i)).map(cs)); return S; };
+  const rng = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+  const ratio = idx => { let x = 0, q = 0; for (const i of idx) { const c = cs(i); x += 2 * c.tq - c.q; q += c.q; } return +(x / q * 100).toFixed(1); };
+  // (a) boşluksuz 130 mum: eski indeks tanımıyla aynı küme
+  { const f = extraFeatures(mkS(130, [])); assert.strictEqual(f.cvdNet15, ratio(rng(115, 129))); assert.strictEqual(f.cvdNet60, ratio(rng(70, 129))); }
+  // (b) 15 mum eksik (100..114): pencere zamana göre = t−14dk..t → 115..129 (15 mum); 60 dk penceresi 45 mumla (≥30) hesaplanır
+  { const miss = rng(100, 114), f = extraFeatures(mkS(130, miss));
+    assert.strictEqual(f.cvdNet15, ratio(rng(115, 129)), 'cvdNet15 zamana göre: ' + f.cvdNet15);
+    assert.strictEqual(f.cvdNet60, ratio(rng(70, 129).filter(i => !miss.includes(i))), 'cvdNet60 zamana göre: ' + f.cvdNet60);
+    assert.strictEqual(f.spd15, null, 'spd15: t−15 dk mumu (indeks 114) yok → null');
+    assert.strictEqual(f.spdPrev15, null, 'spdPrev15: t−30 dk mumu da yok → null'); }
+  // (c) 95..124 eksik: 15 dk pencerede 5 mum < ceil(15/2) → null; 60 dk'da 30 mum ≥ 30 → değer
+  { const f = extraFeatures(mkS(130, rng(95, 124)));
+    assert.strictEqual(f.cvdNet15, null, 'yarıdan az mum → null'); assert.notStrictEqual(f.cvdNet60, null, 'cvdNet60 yeterli mum');
+    assert.strictEqual(f.buyChg, null, 'buyChg: önceki 10 dk penceresi boş → null'); assert.strictEqual(f.volTrend15, null); assert.strictEqual(f.spd15, null); }
+  // (d) 100 eksik mum: indeks tanımı 15 mumu 115 dk geriden toplardı; zamana göre yalnız son 15 dk (215..229)
+  { const c = cvdFeatures(mkS(230, rng(100, 199)).d['1m']);
+    assert.strictEqual(c.cvdNet15, ratio(rng(215, 229)), 'cvdNet15 yalnız son 15 dk'); assert.strictEqual(c.cvdNet60, ratio(rng(200, 229)), '60 dk: 30 mum = ceil(60/2) → hesaplanır'); }
+  { const c = cvdFeatures(mkS(230, rng(100, 200)).d['1m']); assert.strictEqual(c.cvdNet60, null, '60 dk penceresinde 29 mum < 30 → null'); }
+  ok('A10: tepe anı dakika pencereleri zamana göre (boşluksuz aynı küme; yarıdan az mumda null)');
+}
+
 console.log('\n' + R.join('\n'));
 })().catch(err => { console.error(err); process.exit(1); });

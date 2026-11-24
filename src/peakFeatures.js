@@ -46,24 +46,50 @@ function session(t) {
 
 function sum(a, from, to) { let s = 0; for (let i = Math.max(0, from); i < to; i++) s += a[i]; return s; }
 
+// "Son N dakika" pencereleri ZAMANA göre (dizi indeksine göre değil): 1m akışında kayıp mum varsa pencere N dk'dan uzamaz.
+// Pencere = açılış zamanı [tLast − from·MIN, tLast − to·MIN] aralığındaki mumlar (from ≥ to; dakika sayısı from − to + 1).
+// Dönen: a..b = dizi aralığı (dahil), found = bulunan mum, ok = found ≥ ceil(len/2) (K16 kuralı; len = serinin başına kırpılmış
+// dakika sayısı, yani boşluksuz akışta eski indeks tanımıyla birebir aynı küme). Yetersizse ok=false → alan null.
+function minWin(d, from, to = 0) {
+  const n = d.t.length;
+  if (!n) return { a: 0, b: -1, found: 0, ok: false };
+  const tL = d.t[n - 1], lo = tL - from * MIN, hi = tL - to * MIN;
+  let b = n - 1;
+  while (b >= 0 && d.t[b] > hi) b--;
+  let a = b;
+  while (a >= 0 && d.t[a] >= lo) a--;
+  a++;
+  const found = Math.max(0, b - a + 1);
+  const len = Math.floor((hi - Math.max(lo, d.t[0])) / MIN) + 1;
+  return { a, b, found, ok: found > 0 && found >= Math.ceil(len / 2) };
+}
+const sumW = (arr, w) => { let s = 0; for (let i = w.a; i <= w.b; i++) s += arr[i]; return s; };
+// tLast − back·MIN açılışlı mumun dizin sayısı (yoksa −1)
+function idxAt(d, back) {
+  const n = d.t.length, tt = d.t[n - 1] - back * MIN;
+  for (let i = n - 1; i >= 0 && d.t[i] >= tt; i--) if (d.t[i] === tt) return i;
+  return -1;
+}
+
 function cvdFeatures(d) {
   const n = d.c.length;
   if (n < 30) return {};
   const net = i => 2 * d.tq[i] - d.q[i];
-  const ratio = w => { const q = sum(d.q, n - w, n); let x = 0; for (let i = Math.max(0, n - w); i < n; i++) x += net(i); return q > 0 ? x / q * 100 : null; };
-  // kümülatif CVD (son 120 dk) ve önceki tepe (son 60 dk, son 5 dk hariç)
-  const from = Math.max(0, n - 120);
-  const cvd = []; let acc = 0;
-  for (let i = from; i < n; i++) { acc += net(i); cvd.push(acc); }
+  const netSum = w => { let x = 0; for (let i = w.a; i <= w.b; i++) x += net(i); return x; };
+  const ratio = N => { const w = minWin(d, N - 1); if (!w.ok) return null; const q = sumW(d.q, w); return q > 0 ? netSum(w) / q * 100 : null; };
+  // önceki tepe: son 60 dk, son 5 dk hariç → açılış [tLast−59dk, tLast−5dk]; kümülatif CVD farkı = tepeden sonraki net akış
+  const pw = minWin(d, 59, 5);
   let j = -1;
-  for (let i = Math.max(from, n - 60); i < n - 5; i++) if (j < 0 || d.h[i] > d.h[j]) j = i;
-  const div = j >= 0 && d.h[n - 1] >= d.h[j] && cvd[n - 1 - from] < cvd[j - from];
-  const q60 = sum(d.q, n - 60, n);
-  const buy = (a, b) => { const q = sum(d.q, a, b); return q > 0 ? sum(d.tq, a, b) / q * 100 : null; };
-  const b5 = buy(n - 5, n), b10 = buy(n - 15, n - 5);
+  if (pw.ok) for (let i = pw.a; i <= pw.b; i++) if (j < 0 || d.h[i] > d.h[j]) j = i;
+  const div = pw.ok ? j >= 0 && d.h[n - 1] >= d.h[j] && (() => { let x = 0; for (let i = j + 1; i < n; i++) x += net(i); return x < 0; })() : null;
+  const w60 = minWin(d, 59), q60 = w60.ok ? sumW(d.q, w60) : 0;
+  const buy = w => { if (!w.ok) return null; const q = sumW(d.q, w); return q > 0 ? sumW(d.tq, w) / q * 100 : null; };
+  const b5 = buy(minWin(d, 4)), b10 = buy(minWin(d, 14, 5));
+  let dp = null;
+  if (j >= 0 && q60 > 0) { let x = 0; for (let i = j + 1; i < n; i++) x += net(i); dp = num(x / q60 * 100, 1); }
   return {
-    cvdNet15: num(ratio(15), 1), cvdNet60: num(ratio(60), 1), cvdDiv: Boolean(div),
-    cvdDivPct: j >= 0 && q60 > 0 ? num((cvd[n - 1 - from] - cvd[j - from]) / q60 * 100, 1) : null,
+    cvdNet15: num(ratio(15), 1), cvdNet60: num(ratio(60), 1), cvdDiv: div === null ? null : Boolean(div),
+    cvdDivPct: dp,
     buyChg: b5 != null && b10 != null ? num(b5 - b10, 1) : null,
   };
 }
@@ -146,14 +172,17 @@ function extraFeatures(series, o = {}) {
   Object.assign(out, { cvdNet15: null, cvdNet60: null, cvdDiv: null, cvdDivPct: null, buyChg: null }, cvdFeatures(d));
   for (const tf of ['1m', '5m', '15m']) Object.assign(out, { [`wick_${tf}`]: null, [`clv_${tf}`]: null, [`body_${tf}`]: null }, candleOf(series, tf));
   out.greens_1m = greens(series, '1m'); out.greens_5m = greens(series, '5m');
-  const q15 = sum(d.q, n - 15, n), qp = sum(d.q, n - 30, n - 15);
-  out.volTrend15 = qp > 0 ? num(q15 / qp) : null;
+  { const w1 = minWin(d, 14), w2 = minWin(d, 29, 15);
+    const q15 = w1.ok ? sumW(d.q, w1) : null, qp = w2.ok ? sumW(d.q, w2) : null;
+    out.volTrend15 = q15 != null && qp > 0 ? num(q15 / qp) : null; }
   const pm = Math.max(5, Math.min(240, pumpMin || 60));
-  const avgPump = sum(d.q, n - pm, n) / pm;
-  out.volPeakX = avgPump > 0 ? num(d.q[n - 1] / avgPump) : null;
+  { const w = minWin(d, pm - 1);   // payda: pencerede eksik dakika varsa onlar paydan düşer (boşluksuz akışta pm)
+    const len = Math.floor((d.t[n - 1] - Math.max(d.t[n - 1] - (pm - 1) * MIN, d.t[0])) / MIN) + 1;
+    const avgPump = w.ok ? sumW(d.q, w) / (pm - (len - w.found)) : 0;
+    out.volPeakX = avgPump > 0 ? num(d.q[n - 1] / avgPump) : null; }
   // H46 K19: payda gerçekte toplanan mum sayısı; tepe (son) mum paydan hariç
-  { const from = Math.max(0, n - pm), cnt = n - 1 - from;
-    out.volPeakXc = cnt > 0 && sum(d.q, from, n - 1) > 0 ? num(d.q[n - 1] / (sum(d.q, from, n - 1) / cnt)) : null; }
+  { const w = pm > 1 ? minWin(d, pm - 1, 1) : { ok: false }, cnt = w.ok ? w.found : 0;
+    out.volPeakXc = cnt > 0 && sumW(d.q, w) > 0 ? num(d.q[n - 1] / (sumW(d.q, w) / cnt)) : null; }
   // H46 K20/K22: pencere [t−60dk, t) — spot (marketData endTime=t−1, 60 mum) ile AYNI aralık: açılış zamanı t−60dk … t−1dk
   // (tepe mumu dahil, t'de açılan mum yok). miss60 = 60 − aralıktaki 1m mum sayısı; futQ60t = aralıktaki 1m quote toplamı
   { let cnt = 0, fq = 0;
@@ -164,8 +193,10 @@ function extraFeatures(series, o = {}) {
   for (const [tf, k] of [['5m', 'neg5'], ['15m', 'neg15'], ['1h', 'neg1h']]) out[k] = negPeaks(series, tf, 40, s.rsiPeriod || 14)?.count ?? null;
   for (const tf of ['5m', '15m', '1h']) Object.assign(out, { [`bbB_${tf}`]: null, [`bbW_${tf}`]: null }, bollinger(series, tf));
   const c = d.c;
-  out.spd15 = n > 16 ? num((c[n - 1] / c[n - 16] - 1) * 100 / 15, 3) : null;
-  out.spdPrev15 = n > 31 ? num((c[n - 16] / c[n - 31] - 1) * 100 / 15, 3) : null;
+  // t−15 / t−30 dk açılışlı mum yoksa (boşluk) null; indeks 0 (serinin ilk mumu) eski tanımda da dışarıda
+  const i15 = n ? idxAt(d, 15) : -1, i30 = n ? idxAt(d, 30) : -1;
+  out.spd15 = i15 >= 1 ? num((c[n - 1] / c[i15] - 1) * 100 / 15, 3) : null;
+  out.spdPrev15 = i15 >= 1 && i30 >= 1 ? num((c[i15] / c[i30] - 1) * 100 / 15, 3) : null;
   out.accel = out.spd15 != null && out.spdPrev15 != null ? num(out.spd15 - out.spdPrev15, 3) : null;
   out.pumpAtr = pumpPct != null && o.atr1h > 0 ? num(pumpPct / o.atr1h, 1) : null;
   const mk = ctx.market ? ctx.market(t) : null;
@@ -207,4 +238,4 @@ const EXTRA_COLS = ['cvdNet15', 'cvdNet60', 'cvdDiv', 'cvdDivPct', 'buyChg', 'wi
 // Sona eklenen kolonlar (eventLog AUDIT_COLS'ta; EXTRA_COLS sırası değişmez)
 const EXTRA_AUDIT_COLS = ['wick_5mc', 'clv_5mc', 'wick_15mc', 'clv_15mc', 'bar5Pct', 'bar15Pct', 'volPeakXc', 'miss60', 'futQ60t'];
 
-module.exports = { extraFeatures, EXTRA_COLS, EXTRA_AUDIT_COLS, emaTrend, cvdFeatures, bollinger, ichiCloud, session, localHourDow };
+module.exports = { extraFeatures, EXTRA_COLS, EXTRA_AUDIT_COLS, emaTrend, cvdFeatures, minWin, bollinger, ichiCloud, session, localHourDow };

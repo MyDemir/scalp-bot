@@ -219,7 +219,8 @@ aynı (Fib 0.236–0.786, günlük bölge / trend çizgisi, 7/30g en yüksek, MA
 
 ### Tepe defteri (/kacan, /teyit) ve veri dışa aktarma (/disaaktar)
 Kart çıksın çıkmasın, **pompadaki her tepe adayı** kaydedilir — "o an her şey nasıldı, sonra düştü mü?" Amaç: short teyidi
-için hangi durumların düşüşe eşlik ettiğini veriden bulmak.
+için hangi durumların düşüşe eşlik ettiğini veriden bulmak. Fotoğraftaki "son N dakika" pencereleri (CVD, buyChg, volTrend15,
+spd15 vb.) zamana göre alınır; 1m akışında boşluk varsa yarıdan az mum olan alan boş kalır.
 - **Tepe adayı:** 1 dk mumun tepesi son 60 dk'nın en yükseği ve son 4 saatin dibinden ≥ %3 yukarıda. O dakikada tüm
   göstergelerin fotoğrafı alınır.
 - **Sonuç (15 dk içinde, hangisi önce):** **düştü** (tepenin %1.5 altı) · **devam** (daha yüksek tepe → o mum yeni aday) ·
