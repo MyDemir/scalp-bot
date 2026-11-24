@@ -86,8 +86,8 @@ function dailyZones(t, h, l, { lookback = 365, bars = 3, tol = 0.015, minTouch =
   const zones = [];
   let cur = null;
   for (const p of pts) {
-    if (cur && p.v <= cur.lo * (1 + tol)) { cur.hi = Math.max(cur.hi, p.v); cur.touches++; cur.last = Math.max(cur.last, t[p.i]); }
-    else { cur = { lo: p.v, hi: p.v, touches: 1, last: t[p.i] }; zones.push(cur); }
+    if (cur && p.v <= cur.lo * (1 + tol)) { cur.hi = Math.max(cur.hi, p.v); cur.touches++; if (p.type === 'high') cur.hiN++; else cur.loN++; cur.last = Math.max(cur.last, t[p.i]); }
+    else { cur = { lo: p.v, hi: p.v, touches: 1, hiN: p.type === 'high' ? 1 : 0, loN: p.type === 'low' ? 1 : 0, last: t[p.i] }; zones.push(cur); }
   }
   return zones.filter(z => z.touches >= minTouch);
 }

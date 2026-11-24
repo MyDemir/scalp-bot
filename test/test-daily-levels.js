@@ -33,6 +33,13 @@ assert(Math.abs(f236 - 0.004856) / 0.004856 < 0.01, 'Fib 0.236 ≈ 0.004856: ' +
 const zones = L.dailyZones(d1.t, d1.h, d1.l);
 const z = zones.find(q => q.lo > price && q.lo < 0.0052 && q.hi > 0.0047);
 assert(z && z.touches >= 3, 'eski destek → direnç bölgesi (~0.0048–0.0050) bekleniyordu: ' + JSON.stringify(zones.map(q => [q.lo.toFixed(5), q.hi.toFixed(5), q.touches])));
+// hiN/loN: tepe ve dip pivotları ayrı sayılır, toplam touches; küme sınırları eski hesapla aynı
+{ const piv = [[10, 'h'], [20, 'l'], [30, 'h'], [40, 'h']]; const n = 60, hh = Array(n).fill(50), ll = Array(n).fill(150);
+  for (const [i, k] of piv) { if (k === 'h') hh[i] = 100; else ll[i] = 99.5; }   // 3 tepe (100) + 1 dip (99.5), diğer pivotlar uzakta
+  const zs = L.dailyZones(Array.from({ length: n }, (_, i) => i), hh, ll, { lookback: n, bars: 3, minTouch: 3 });
+  const zz = zs.find(q => q.lo >= 99 && q.hi <= 100.01);
+  assert(zz && zz.hiN === 3 && zz.loN === 1 && zz.touches === zz.hiN + zz.loN && zz.lo === 99.5 && zz.hi === 100 && zz.last === 40, JSON.stringify(zz));
+  for (const q of zones.concat(L.weeklyZones(d1))) assert.strictEqual(q.hiN + q.loN, q.touches, 'touches = hiN + loN'); }
 const wz = L.weeklyZones(d1);
 assert(wz.some(q => q.lo > 0.0047 && q.lo < 0.0050 && q.touches >= 2) && wz.every(q => q.lo > 0), 'haftalık bölge (haftalık mumlardan) ~0.0048: ' + JSON.stringify(wz.map(q => [q.lo.toFixed(5), q.touches])));
 assert(L.toWeekly(d1).t.every(t => new Date(t).getUTCDay() === 1 && t % 86400000 === 0), 'haftalar Pazartesi 00:00 UTC');

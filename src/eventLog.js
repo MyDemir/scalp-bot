@@ -94,7 +94,7 @@ const OUTCOME_COLS = ['outcome', 'upBeforeDrop', 't1', 't2', 't3', 'c5Red', 'c5E
 const AUDIT_COLS = ['sameBar', 'cardWhen', 'contSkipped', 'rsi15c', 'rsi1hc', 'rsi4hc', 'cfgMinTFs', 'cfgRsiMin', 'cfgDropPct', 'cfgContPct',
   ...EXTRA_AUDIT_COLS, 'spotQ60', 'spotShare60t',
   'rsi3c', 'rsi5c', 'sep3c', 'sep5c', 'cfgPeakWindowMin', 'cfgSampleGapMin', 'cfgVer', 'dropC15', 'lowC15', 'closeC60',
-  'incTf', 'inc5', 'inc15'];
+  'incTf', 'inc5', 'inc15', 'lvZoneHiN', 'lvZoneLoN'];
 const FEATURE_COLS = [...BASE_COLS, ...PEAK_COLS, ...TF_COLS, ...VWAP_COLS, ...EXTRA_COLS, 'basisPct', ...LIQ_COLS, ...ENRICH_COLS, ...TROUGH_COLS, ...OUTCOME_COLS, ...AUDIT_COLS];
 
 /** Tepe anının tam fotoğrafı */
@@ -109,7 +109,7 @@ function peakFeatures(series, s, ctx, high, pump, loT, tc, history = null) {
   let q15 = 0; for (let i = Math.max(0, n - 15); i < n; i++) q15 += d.q[i];
   return features(snap, series, {
     pumpPct: num(pump), pumpMin: Math.round((tc - loT) / MIN),
-    pkLv: nr.best?.name ?? null, pkLvKind: nr.best?.kind ?? null, pkLvDist: nr.best?.dist ?? null, pkLvTouches: nr.best?.touches ?? null, pkNear: nr.near.join('|'),
+    pkLv: nr.best?.name ?? null, pkLvKind: nr.best?.kind ?? null, pkLvDist: nr.best?.dist ?? null, pkLvTouches: nr.best?.touches ?? null, lvZoneHiN: nr.best?.zoneHiN ?? null, lvZoneLoN: nr.best?.zoneLoN ?? null, pkNear: nr.near.join('|'),
     ...tfi, ...vwapFeatures(vw, snap.price),
     ...extraFeatures(series, { s, ctx, price: snap.price, t: tc, pumpPct: pump, pumpMin: Math.round((tc - loT) / MIN), atr1h: tfi.atr_1h, funding: prem, history }),
     basisPct: basisPct(prem),
