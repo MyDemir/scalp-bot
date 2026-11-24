@@ -128,7 +128,7 @@ function createTouchTracker({ window = WINDOW, touchPct = TOUCH_PCT } = {}) {
           if (h > e.peak) e.peak = h;
           const dd = (e.peak - l) / e.peak * 100;
           if (dd > e.pb) { e.pb = dd; e.pbMin = m; e.troughLow = l; e.mas = mas || (mas = maLadder(series)); }
-          if (e.belowMin == null && c < e.value) e.belowMin = m;
+          if (e.belowMin == null && m <= window && c < e.value) e.belowMin = m;
           if (h > e.hi) e.hi = h;
           if (l < e.lo) e.lo = l;
           if (e.emaMin == null && ema != null && l <= ema) e.emaMin = m;

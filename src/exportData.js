@@ -64,7 +64,7 @@ async function buildExports(store, days = 30, now = Date.now(), { maxZipBytes = 
   await writeRows('kartlar.csv', cards, 'kartlar');
   // Temaslar parça parça (haftalarca veride on binlerce satır — düz kopyaları bellekte tutulmaz)
   // pb0 / belowMin en sona (time'dan sonra): mevcut kolonların sırası değişmez
-const touchRow = r => { const { pb0, belowMin, ...q } = r; return flatten({ ...q, time: new Date(r.t).toISOString(), pb0, belowMin }); };
+  const touchRow = r => { const { pb0, belowMin, ...q } = r; return flatten({ ...q, time: new Date(r.t).toISOString(), pb0, belowMin }); };
   const tcols = Object.keys(touchRow(rowToTouch({ t: 0 }))), tz = zip.entry('temaslar.csv', csvHeader(tcols));
   const onTouch = async r => { counts.temaslar++; await tz.write(csvLine(touchRow(r), tcols)); };
   if (store.forEachTouch) await store.forEachTouch({ since }, onTouch);
