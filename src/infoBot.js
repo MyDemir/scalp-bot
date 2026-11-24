@@ -48,7 +48,8 @@ const touches  = createTouchTracker();
 // Tepe defteri (kartı etkilemez) — canlıda Binance ek verisi (OI, long/short, emir defteri, spot) ve likidasyon akışı
 const enricher = createEnricher({ client: binance });
 const liqStream = createLiqStream();
-const drops    = createDropLedger({ ...cfg.events, enrich: (sym, o) => enricher.enrich(sym, o), orderBook: sym => enricher.orderBook(sym) });
+const drops    = createDropLedger({ ...cfg.events, enrich: (sym, o) => enricher.enrich(sym, o), orderBook: sym => enricher.orderBook(sym),
+  onPath: r => { try { store?.addPath(r); } catch (err) { console.error('[YOL]', err?.message || err); } } });
 let store = null;
 let flow = null;              // spot/futures akış takibi (src/spotFlow.js) — main'de kurulur
 let bigTrades = null;         // spot büyük alım/satım sayacı (src/bigTrades.js) — akış evreniyle çalışır

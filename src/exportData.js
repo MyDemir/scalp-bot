@@ -16,7 +16,7 @@
  * Çıktı zip (tepeler.csv · kartlar.csv · temaslar.csv · akis.csv) — haftalarca veride bile bellek şişmez.
  */
 
-const { rowToStat, rowToTouch } = require('./cardStore');
+const { rowToStat, rowToTouch, PATH_COLS, pathRow } = require('./cardStore');
 const { flatDrop, dropCols, csvLine, csvHeader } = require('./eventLog');
 const { createZipSet } = require('./zipWriter');
 
@@ -43,6 +43,14 @@ async function buildExports(store, days = 30, now = Date.now(), { maxZipBytes = 
   const cols = dropCols(), te = zip.entry('tepeler.csv', csvHeader(cols));
   if (store.forEachEvent) await store.forEachEvent({ since }, async r => { counts.tepeler++; await te.write(csvLine(flatDrop(r), cols)); });
   await te.end();
+  if (store.forEachPath) {
+    let pe = null;   // yol yoksa dosya açılmaz (eski çıktı biçimi aynı kalır)
+    await store.forEachPath({ since }, async r => {
+      if (!pe) { pe = zip.entry('yollar.csv', csvHeader(PATH_COLS)); counts.yollar = 0; }
+      counts.yollar++; await pe.write(csvLine(pathRow(r), PATH_COLS));
+    });
+    if (pe) await pe.end();
+  }
   const cards = store.since(since).map(rowToStat).filter(r => r.kind === 'card').map(r => {
     const { bursts, text, kind, partial, done, ...rest } = r;
     return flatten({ ...rest, time: new Date(r.t).toISOString(), partial: partial ? 1 : 0 });

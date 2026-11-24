@@ -22,6 +22,8 @@ const WINDOWS = [5, 15, 30, 60, 240];          // kart sonrası (dk) — eski ve
 const KEEP_DAYS = 90;
 const TOUCH_KEEP_DAYS = 60;
 const EVENT_KEEP_DAYS = 60;
+const PATH_KEEP_DAYS = 60;                     // paths: yalnız bu budamayla silinir (haftalık rapor purgeBefore'a dahil DEĞİL)
+const PATH_MIN = 15;                           // tepeden sonraki 1m yolu: en çok dakika
 const EVENT_WINDOWS = [5, 15, 30, 60, 240];    // tepe adayı sonrası (dk)
 const TOUCH_SNAPS = [5, 15, 30];               // seviye teması kısa pencereleri (60 dk ayrıca)
 
@@ -57,6 +59,10 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
         up REAL, dn REAL, c60 REAL
       );
       CREATE INDEX IF NOT EXISTS touches_t ON touches(t);
+      CREATE TABLE IF NOT EXISTS paths (
+        id TEXT PRIMARY KEY, symbol TEXT, t INTEGER, entry REAL, n INTEGER, data BLOB
+      );
+      CREATE INDEX IF NOT EXISTS paths_t ON paths(t);
     `);
     db.exec(`CREATE TABLE IF NOT EXISTS events (
         id TEXT PRIMARY KEY, symbol TEXT NOT NULL, t INTEGER NOT NULL, price REAL, dropt INTEGER, dropmin INTEGER,
@@ -99,6 +105,8 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
     eSince: db.prepare('SELECT * FROM events WHERE t >= ? ORDER BY t'),
     ePrune: db.prepare('DELETE FROM events WHERE t < ?'),
     tPrune: db.prepare('DELETE FROM touches WHERE t < ?'),
+    pIns: db.prepare('INSERT OR IGNORE INTO paths (id, symbol, t, entry, n, data) VALUES (?, ?, ?, ?, ?, ?)'),
+    pPrune: db.prepare('DELETE FROM paths WHERE t < ?'),
   };
 
   const open = new Map();   // symbol → [{ id, t, price, lo, hi, last, rec }]
@@ -161,6 +169,7 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
       safe(() => st.prune.run(now - KEEP_DAYS * 86_400_000), 'temizlik');
       safe(() => st.tPrune.run(now - TOUCH_KEEP_DAYS * 86_400_000), 'temizlik');
       safe(() => st.ePrune.run(now - EVENT_KEEP_DAYS * 86_400_000), 'temizlik');
+      safe(() => st.pPrune.run(now - PATH_KEEP_DAYS * 86_400_000), 'temizlik');
     },
 
     /** Seviye tepkisi olayı (src/levelTouch.js finish() çıktısı) */
@@ -180,6 +189,10 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
         cardgrade: e.cardGrade ?? null, rsiok: e.feat?.rsiOk ? 1 : 0, hits: e.feat?.hits ?? null, data: JSON.stringify(e.feat ?? {}), outcome: e.outcome ?? 'düştü' };
       for (const w of EVENT_WINDOWS) for (const k of ['low', 'high', 'close']) row[`${k}${w}`] = e.out?.[w]?.[k] ?? null;
       safe(() => st.eIns.run(row), 'düşüş kaydı');
+    },
+    /** Tepe sonrası 1m yolu (eventLog onPath): buf = Float32Array [h%, l%, c%] × n, girişe göre */
+    addPath(r) {
+      safe(() => st.pIns.run(r.id, r.symbol, r.t, r.entry, r.n, Buffer.from(r.buf.buffer, r.buf.byteOffset, r.buf.byteLength)), 'yol kaydı');
     },
     /**
      * Haftalık rapordan sonra: cutoff'tan önceki kartlar, temaslar ve düşüşler silinir; disk VACUUM ile geri alınır.
@@ -214,6 +227,27 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
         if (!rows.length) break;
         last = rows[rows.length - 1]._rid;
         for (const r of rows) { const x = fn(rowToEvent(r)); if (x && typeof x.then === 'function') await x; n++; }
+        if (rows.length < batch) break;
+        await new Promise(res => setImmediate(res));
+      }
+      return n;
+    },
+    /** Yolları PARÇA PARÇA okur. fn({id, symbol, t, entry, n, buf:Float32Array}) → (async olabilir) */
+    async forEachPath({ since = 0, until = Number.MAX_SAFE_INTEGER, batch = 500 } = {}, fn) {
+      if (!db) return 0;
+      const q = db.prepare('SELECT rowid AS _rid, * FROM paths WHERE rowid > ? AND t >= ? AND t < ? ORDER BY rowid LIMIT ?');
+      let last = 0, n = 0;
+      for (;;) {
+        const rows = safe(() => q.all(last, since, until, batch), 'sorgu') || [];
+        if (!rows.length) break;
+        last = rows[rows.length - 1]._rid;
+        for (const r of rows) {
+          const b = r.data;
+          const buf = b ? new Float32Array(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)) : new Float32Array(0);
+          const x = fn({ id: r.id, symbol: r.symbol, t: r.t, entry: r.entry, n: r.n, buf });
+          if (x && typeof x.then === 'function') await x;
+          n++;
+        }
         if (rows.length < batch) break;
         await new Promise(res => setImmediate(res));
       }
@@ -284,4 +318,12 @@ function rowToTouch(r) {
   };
 }
 
-module.exports = { createCardStore, rowToStat, rowToTouch, rowToEvent, WINDOWS, EVENT_WINDOWS, TOUCH_SNAPS };
+/** yollar.csv sütunları ve satırı: id, symbol, time, entry, n, h1,l1,c1 … h15,l15,c15 (kaydedilmeyen dakika boş) */
+const PATH_COLS = ['id', 'symbol', 'time', 'entry', 'n', ...Array.from({ length: PATH_MIN }, (_, i) => [`h${i + 1}`, `l${i + 1}`, `c${i + 1}`]).flat()];
+function pathRow(r) {
+  const o = { id: r.id, symbol: r.symbol, time: Number.isFinite(r.t) ? new Date(r.t).toISOString() : null, entry: r.entry, n: r.n };
+  for (let i = 0; i < PATH_MIN; i++) for (let j = 0; j < 3; j++) o[PATH_COLS[5 + i * 3 + j]] = i < r.n && i * 3 + j < r.buf.length ? +r.buf[i * 3 + j].toFixed(3) : null;
+  return o;
+}
+
+module.exports = { createCardStore, PATH_COLS, pathRow, PATH_KEEP_DAYS, rowToStat, rowToTouch, rowToEvent, WINDOWS, EVENT_WINDOWS, TOUCH_SNAPS };

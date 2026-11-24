@@ -134,6 +134,7 @@ function createDropLedger(opts = {}) {
   const state = new Map();     // sym → { cand, lastCommit, open: [], hist: [{t, outcome}], obAt, ob }
   const cards = new Map();     // sym → [{t, grade}]
   let openN = 0;
+  const PATH_MIN = 15;         // tepeden sonraki 1m yolu: dakika sayısı (onPath verilmezse toplanmaz)
   const st = sym => { let x = state.get(sym); if (!x) { x = { cand: null, lastCommit: 0, skipped: 0, open: [], hist: [], obAt: 0, ob: null }; state.set(sym, x); } return x; };
 
   function history(sym, x, t) {
@@ -174,6 +175,15 @@ function createDropLedger(opts = {}) {
     if (c.l < e.lo) e.lo = c.l;
     if (c.h > e.hi) e.hi = c.h;
     e.last = c.c;
+    if (E.onPath && el % MIN === 0) {   // k. dakika (ardışık mum şart; boşlukta toplama durur, eksik uydurulmaz)
+      const k = el / MIN;
+      if (k <= PATH_MIN && k === (e.pn || 0) + 1) {
+        if (!e.pbuf) e.pbuf = new Float32Array(PATH_MIN * 3);
+        const en = e.feat.price > 0 ? e.feat.price : e.price;   // giriş: tepe anındaki 1dk kapanış (tepe fiyatı değil)
+        e.pbuf[(k - 1) * 3] = (c.h - en) / en * 100; e.pbuf[(k - 1) * 3 + 1] = (c.l - en) / en * 100; e.pbuf[(k - 1) * 3 + 2] = (c.c - en) / en * 100;
+        e.pn = k;
+      }
+    }
     for (const k of [1, 2, 3]) if (e.hit[k] == null && c.l <= p * (1 - k / 100)) e.hit[k] = Math.round(el / MIN);
     if (e.c5 && e.c5.low !== undefined && c.t >= e.c5.T && c.t + MIN - e.c5.T <= 60 * MIN && c.l < e.c5.low) e.c5.low = c.l;
     for (const w of W) {
@@ -192,6 +202,15 @@ function createDropLedger(opts = {}) {
       resolved = e.status != null;
     }
     return resolved;
+  }
+
+  /** Yol hazırsa (15 dk doldu ya da `force` ile eldekiyle) bir kez dışarı verir */
+  function emitPath(e, force = false) {
+    if (!E.onPath || e.pathDone || !e.pn || e.pn < PATH_MIN && !force) return;
+    e.pathDone = true;
+    const entry = e.feat.price > 0 ? e.feat.price : e.price;
+    try { E.onPath({ id: e.id, symbol: e.symbol, t: e.t, entry, n: e.pn, buf: e.pbuf.slice(0, e.pn * 3) }); } catch { /* kayıt hatası defteri bozmasın */ }
+    e.pbuf = null;
   }
 
   /** İlk tam 5dk mum (açılışı ≥ tepe anı): teyit mumu */
@@ -227,6 +246,7 @@ function createDropLedger(opts = {}) {
 
   function commit(series, x, e) {
     x.open.push(e); openN++;
+    emitPath(e);
     x.lastCommit = e.t;
     e.feat.contSkipped = x.skipped; x.skipped = 0;
     x.hist.push({ t: e.t, outcome: e.status });
@@ -265,7 +285,8 @@ function createDropLedger(opts = {}) {
         advance(e, c);
         confirm5(e, series);
         if (e.trPending) { e.trSnap = troughFeatures(series, s, e.trLow, e.anchorT); e.trPending = false; }
-        if (e.out[WMAX]) { done.push(finish(e)); x.open.splice(k, 1); openN--; }
+        emitPath(e);
+        if (e.out[WMAX]) { emitPath(e, true); done.push(finish(e)); x.open.splice(k, 1); openN--; }
       }
       // 2) açık aday: sonuç belli olduysa kaydet ya da bırak
       const cd = x.cand;
@@ -277,7 +298,7 @@ function createDropLedger(opts = {}) {
           x.cand = null;
           if (cd.status !== 'devam' || cd.t - x.lastCommit >= E.sampleGapMin * MIN) {
             commit(series, x, cd);
-            if (cd.out[WMAX]) { done.push(finish(cd)); x.open.pop(); openN--; }
+            if (cd.out[WMAX]) { emitPath(cd, true); done.push(finish(cd)); x.open.pop(); openN--; }
           } else x.skipped++;   // seyreltmeyle atlanan devam adayı
         }
       }
@@ -304,7 +325,7 @@ function createDropLedger(opts = {}) {
     /** Mum gelmeyen coinlerin süresi dolan örneklerini (kaydetmeden) bırakır */
     sweep(now = Date.now()) {
       for (const [sym, x] of state) {
-        for (let k = x.open.length - 1; k >= 0; k--) if (now - x.open[k].t > (WMAX + 15) * MIN) { x.open.splice(k, 1); openN--; }
+        for (let k = x.open.length - 1; k >= 0; k--) if (now - x.open[k].t > (WMAX + 15) * MIN) { emitPath(x.open[k], true); x.open.splice(k, 1); openN--; }
         if (x.cand && now - x.cand.t > (E.peakWindowMin + 5) * MIN) x.cand = null;
         while (x.hist.length && x.hist[0].t < now - 1440 * MIN) x.hist.shift();
         if (!x.open.length && !x.cand && !x.hist.length) state.delete(sym);
