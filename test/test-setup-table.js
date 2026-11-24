@@ -46,10 +46,10 @@ assert.strictEqual(R['Bu 3 şarttan ≥ 2'].n, 1);
 assert.strictEqual(R['3dk hacim ≥ 10 kat'].n, 1);
 assert.strictEqual(R['MACD 5m zayıf'].n, 0, 'macd5 yok → grup boş');
 assert.strictEqual(R['Stoch 5m aşağı'].n, 0);
-assert.strictEqual(R['3dk RSI ≥ 95'].n, 0, 'rsi3 yok → grup boş');
-{ const a3 = createSetupAcc({ s: {} }); a3.add(mk('GUSDT', 0, { ...base, sep3: 2.5, sep5: 2.5, rsi3: 95 }, o(-5, -10))); a3.add(mk('HUSDT', 0, { ...base, sep3: 3, sep5: 3, rsi3: 94.9 }, o(-5, -10)));
-  const Q3 = Object.fromEntries(a3.stats().rows.map(r => [r.name, r])); assert.strictEqual(Q3['3dk RSI ≥ 95'].n, 1, '3dk RSI ≥ 95'); assert.strictEqual(Q3['EMA21 ayrışma'].n, 1, 'varsayılan ayrışma eşiği 3: 2.5 girmez, 3 girer');
-  const Q4 = Object.fromEntries(createSetupAcc({ s: { gradeRsi3m: 90 } }).stats().rows.map(r => [r.name, r])); assert(Q4['3dk RSI ≥ 95'] && true); }
+assert.strictEqual(R['3dk RSI ≥ 90'].n, 0, 'rsi3 yok → grup boş');
+{ const a3 = createSetupAcc({ s: {} }); a3.add(mk('GUSDT', 0, { ...base, sep3: 2.5, sep5: 2.5, rsi3: 90 }, o(-5, -10))); a3.add(mk('HUSDT', 0, { ...base, sep3: 3, sep5: 3, rsi3: 89.9 }, o(-5, -10)));
+  const Q3 = Object.fromEntries(a3.stats().rows.map(r => [r.name, r])); assert.strictEqual(Q3['3dk RSI ≥ 90'].n, 1, '3dk RSI ≥ 90'); assert.strictEqual(Q3['EMA21 ayrışma'].n, 1, 'varsayılan ayrışma eşiği 3: 2.5 girmez, 3 girer');
+  const Q4 = Object.fromEntries(createSetupAcc({ s: { gradeRsi3m: 85 } }).stats().rows.map(r => [r.name, r])); assert(Q4['3dk RSI ≥ 90'] && true); }
 // MACD 5m zayıf / Stoch 5m aşağı grupları (maskeler 9 bit; Uint16)
 { const a2 = createSetupAcc({ s: {} });
   a2.add(mk('CUSDT', 0, { ...base, macd5: 'zayıf' }, o(-5, -10)));

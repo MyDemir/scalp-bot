@@ -504,7 +504,7 @@ const CANDS = [
   ['15dk EMA21 ≥ %5 üstü', 'sep15', f => f.sep15 >= 5],
   ['4+ temaslı seviyede', 'pkLvTouches', f => f.pkLvTouches >= 4],
   ['MACD 3/5dk sat kes.', 'macd3', f => f.macd3 === 'down' || f.macd5 === 'down'],
-  ['3dk RSI ≥ 95', 'rsi3', f => f.rsi3 >= 95],
+  ['3dk RSI ≥ 90', 'rsi3', f => f.rsi3 >= 90],
   ['MACD 5m zayıf', 'macd5', f => f.macd5 === 'zayıf' || f.macd5 === 'down'],
   ['Stoch 5m aşağı', 'stochK', f => f.stochCross === 'down'],
   ['Funding negatif', 'funding', f => f.funding < 0],

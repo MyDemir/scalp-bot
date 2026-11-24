@@ -142,7 +142,7 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   assert.strictEqual(eng.rsiGrade({ hits: 1, check: { score: 8 } }, L), 0);
   // Varsayılan (sart3): 1 + ayrışma + 1s RSI ≥ 80 + 15m RSI ≥ 85; kontrol listesi skoru dereceyi etkilemez
   const G3 = { ...g, gradeBy: 'sart3', gradeRsi1h: 80, gradeRsi15m: 85 };
-  const sn = (sep, h1, r15, level = { name: '4h tepe' }, h4 = 60) => ({ hits: 2, sepOk: sep, conf: { h1, h4 }, rsi: rsi(90, 90, r15), check: { score: 9 }, level });
+  const sn = (sep, h1, r15, level = { name: '4h tepe' }, h4 = 60) => ({ hits: 2, sepOk: sep, conf: { h1, h4 }, rsi: rsi(89, 90, r15), check: { score: 9 }, level });
   assert.deepStrictEqual([sn(false, 70, 80), sn(true, 70, 80), sn(true, 81, 80), sn(true, 81, 86), sn(false, 85, 90)].map(x => eng.rsiGrade(x, G3)), [1, 2, 3, 4, 3]);
   assert.strictEqual(eng.rsiGrade({ ...sn(true, 90, 90), hits: 1 }, G3), 0, 'RSI kart şartı yoksa derece 0');
   assert.strictEqual(eng.rsiGrade(sn(true, 81, 86, null), G3), 3, 'direnç yok (fiyat keşfi) → en fazla 3');
@@ -155,7 +155,7 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   assert.strictEqual(eng.rsiGrade(sn(true, 84, 86, undefined, 81), G3), 2, '4s ≥ 80 → kaçak');
   assert(eng.gradeConds(sn(true, 90, 86), G3).runaway && !eng.gradeConds(sn(true, 90, 86), G3).h1, '1s ≥ 88 şart sayılmaz');
   assert.strictEqual(eng.rsiGrade(sn(true, 90, 86, undefined, 86), { ...G3, gradeRsi1hMax: 0, gradeRsi4hMax: 0 }), 4, 'kaçak kapalı (0)');
-  assert.strictEqual(eng.rsiGrade({ hits: 2, rsi: rsi(90, 90, null), conf: {} }, G3), 1, 'eksik RSI → şart sayılmaz');
+  assert.strictEqual(eng.rsiGrade({ hits: 2, rsi: rsi(89, 90, null), conf: {} }, G3), 1, 'eksik RSI → şart sayılmaz');
   assert.strictEqual(eng.rsiGrade({ ...sn(false, 70, 86), atr5Pct: 1.3 }, G3), 3, '5dk ATR ≥ 1.2 → +1 daire');
   assert.strictEqual(eng.rsiGrade({ ...sn(true, 81, 86), atr5Pct: 1.3 }, G3), 4, '4 şart → en fazla 4');
   assert.strictEqual(eng.rsiGrade({ ...sn(false, 70, 86), atr5Pct: 1.1 }, G3), 2, 'ATR < 1.2 sayılmaz');
@@ -182,25 +182,25 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
     assert.strictEqual(eng.rsiGrade(full, G3), 4); assert.strictEqual(eng.gradeOldOf(full, G3), 3, 'gradeOld macd/stoch şartsız');
     const au = eng.gradeAudit(full, { ...G3, minTFs: 2 });
     assert.deepStrictEqual(au, { gradeOld: 3, g_sep: 1, g_h1: 1, g_r15: 0, g_atr: 0, g_macd: 1, g_stoch: 1, g_rsi3hi: 0, g_runaway: 0,
-      cfgGradeRsi15m: 85, cfgGradeAtr5Pct: 1.2, cfgGradeMacd5m: 1, cfgGradeStoch5m: 1, cfgSepPct2: g.sepPct2 ?? 3, cfgGradeRsi3m: 95, gradeVer: 2 });
-    // 3dk RSI ≥ gradeRsi3m (95): tek başına +1; 0 = kapalı; gradeOld'da kapalı
-    { const hi = { ...base0, rsi: { '3m': { v: 95.5 }, '5m': { v: 90 }, '15m': { v: 80 } } };
-      assert.strictEqual(eng.rsiGrade(hi, G3), 2, '3dk RSI 95.5 ≥ 95 → +1'); assert.strictEqual(eng.rsiGrade(base0, G3), 1, '3dk 90 → şart yok');
+      cfgGradeRsi15m: 85, cfgGradeAtr5Pct: 1.2, cfgGradeMacd5m: 1, cfgGradeStoch5m: 1, cfgSepPct2: g.sepPct2 ?? 3, cfgGradeRsi3m: 90, gradeVer: 2 });
+    // 3dk RSI ≥ gradeRsi3m (90): tek başına +1; 0 = kapalı; gradeOld'da kapalı
+    { const hi = { ...base0, rsi: { '3m': { v: 90.5 }, '5m': { v: 90 }, '15m': { v: 80 } } };
+      assert.strictEqual(eng.rsiGrade(hi, G3), 2, '3dk RSI 90.5 ≥ 90 → +1'); assert.strictEqual(eng.rsiGrade(base0, G3), 1, '3dk 89 → şart yok');
       assert.strictEqual(eng.rsiGrade(hi, { ...G3, gradeRsi3m: 0 }), 1, 'gradeRsi3m 0 → kapalı');
-      assert.strictEqual(eng.rsiGrade(hi, { ...G3, gradeRsi3m: 96 }), 1, 'eşik ayarlanabilir');
+      assert.strictEqual(eng.rsiGrade(hi, { ...G3, gradeRsi3m: 91 }), 1, 'eşik ayarlanabilir');
       assert.strictEqual(eng.rsiGrade({ ...sn(true, 81, 86), ...MS, ...ST, rsi: hi.rsi }, G3), 4, '7 şart en fazla 4');
       assert.strictEqual(eng.rsiGrade({ ...sn(true, 88.2, 86, undefined, 86.5), ...MS, ...ST, rsi: hi.rsi }, G3), 2, 'kaçak tavanı 3dk şartıyla da aynen');
       assert.strictEqual(eng.rsiGrade({ ...sn(true, 81, 86, null), ...MS, ...ST, rsi: hi.rsi }, G3), 3, 'seviye tavanı aynen');
       assert.strictEqual(eng.gradeOldOf(hi, G3), 1, 'gradeOld 3dk şartsız');
       const a2 = eng.gradeAudit(hi, { ...G3, minTFs: 2 }); assert.strictEqual(a2.g_rsi3hi, 1); assert.strictEqual(a2.gradeOld, 1);
       assert.strictEqual(eng.gradeAudit(hi, { ...G3, minTFs: 2, gradeRsi3m: 0 }).g_rsi3hi, 0); assert.strictEqual(eng.gradeAudit(hi, { ...G3, minTFs: 2, gradeRsi3m: 0 }).cfgGradeRsi3m, 0);
-      assert.strictEqual(cfg.info.gradeRsi3m, 95); }
+      assert.strictEqual(cfg.info.gradeRsi3m, 90); }
     // sepPct2 varsayılanı 3 (24.11.2026); eski dosyada yoksa 3, dosyada değiştirilmiş değer korunur
     assert.strictEqual(cfg.info.sepPct2, 3);
     { const fa = require('path').join(require('./_tmp'), 'old-sep.json'); fs.writeFileSync(fa, JSON.stringify({ values: { rsiMin: 88 } }));
-      const a = cs2({ file: fa, defaults: { ...cfg.info } }); a.load(); assert.strictEqual(a.get().sepPct2, 3, 'eski dosyada sepPct2 yok → 3'); assert.strictEqual(a.get().gradeRsi3m, 95);
-      fs.writeFileSync(fa, JSON.stringify({ values: { sepPct2: 2, gradeRsi3m: 90 } }));
-      const b = cs2({ file: fa, defaults: { ...cfg.info } }); b.load(); assert.strictEqual(b.get().sepPct2, 2, 'dosyadaki değer kalır'); assert.strictEqual(b.get().gradeRsi3m, 90); }
+      const a = cs2({ file: fa, defaults: { ...cfg.info } }); a.load(); assert.strictEqual(a.get().sepPct2, 3, 'eski dosyada sepPct2 yok → 3'); assert.strictEqual(a.get().gradeRsi3m, 90);
+      fs.writeFileSync(fa, JSON.stringify({ values: { sepPct2: 2, gradeRsi3m: 93 } }));
+      const b = cs2({ file: fa, defaults: { ...cfg.info } }); b.load(); assert.strictEqual(b.get().sepPct2, 2, 'dosyadaki değer kalır'); assert.strictEqual(b.get().gradeRsi3m, 93); }
     assert.strictEqual(eng.gradeAudit(full, { ...G3, minTFs: 2, gradeMacd5m: false }).g_macd, 0);
     assert.strictEqual(eng.gradeAudit(full, { ...G3, minTFs: 2, gradeMacd5m: false }).cfgGradeMacd5m, 0);
     assert.strictEqual(eng.gradeAudit(sn(true, 90, 86), { ...G3, minTFs: 2 }).g_runaway, 1);

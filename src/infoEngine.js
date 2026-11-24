@@ -213,8 +213,8 @@ function gradeConds(snap, s) {
     // 5dk MACD zayıflıyor (histogram düşüyor / ≤ 0, aşağı kesişim dahil) · 5dk Stoch RSI aşağı kesişim (yalnız son kapanmış mumda)
     macd: (s.gradeMacd5m ?? true) !== false && Boolean(snap.macd?.['5m']?.weakening),
     stoch: (s.gradeStoch5m ?? true) !== false && snap.stoch?.cross === 'down',
-    // 3dk RSI ≥ gradeRsi3m (95; 0 = kapalı)
-    rsi3hi: (s.gradeRsi3m ?? 95) > 0 && Number.isFinite(snap.rsi?.['3m']?.v) && snap.rsi['3m'].v >= (s.gradeRsi3m ?? 95),
+    // 3dk RSI ≥ gradeRsi3m (90; 0 = kapalı)
+    rsi3hi: (s.gradeRsi3m ?? 90) > 0 && Number.isFinite(snap.rsi?.['3m']?.v) && snap.rsi['3m'].v >= (s.gradeRsi3m ?? 90),
     runaway,
   };
 }
@@ -242,7 +242,7 @@ function gradeAudit(snap, s) {
     g_macd: c.macd ? 1 : 0, g_stoch: c.stoch ? 1 : 0, g_rsi3hi: c.rsi3hi ? 1 : 0, g_runaway: c.runaway ? 1 : 0,
     cfgGradeRsi15m: s.gradeRsi15m ?? 85, cfgGradeAtr5Pct: s.gradeAtr5Pct ?? 1.2,
     cfgGradeMacd5m: (s.gradeMacd5m ?? true) !== false ? 1 : 0, cfgGradeStoch5m: (s.gradeStoch5m ?? true) !== false ? 1 : 0,
-    cfgSepPct2: s.sepPct2 ?? 3, cfgGradeRsi3m: s.gradeRsi3m ?? 95,
+    cfgSepPct2: s.sepPct2 ?? 3, cfgGradeRsi3m: s.gradeRsi3m ?? 90,
     gradeVer: 2,
   };
 }

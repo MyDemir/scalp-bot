@@ -25,7 +25,7 @@ const GROUPS = [
   '3dk hacim ≥ 10 kat',
   'MACD 5m zayıf',
   'Stoch 5m aşağı',
-  '3dk RSI ≥ 95',
+  '3dk RSI ≥ 90',
 ];
 
 const num = v => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -34,7 +34,7 @@ const fromEntry = (peak, price, x) => (peak > 0 && price > 0 && x != null ? (pea
 
 /** Eşikler ayardan, yoksa varsayılan; config.js'e anahtar eklenmez */
 function thresholds(s = {}) {
-  return { sep: s.sepPct2 ?? 3, r1h: s.gradeRsi1h ?? 80, r1hMax: s.gradeRsi1hMax ?? 88, r15: s.gradeRsi15m ?? 85, r3: s.gradeRsi3m ?? 95 };
+  return { sep: s.sepPct2 ?? 3, r1h: s.gradeRsi1h ?? 80, r1hMax: s.gradeRsi1hMax ?? 88, r15: s.gradeRsi15m ?? 85, r3: s.gradeRsi3m ?? 90 };
 }
 
 /** Grup maskesi (bit i = GROUPS[i]) */
@@ -47,7 +47,7 @@ function maskOf(feat, th) {
   const vol = num(f.volx_3m) != null && f.volx_3m >= VOLX_MIN;
   const macd = f.macd5 === 'zayıf' || f.macd5 === 'down';   // 5dk MACD zayıflıyor (aşağı kesişim dahil)
   const stoch = f.stochCross === 'down';                     // 5dk Stoch RSI aşağı kesişim
-  const r3 = num(f.rsi3) != null && f.rsi3 >= th.r3;          // 3dk RSI ≥ gradeRsi3m (95)
+  const r3 = num(f.rsi3) != null && f.rsi3 >= th.r3;          // 3dk RSI ≥ gradeRsi3m (90)
   const bits = [true, pump, sep, r1h, r15, (sep ? 1 : 0) + (r1h ? 1 : 0) + (r15 ? 1 : 0) >= 2, vol, macd, stoch, r3];
   return bits.reduce((m, b, i) => m | (b ? 1 << i : 0), 0);
 }
