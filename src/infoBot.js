@@ -258,7 +258,7 @@ function marketState(t) {
   const b = series.get('BTCUSDT'), bc = b ? b.d['1m'].c : [], bn = bc.length;
   const chg = m => (bn > m && bc[bn - 1 - m] > 0 ? +((bc[bn - 1] / bc[bn - 1 - m] - 1) * 100).toFixed(2) : null);
   const v = { breadth80: n ? +(hot / n * 100).toFixed(1) : null, pumping, btc5: chg(5), btc15: chg(15),
-    btcRsi15: b ? +(ta.rsiLast(b.col('15m', 'c', true), 14) ?? 0).toFixed(1) : null };
+    btcRsi15: (() => { const r = b ? ta.rsiLast(b.col('15m', 'c', true), 14) : null; return r != null ? +r.toFixed(1) : null; })() };   // veri yoksa boş (0 uydurulmaz)
   marketCache = { t: minute, v };
   return v;
 }
