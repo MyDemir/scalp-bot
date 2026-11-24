@@ -21,14 +21,23 @@ const MIN = 60_000;
  */
 function burstAt(d, i, s) {
   const n = s.volAvgN;
-  if (i < n) return null;
+  if (i < 0) return null;
   const o = d.o[i], c = d.c[i], v = d.v[i];
   if (!(o > 0) || !(v > 0)) return null;
   const body = (c - o) / o * 100;
   if (Math.abs(body) < s.burstPct1) return null;
+  // Ortalama penceresi ZAMANA bağlı: açılışı [t − n·dk, t) aralığındaki mumlar (WS/REST boşluğu varsa
+  // dizin penceresi eski, boşluktan önceki mumları da katardı). Geriye zaman sınırına kadar yürür:
+  // maliyet ≤ eski (en çok n mum), ek dizi/önbellek yok. Toplam eskisi gibi artan sırada (birebir aynı sonuç).
+  const lo = d.t[i] - n * MIN;
+  if (d.t[0] > lo) return null;               // seri pencereyi kapsamıyor (eski i < n kuralının zaman karşılığı)
+  let j0 = i;
+  while (j0 > 0 && d.t[j0 - 1] >= lo) j0--;
+  const found = i - j0;
+  if (found < Math.ceil(n / 2)) return null;  // boşluk yüzünden yetersiz veri
   let sum = 0;
-  for (let j = i - n; j < i; j++) sum += d.v[j];
-  const avg = sum / n;
+  for (let j = j0; j < i; j++) sum += d.v[j];
+  const avg = sum / found;
   if (!(avg > 0) || v < avg * s.volMult) return null;
   const taker = d.tb[i] / v * 100;
   return {
@@ -89,8 +98,13 @@ function burstCounts(series, s, windows) {
 function takerNet(series, w) {
   const d = series.d['1m'];
   const n = d.t.length;
+  if (!n || !(w > 0)) return 0;
+  // Son w DAKİKA: açılışı ≥ son mum açılışı + dk − w·dk olan mumlar (boşluk öncesi mumlar sayılmaz)
+  const lo = d.t[n - 1] + MIN - w * MIN;
+  let i0 = n - 1;
+  while (i0 > 0 && d.t[i0 - 1] >= lo) i0--;
   let net = 0;
-  for (let i = Math.max(0, n - w); i < n; i++) net += 2 * d.tq[i] - d.q[i];
+  for (let i = i0; i < n; i++) net += 2 * d.tq[i] - d.q[i];
   return net;
 }
 

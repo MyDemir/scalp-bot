@@ -27,6 +27,47 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   ok('Hacim sayacı: art arda iki satış mumu tek patlama (kademe 2), alım/nötr ayrı; hacmi yetersiz ve gövdesi küçük mumlar sayılmadı; 15 dk penceresi doğru');
 }
 
+// ── Madde 12 / K16: burstAt ve takerNet zamana bağlı pencere ──
+{ const n = s.volAvgN;
+  // Eski (dizin pencereli) referans uygulamalar
+  const oldAvg = (d, i) => { if (i < n) return null; let sum = 0; for (let j = i - n; j < i; j++) sum += d.v[j]; return sum / n; };
+  const oldNet = (d, w) => { let net = 0; for (let i = Math.max(0, d.t.length - w); i < d.t.length; i++) net += 2 * d.tq[i] - d.q[i]; return net; };
+  const mk = (skip) => { const S = new Series('G'); const t0 = Date.UTC(2026, 0, 1); const arr = [];
+    for (let i = 0; i < 200; i++) { if (skip && i >= skip[0] && i < skip[1]) continue;
+      const v = i < 100 ? 1000 : 100;     // 100 öncesi hacim çok yüksek, sonrası düşük
+      arr.push({ t: t0 + i * MIN, o: 100, h: 100.1, l: 99.9, c: 100, v, tb: v / 2, q: v * 100, tq: v * 50 + i, closed: true }); }
+    return arr; };
+  const addBurst = (arr, tm, body, vol) => { const c = arr.find(x => x.t === tm); c.c = c.o * (1 + body / 100); c.v = vol; c.tb = vol * 0.3; c.q = vol * c.c; c.tq = c.tb * c.c; };
+  // (a) boşluksuz: eski sonuçla birebir
+  { const arr = mk(); addBurst(arr, arr[150].t, -1.5, 400); const S = new Series('A'); S.seed('1m', arr); const d = S.d['1m'];
+    const b = eng.burstAt(d, 150, s); assert(b, 'patlama bulunmalı');
+    assert.strictEqual(b.volX, d.v[150] / oldAvg(d, 150), 'ortalama eskisiyle birebir');
+    for (const w of [1, 15, 60, 150, 500]) assert.strictEqual(eng.takerNet(S, w), oldNet(d, w), 'takerNet eskisiyle birebir w=' + w);
+    // seri başı: i < volAvgN → null (eski kural)
+    const arr2 = mk(); addBurst(arr2, arr2[n - 1].t, -1.5, 5000); const S2 = new Series('A2'); S2.seed('1m', arr2);
+    assert.strictEqual(eng.burstAt(S2.d['1m'], n - 1, s), null, 'i < volAvgN → null'); }
+  // (b) 10 dk boşluk: i=105..114 yok
+  { const arr = mk([105, 115]); const tAfter = Date.UTC(2026, 0, 1) + 116 * MIN;
+    addBurst(arr, tAfter, -1.5, 1500); const S = new Series('B'); S.seed('1m', arr); const d = S.d['1m'];
+    const i = d.t.indexOf(tAfter); const b = eng.burstAt(d, i, s);
+    // pencere [t−n·dk, t): boşluk dışı mumlar; 100 öncesi (v=1000) pencereye girmiş olabilir — beklenen ortalamayı zamandan hesapla
+    const lo = tAfter - n * MIN; let sum = 0, cnt = 0; for (let j = 0; j < i; j++) if (d.t[j] >= lo) { sum += d.v[j]; cnt++; }
+    assert(cnt < n && cnt >= Math.ceil(n / 2), 'senaryo: pencerede boşluk var ama yeterli mum var (cnt=' + cnt + ')');
+    assert(b && Math.abs(b.volX - 1500 / (sum / cnt)) < 1e-9, 'ortalama = gerçek zaman penceresi / bulunan mum sayısı');
+    assert(Math.abs(b.volX - 1500 / oldAvg(d, i)) > 1e-6, 'eski dizin penceresinden farklı (boşluk öncesi mumlar katılmıyor)');
+    // yetersiz veri: boşluk pencerenin çoğunu kapsıyorsa null
+    const arr3 = mk([105, 105 + n]); const t3 = Date.UTC(2026, 0, 1) + (105 + n + 1) * MIN; addBurst(arr3, t3, -1.5, 5000);
+    const S3 = new Series('B3'); S3.seed('1m', arr3); const d3 = S3.d['1m'];
+    assert.strictEqual(eng.burstAt(d3, d3.t.indexOf(t3), s), null, 'bulunan mum < ceil(volAvgN/2) → null');
+    // takerNet: son 60 dk içinde 10 dk boşluk → boşluk öncesi mumlar son 60 dk dışındaysa sayılmaz
+    const SG = new Series('BG'); SG.seed('1m', mk([170, 180])); const dg = SG.d['1m'];   // son 60 dk içinde 10 dk boşluk
+    const last = dg.t[dg.t.length - 1]; const from = last + MIN - 60 * MIN;
+    let exp = 0; for (let j = 0; j < dg.t.length; j++) if (dg.t[j] >= from) exp += 2 * dg.tq[j] - dg.q[j];
+    assert.strictEqual(eng.takerNet(SG, 60), exp, 'takerNet yalnız son 60 DAKİKA');
+    assert.notStrictEqual(eng.takerNet(SG, 60), oldNet(dg, 60), 'dizin penceresinden farklı (60 mum boşluğu aşıp geriye gider)'); }
+  ok('Madde 12/K16: burstAt ortalaması ve takerNet zamana bağlı; boşluksuz seride eskisiyle birebir, boşlukta boşluk öncesi mumlar katılmıyor, yetersiz veride null');
+}
+
 // ── Seviye seçimi ──
 { const lv = [{ name: 'A', value: 100 }, { name: 'B', value: 102 }, { name: 'C', value: 110 }];
   let r = eng.pickLevel(99, lv, s); assert(r.level.name === 'A' && r.level.zone === 'near' && Math.abs(r.level.dist + 1) < 1e-9);

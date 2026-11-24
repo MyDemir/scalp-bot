@@ -28,12 +28,12 @@ Kontrol anı: **3m / 5m / 15m mum kapanışları** + **hacimli her 1m mum kapan�
 **Kurulum kontrol listesi** (Detay'da ✅/▫️). 9 madde, puanla; yalnızca bilgi — kartı engellemez, varsayılan derece hesabında da kullanılmaz (bkz. Derece):
 
 1. Günlük / haftalık direnç yakın (1d MA200 / 1d EMA200 / 30 günlük tepe / 7–30 günlük en yüksek / günlük–haftalık bölge, üstte ≤ %2.5) — 1 puan
-2. Çakışan direnç (başka bir seviye %0.5 içinde) — 1 puan
+2. Çakışan direnç (başka bir seviye %0.5 içinde ve o da direnç tarafında: ana seviyeyle aynı yön/mesafe süzgeci) — 1 puan
 3. 3m ya da 5m RSI 95–100 (`rsiEntryMax`) — 1 puan
 4. 15m RSI ≥ 95 — 1 puan
 5. 5m ve 15m birlikte ≥ 95 — 1 puan
 6. 1h ve 4h RSI ≥ 80 (şişkin) — 1 puan
-7. EMA21 ayrışma: fiyat 3m ya da 5m EMA21'in **üstünde** %2 / %5 / %10 → 1 / 2 / 3 puan (`sepPct2/5/10`; altındaysa 0) — yoksa "⚠️ RSI 95 üstü ama EMA21 yakın"
+7. EMA21 ayrışma: fiyat 3m **ve** 5m EMA21'in **üstünde** (ikisinin küçüğü puanlanır, dereceyle aynı) %2 / %5 / %10 → 1 / 2 / 3 puan (`sepPct2/5/10`; altındaysa 0) — yoksa "⚠️ RSI 95 üstü ama EMA21 yakın"
 8. 1m ya da 3m'de ≥ 2 negatif tepe — 1 puan
 9. 3m ya da 5m MACD sat (aşağı) kesişimi — 1 puan
 
@@ -130,7 +130,7 @@ Ayrıntılar bellekte tutulur (son 3000 kart); bot yeniden başlayınca eski kar
 - **EMA21** 3m/5m: fiyata uzaklığı (%) ve ATR cinsinden ayrışma (geri çekilme hedefleri)
 - **Negatif tepe** (1m/3m): fiyat eşit ya da daha yüksek tepe yaparken RSI daha düşük tepe — ardışık sayı
   ("2–3 tepe negatif yapıp çakarsa"). Son tepe 6 mumdan eskiyse sayılmaz. ≥2 ise `#NEGTEPE`.
-- **Hacim sayacı** (60 dk ve 15 dk): 1m gövde ≥ %1 / ≥ %1.5 ve hacim ≥ 2× (önceki 20 mum ortalaması);
+- **Hacim sayacı** (60 dk ve 15 dk): 1m gövde ≥ %1 / ≥ %1.5 ve hacim ≥ 2× (önceki 20 **dakikadaki** mumların ortalaması; veri boşluğunda bulunan mumlara bölünür, 10'dan az mum varsa sayılmaz);
   taker alış > %55 → alım, < %45 → satış, arası nötr. Art arda gelen patlama mumları tek patlama sayılır.
 - Hashtag'ler (Detay mesajında; dokununca o sınıftaki tüm kartlar listelenir): `#COIN #DERECE1/2/3/4 #DIRENCTE/#YAKLASIYOR #HACIM #SERI #SAHTEKIRILIM #FIYATKESFI #NEGTEPE #AYRISMA #TAKIP`
 - **Bildirim:** her yeni kart sesli gelir (`/ayarlar` → "Kart sesli" kapatılırsa yalnız 🔴🔴🔴 ve takipteki coinler sesli).
