@@ -6,6 +6,8 @@ tools: Read, Grep, Glob, WebSearch, WebFetch
 maxTurns: 20
 effort: medium
 ---
+İlk iş CLAUDE.md'yi oku: "Her görevin başında" adımları ve görevin alanının
+(web paneli, Telegram botu, istatistik kaydı, sinyal motoru) bölümü bağlayıcıdır.
 CLAUDE.md "Ajan ortak kuralları" geçerlidir. Burada yalnızca role özgü kurallar var.
 
 ROL:

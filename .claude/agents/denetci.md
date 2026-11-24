@@ -6,6 +6,8 @@ tools: Read, Grep, Glob, Bash
 maxTurns: 50
 effort: medium
 ---
+İlk iş CLAUDE.md'yi oku: "Her görevin başında" adımları ve görevin alanının
+(web paneli, Telegram botu, istatistik kaydı, sinyal motoru) bölümü bağlayıcıdır.
 CLAUDE.md "Ajan ortak kuralları" geçerlidir (RAPOR şablonu hariç;
 çıktın aşağıdaki JSON'dur).
 
