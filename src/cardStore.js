@@ -56,7 +56,7 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
         id TEXT PRIMARY KEY, symbol TEXT NOT NULL, t INTEGER NOT NULL, name TEXT NOT NULL, kind TEXT, value REAL,
         hits INTEGER, rsiok INTEGER, card INTEGER, emagap REAL,
         pb REAL, pbmin INTEGER, emamin INTEGER, brokemin INTEGER, brokeafterema INTEGER, held INTEGER,
-        up REAL, dn REAL, c60 REAL
+        up REAL, dn REAL, c60 REAL, pb0 REAL, belowmin INTEGER
       );
       CREATE INDEX IF NOT EXISTS touches_t ON touches(t);
       CREATE TABLE IF NOT EXISTS paths (
@@ -73,7 +73,7 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
     // Sonradan eklenen sütunlar (eski veritabanı): dibin indiği ortalama
     const tcols = new Set(db.prepare('PRAGMA table_info(touches)').all().map(c => c.name));
     for (const [c, type] of [['stop', 'TEXT'], ['stopdepth', 'REAL'], ['falling', 'INTEGER'], ['lvtouches', 'INTEGER'],
-      ...TOUCH_SNAPS.flatMap(w => [[`pb${w}`, 'REAL'], [`dn${w}`, 'REAL'], [`c${w}`, 'REAL']])]) {
+      ...TOUCH_SNAPS.flatMap(w => [[`pb${w}`, 'REAL'], [`dn${w}`, 'REAL'], [`c${w}`, 'REAL']]), ['pb0', 'REAL'], ['belowmin', 'INTEGER']]) {
       if (!tcols.has(c)) db.exec(`ALTER TABLE touches ADD COLUMN ${c} ${type}`);
     }
     const ecols = new Set(db.prepare('PRAGMA table_info(events)').all().map(c => c.name));
@@ -97,8 +97,8 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
     recent: db.prepare('SELECT * FROM cards WHERE symbol = ? ORDER BY t DESC LIMIT ?'),
     since: db.prepare('SELECT * FROM cards WHERE t >= ? ORDER BY t'),
     prune: db.prepare('DELETE FROM cards WHERE t < ?'),
-    tIns: db.prepare(`INSERT OR IGNORE INTO touches (id, symbol, t, name, kind, value, hits, rsiok, card, emagap, pb, pbmin, emamin, brokemin, brokeafterema, held, up, dn, c60, stop, stopdepth, falling, lvtouches${TOUCH_SNAPS.map(w => `, pb${w}, dn${w}, c${w}`).join('')})
-      VALUES (@id, @symbol, @t, @name, @kind, @value, @hits, @rsiok, @card, @emagap, @pb, @pbmin, @emamin, @brokemin, @brokeafterema, @held, @up, @dn, @c60, @stop, @stopdepth, @falling, @lvtouches${TOUCH_SNAPS.map(w => `, @pb${w}, @dn${w}, @c${w}`).join('')})`),
+    tIns: db.prepare(`INSERT OR IGNORE INTO touches (id, symbol, t, name, kind, value, hits, rsiok, card, emagap, pb, pbmin, emamin, brokemin, brokeafterema, held, up, dn, c60, stop, stopdepth, falling, lvtouches${TOUCH_SNAPS.map(w => `, pb${w}, dn${w}, c${w}`).join('')}, pb0, belowmin)
+      VALUES (@id, @symbol, @t, @name, @kind, @value, @hits, @rsiok, @card, @emagap, @pb, @pbmin, @emamin, @brokemin, @brokeafterema, @held, @up, @dn, @c60, @stop, @stopdepth, @falling, @lvtouches${TOUCH_SNAPS.map(w => `, @pb${w}, @dn${w}, @c${w}`).join('')}, @pb0, @belowmin)`),
     tSince: db.prepare('SELECT * FROM touches WHERE t >= ? ORDER BY t'),
     eIns: db.prepare(`INSERT OR IGNORE INTO events (id, symbol, t, price, dropt, dropmin, card, cardgrade, rsiok, hits, data, outcome, ${EVENT_WINDOWS.map(w => `low${w}, high${w}, close${w}`).join(', ')})
       VALUES (@id, @symbol, @t, @price, @dropt, @dropmin, @card, @cardgrade, @rsiok, @hits, @data, @outcome, ${EVENT_WINDOWS.map(w => `@low${w}, @high${w}, @close${w}`).join(', ')})`),
@@ -181,6 +181,7 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
         held: e.held ? 1 : 0, up: e.up, dn: e.dn, c60: e.c60,
         stop: e.stop ?? null, stopdepth: e.stopDepth ?? null, falling: e.falling ? 1 : 0, lvtouches: e.lvTouches ?? null,
         ...Object.fromEntries(TOUCH_SNAPS.flatMap(w => ['pb', 'dn', 'c'].map(k => [`${k}${w}`, e[`${k}${w}`] ?? null]))),
+        pb0: e.pb0 ?? null, belowmin: e.belowMin ?? null,
       }), 'seviye kaydı');
     },
     /** Düşüş olayı (src/eventLog.js finish() çıktısı) */
@@ -316,6 +317,7 @@ function rowToTouch(r) {
     held: Boolean(r.held), up: r.up, dn: r.dn, c60: r.c60,
     stop: r.stop ?? null, stopDepth: r.stopdepth ?? null, falling: Boolean(r.falling), lvTouches: r.lvtouches ?? null,
     ...Object.fromEntries(TOUCH_SNAPS.flatMap(w => ['pb', 'dn', 'c'].map(k => [`${k}${w}`, r[`${k}${w}`] ?? null]))),
+    pb0: r.pb0 ?? null, belowMin: r.belowmin ?? null,
   };
 }
 

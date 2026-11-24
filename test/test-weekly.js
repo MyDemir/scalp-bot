@@ -40,6 +40,7 @@ assert(w.md.includes('# Haftalık istatistik — 2026-H40') && w.md.includes('##
 assert(w.md.includes('## Kartlar (1)') && w.md.includes('**AUSDT** #1 derece 3'));
 const dcsv = Z['tepeler.csv'];
 assert(dcsv.startsWith('\uFEFF') && dcsv.split('\n')[0].includes('rsi_4h') && dcsv.split('\n')[0].includes('pkLv') && dcsv.trim().split('\n').length === 2);
+assert(Z['temaslar.csv'].split('\n')[0].trim().split(',').slice(-2).join() === 'pb0,belowMin', 'temaslar.csv başlığı: pb0,belowMin sonda');
 assert(Z['kartlar.csv'].trim().split('\n').length === 2 && Z['temaslar.csv'].includes('3dk EMA21'));
 fs.writeFileSync(dir + '/' + w.files[0].name, w.files[0].buf);
 console.log(w.md.split('\n').slice(0, 40).join('\n'));
