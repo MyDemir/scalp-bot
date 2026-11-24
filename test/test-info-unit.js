@@ -242,4 +242,27 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   assert.strictEqual(excludedNote(1), ' (1 eksik pencere dışarıda)'); assert.strictEqual(excludedNote(0), '');
   ok('Medyan: fwd[60].full===false dışarıda (sayısı notta), canlı biçimli kart (full yok) dahil');
 }
+// ── A11: eksik 1m ile kapanan üst TF mumu işaretlenir ──
+{ const T = Date.UTC(2026, 0, 1), mk = (i, c) => ({ t: T + i * MIN, o: c, h: c + 1, l: c - 1, c, v: 1, tb: 0.5, q: c, tq: c / 2, closed: true });
+  const feed = (S, idx) => { for (const i of idx) S.apply1m(mk(i, 100 + i)); };
+  const all = n => Array.from({ length: n }, (_, i) => i);
+  // (a) boşluksuz
+  const A = new Series('A'); feed(A, all(60));
+  for (const tf of ['3m', '5m', '15m', '1h']) assert.strictEqual(A.incomplete(tf, 300), 0, 'boşluksuz ' + tf);
+  assert.strictEqual(A.count('5m'), 12);
+  // (b) 5m mumunun (10-14) 2 dakikası (11,12) gelmedi
+  const B = new Series('B'); feed(B, all(60).filter(i => i !== 11 && i !== 12));
+  assert.strictEqual(B.incomplete('5m', 12), 1, '5m eksik');
+  assert.strictEqual(B.incomplete('5m', 1), 0, 'son 5m tam'); assert.strictEqual(B.incomplete('15m', 4), 1);
+  assert.strictEqual(B.incomplete('1h', 1), 1, '58 dk gelen 1h eksik');
+  // gösterge değerleri aynı: kapanış serisi, eksik dk'lar olmasa da olmasa da aynı
+  assert.deepStrictEqual(B.col('5m', 'c', false), A.col('5m', 'c', false), '5m c değerleri değişmedi');
+  // (c) seed'den gelen mumlar tam; sonrasında boşluk yok
+  const C = new Series('C'); C.seed('5m', Array.from({ length: 5 }, (_, i) => ({ ...mk(i * 5, 100), closed: true })));
+  assert.strictEqual(C.incomplete('5m', 300), 0, 'seed tam');
+  C.seed('5m', [{ ...mk(0, 100), closed: true }, { ...mk(5, 100), closed: false }]);   // yarım mum seed'den
+  feed(C, [7, 8, 9]);
+  assert.strictEqual(C.incomplete('5m', 5), 0, 'seed yarım mumu (öncesi tam kabul) tam');
+  ok('A11 Series.incomplete: boşluksuz 0; eksik dk → o mum işaretli, değerler aynı; seed tam');
+}
 console.log(R.join('\n'));
