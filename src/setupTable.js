@@ -12,6 +12,7 @@ const GAP_MS = 60 * MIN;             // aynı sembolde ardışık adaylar arası
 const VOLX_MIN = 10;                 // 3dk hacim kat eşiği (sabit)
 const PUMP_MIN = 5;                  // pompa % eşiği (sabit)
 const MIN_N = 20;
+const DROP60 = -1;                   // 60 dk sonra kapanış en az bu kadar (%) aşağı
 const DROP15 = -1.5;                 // 15 dk içinde kapanıştan en az bu kadar (%) aşağı
 
 const GROUPS = [
@@ -69,14 +70,25 @@ function createSetupAcc({ s = {} } = {}) {
     n++;
   }
 
-  /** Ölçümler: { rows:[{name, n, below60, med60, drop15, h1, h2, n1, n2, small}], missing[], pumps, from, to, candidates } */
+  /** Ölçümler: { rows, rows2, missing, missing2, pumps, from, to, candidates }
+   *  rows: pompa başına gruba uyan İLK eşleşen aday; rows2: pompanın İLK adayı, grup şartı o adayda sınanır.
+   *  Satır: {name, n, below60, le1, med60, drop15, h1, h2, n1, n2, small} (le1 = close60 ≤ −%1 oranı). */
   function stats() {
     const order = Array.from({ length: n }, (_, k) => k).sort((a, b) => sy[a] - sy[b] || tt[a] - tt[b]);
     let tMin = Infinity, tMax = -Infinity;
     for (let k = 0; k < n; k++) { if (tt[k] < tMin) tMin = tt[k]; if (tt[k] > tMax) tMax = tt[k]; }
     const mid = (tMin + tMax) / 2;
-    const acc = GROUPS.map(() => ({ v60: [], neg: 0, d15: 0, n15: 0, h: [[0, 0], [0, 0]] }));
-    const missing = GROUPS.map(() => 0);
+    const mkAcc = () => GROUPS.map(() => ({ v60: [], neg: 0, le1: 0, d15: 0, n15: 0, h: [[0, 0], [0, 0]] }));
+    const accs = [mkAcc(), mkAcc()], missings = [GROUPS.map(() => 0), GROUPS.map(() => 0)];
+    const take = (m, g, first) => {
+      const cl = c60[first];
+      if (Number.isNaN(cl)) { missings[m][g]++; return; }
+      const A = accs[m][g], half = tt[first] < mid ? 0 : 1, down = cl < 0;
+      A.v60.push(cl); if (down) A.neg++;
+      if (cl <= DROP60) A.le1++;
+      A.h[half][0]++; if (down) A.h[half][1]++;
+      if (!Number.isNaN(l15[first])) { A.n15++; if (l15[first] <= DROP15) A.d15++; }
+    };
     let pumps = 0;
     for (let a = 0; a < order.length;) {
       let b = a + 1;
@@ -85,23 +97,18 @@ function createSetupAcc({ s = {} } = {}) {
       for (let g = 0; g < GROUPS.length; g++) {
         let first = -1;
         for (let q = a; q < b; q++) if (mk[order[q]] & (1 << g)) { first = order[q]; break; }
-        if (first < 0) continue;
-        const cl = c60[first];
-        if (Number.isNaN(cl)) { missing[g]++; continue; }
-        const A = acc[g], half = tt[first] < mid ? 0 : 1, down = cl < 0;
-        A.v60.push(cl); if (down) A.neg++;
-        A.h[half][0]++; if (down) A.h[half][1]++;
-        if (!Number.isNaN(l15[first])) { A.n15++; if (l15[first] <= DROP15) A.d15++; }
+        if (first >= 0) take(0, g, first);                                  // ilk eşleşen aday
+        if (mk[order[a]] & (1 << g)) take(1, g, order[a]);                  // pompanın ilk adayı şartı sağlıyorsa
       }
       a = b;
     }
     const pct = (x, y) => (y ? (x / y) * 100 : null);
     const median = v => { if (!v.length) return null; const w = Float64Array.from(v).sort(); const m = w.length >> 1; return w.length % 2 ? w[m] : (w[m - 1] + w[m]) / 2; };
-    const rows = GROUPS.map((name, g) => {
-      const A = acc[g], cnt = A.v60.length;
-      return { name, n: cnt, below60: pct(A.neg, cnt), med60: median(A.v60), drop15: pct(A.d15, A.n15), h1: pct(A.h[0][1], A.h[0][0]), h2: pct(A.h[1][1], A.h[1][0]), n1: A.h[0][0], n2: A.h[1][0], small: cnt < MIN_N };
+    const rowsOf = m => GROUPS.map((name, g) => {
+      const A = accs[m][g], cnt = A.v60.length;
+      return { name, n: cnt, below60: pct(A.neg, cnt), le1: pct(A.le1, cnt), med60: median(A.v60), drop15: pct(A.d15, A.n15), h1: pct(A.h[0][1], A.h[0][0]), h2: pct(A.h[1][1], A.h[1][0]), n1: A.h[0][0], n2: A.h[1][0], small: cnt < MIN_N };
     });
-    return { rows, missing, pumps, from: tMin, to: tMax, candidates: n };
+    return { rows: rowsOf(0), rows2: rowsOf(1), missing: missings[0], missing2: missings[1], pumps, from: tMin, to: tMax, candidates: n };
   }
 
   /** Markdown bölüm gövdesi (başlık weeklyReport'ta) */
@@ -109,18 +116,31 @@ function createSetupAcc({ s = {} } = {}) {
     const st = stats();
     const p = v => (v == null ? '—' : `%${v.toFixed(0)}`);
     const sp = v => (v == null ? '—' : `${v > 0 ? '+' : v < 0 ? '−' : ''}%${Math.abs(v).toFixed(2).replace('.', ',')}`);
-    const L = [
-      'Nasıl okunur: her pompada (aynı sembolde adaylar arası < 60 dk) gruba uyan İLK aday alınır; değerler 1dk kapanıştan (giriş) ölçülür, kazanç/kayıp değil eşlik eden durumdur.',
-      '',
-      '| Grup | n pompa | 60 dk sonra aşağıda | Medyan 60 dk | 15 dk içinde −%1,5 | 1. yarı aşağıda (n) | 2. yarı aşağıda (n) |',
-      '|---|---:|---:|---:|---:|---:|---:|',
+    const head = [
+      '| Grup | n pompa | 60 dk sonra aşağıda | 60 dk sonra ≤ −%1 | Medyan 60 dk | 15 dk içinde −%1,5 | 1. yarı aşağıda (n) | 2. yarı aşağıda (n) |',
+      '|---|---:|---:|---:|---:|---:|---:|---:|',
     ];
-    for (const r of st.rows) {
-      L.push(`| ${r.name}${r.small ? ' (az örnek)' : ''} | ${r.n} | ${p(r.below60)} | ${sp(r.med60)} | ${p(r.drop15)} | ${p(r.h1)} (${r.n1}) | ${p(r.h2)} (${r.n2}) |`);
-    }
-    const mis = st.rows.map((r, g) => (st.missing[g] > 0 ? `${r.name} ${st.missing[g]}` : null)).filter(Boolean);
-    L.push('', `${st.pumps} pompa · ${st.candidates} aday · eşikler: EMA21 ayrışma ≥ %${th.sep} (3dk ve 5dk), 1s RSI ${th.r1h}${th.r1hMax > 0 ? `–${th.r1hMax}` : '+'}, 15dk RSI ≥ ${th.r15}, pompa ≥ %${PUMP_MIN}, 3dk hacim ≥ ${VOLX_MIN} kat. n < ${MIN_N} satırlar "(az örnek)". Yarı bölmesi kapsamın zaman orta noktasından.`,
-      mis.length ? `Eksik takip (60 dk sonucu yok, ölçüye girmedi): ${mis.join(' · ')}.` : 'Eksik takip (60 dk sonucu yok): yok.');
+    const rowLines = rows => rows.map(r => `| ${r.name}${r.small ? ' (az örnek)' : ''} | ${r.n} | ${p(r.below60)} | ${p(r.le1)} | ${sp(r.med60)} | ${p(r.drop15)} | ${p(r.h1)} (${r.n1}) | ${p(r.h2)} (${r.n2}) |`);
+    const misOf = (rows, miss) => rows.map((r, g) => (miss[g] > 0 ? `${r.name} ${miss[g]}` : null)).filter(Boolean);
+    const mis = misOf(st.rows, st.missing), mis2 = misOf(st.rows2, st.missing2);
+    const L = [
+      'Nasıl okunur (ilk eşleşen aday): her pompada (aynı sembolde adaylar arası < 60 dk) gruba uyan İLK aday alınır; değerler 1dk kapanıştan (giriş) ölçülür, kazanç/kayıp değil eşlik eden durumdur.',
+      '',
+      ...head, ...rowLines(st.rows),
+      '',
+      `${st.pumps} pompa · ${st.candidates} aday · eşikler: EMA21 ayrışma ≥ %${th.sep} (3dk ve 5dk), 1s RSI ${th.r1h}${th.r1hMax > 0 ? `–${th.r1hMax}` : '+'}, 15dk RSI ≥ ${th.r15}, pompa ≥ %${PUMP_MIN}, 3dk hacim ≥ ${VOLX_MIN} kat. n < ${MIN_N} satırlar "(az örnek)". Yarı bölmesi kapsamın zaman orta noktasından.`,
+      mis.length ? `Eksik takip (60 dk sonucu yok, ölçüye girmedi): ${mis.join(' · ')}.` : 'Eksik takip (60 dk sonucu yok): yok.',
+      '',
+      '### Pompanın ilk adayı (grup şartı pompanın ilk anında)',
+      '',
+      'Nasıl okunur: her pompanın ilk adayı; şart o anda sağlanıyorsa gruba girer — pompanın sonraki anları sayılmaz. Böylece grup ve taban aynı anı ölçer.',
+      '',
+      ...head, ...rowLines(st.rows2),
+      '',
+      mis2.length ? `Eksik takip (60 dk sonucu yok, ölçüye girmedi): ${mis2.join(' · ')}.` : 'Eksik takip (60 dk sonucu yok): yok.',
+      '',
+      "Örnek küçükse fark tesadüf olabilir: n=100'de ±10 puan, n=400'de ±5 puan (%95, yaklaşık).",
+    ];
     return L.join('\n');
   }
 
