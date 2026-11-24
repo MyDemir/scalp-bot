@@ -14,7 +14,7 @@ const t0 = Date.UTC(2026, 0, 1);
 const hist = Array.from({ length: 3000 }, (_, i) => 100 + Math.sin(i / 9) * 0.15);
 const candle = (i, c, o, hOver) => ({ t: t0 + i * MIN, o, h: hOver ?? Math.max(o, c) * 1.0004, l: Math.min(o, c) * 0.9996, c, v: 100, tb: 55, q: 100 * c, tq: 55 * c, closed: true });
 const drops = ev => ev.filter(e => e.outcome === 'düştü');
-function run(livePath, { overrides = {}, cards = [], opts = {}, ctx = {} } = {}) {
+function run(livePath, { overrides = {}, cards = [], opts = {}, ctx = {}, sets = s } = {}) {
   const all = [...hist, ...livePath];
   const m1 = all.map((c, i) => candle(i, c, i ? all[i - 1] : c, overrides[i - hist.length]));
   const S = new Series('DROPUSDT');
@@ -27,7 +27,7 @@ function run(livePath, { overrides = {}, cards = [], opts = {}, ctx = {} } = {})
   for (const c of m1.filter(c => c.t >= T0)) {
     S.apply1m(c);
     for (const k of cards) if (k.t === c.t + MIN) L.noteCard('DROPUSDT', k.t, k.grade);
-    ev.push(...L.observe(S, s, ctx));
+    ev.push(...L.observe(S, sets, ctx));
   }
   return { ev, L, m1, base: hist.length };
 }
@@ -194,6 +194,51 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   { const { createTeyitAcc } = require(`${REPO}/src/eventLog`); const acc = createTeyitAcc(); for (const r of all) acc.add(r);
     assert.strictEqual(teyitText(acc, { title: 'test', minN: 1 }), txt, 'sayaçla /teyit metni diziyle aynı'); }
   ok(`/teyit: ${all.length} aday (${drops(all).length} düştü), ${T.length} koşul karşılaştırıldı, satır ≤ ${maxLine}`);
+}
+
+// ── 7) H46 veri doğruluğu kolonları ──
+{
+  const AUD = ['sameBar', 'cardWhen', 'contSkipped', 'rsi15c', 'rsi1hc', 'rsi4hc', 'cfgMinTFs', 'cfgRsiMin', 'cfgDropPct', 'cfgContPct'];
+  assert.deepStrictEqual(dropCols().slice(-AUD.length), AUD, 'yeni kolonlar sütun sırasının SONUNDA');
+  const old = flatDrop({ id: 'x', out: {}, feat: {} }); assert(AUD.every(k => old[k] == null), 'eski kayıtta boş');
+  // sameBar: tepeden sonraki mumda hem −%1.5 hem tepe üstü
+  const path2 = [...pump, 105.9, 104.2, ...seg(104.2, 104.5, 270)];
+  const base = drops(run(path2, { overrides: ov }).ev).find(x => x.price === 106.3);
+  const same = drops(run(path2, { overrides: { ...ov, [peakIdx + 1]: 107 } }).ev).find(x => x.price === 106.3);
+  assert(base && same, 'sameBar senaryosu kaydı');
+  assert.strictEqual(base.feat.sameBar, 0, 'tek eşik → 0');
+  assert.strictEqual(same.feat.sameBar, 1, 'aynı mumda iki eşik → 1');
+  assert.strictEqual(same.outcome, 'düştü', 'sonuç mantığı değişmedi (kırmızı mum → düştü)');
+  assert.strictEqual(flatDrop(same).sameBar, 1);
+  assert(run(path1, { overrides: ov }).ev.filter(x => x.outcome === 'yatay').every(x => x.feat.sameBar === 0));
+  // cardWhen
+  const e0 = drops(run(path1, { overrides: ov }).ev)[0];
+  const cw = (cards) => drops(run(path1, { overrides: ov, cards }).ev)[0].feat.cardWhen;
+  assert.strictEqual(e0.feat.cardWhen, null, 'kart yok → null');
+  assert.strictEqual(cw([{ t: e0.t - 3 * MIN, grade: 3 }]), 'önce');
+  assert.strictEqual(cw([{ t: e0.t, grade: 3 }]), 'önce', 'kart t = tepe t → önce');
+  assert.strictEqual(cw([{ t: e0.t + MIN, grade: 3 }]), 'arada');
+  assert.strictEqual(cw([{ t: e0.t + (e0.dropMin + 3) * MIN, grade: 3 }]), 'sonra');
+  assert.strictEqual(cw([{ t: e0.t + (e0.dropMin + 3) * MIN, grade: 3 }, { t: e0.t - 2 * MIN, grade: 1 }]), 'önce', 'en erken kart esas');
+  const kc = drops(run(path1, { overrides: ov, cards: [{ t: e0.t + (e0.dropMin + 3) * MIN, grade: 3 }] }).ev)[0];
+  assert(kc.card === true && kc.cardGrade === 3, 'card kolonu anlamı aynı');
+  // contSkipped: pompa boyunca devam örnekleri seyreltilir
+  const rr = run(path1, { overrides: ov }).ev.sort((a, b) => a.t - b.t);
+  assert(rr.every(x => Number.isInteger(x.feat.contSkipped) && x.feat.contSkipped >= 0));
+  assert(rr.some(x => x.feat.contSkipped > 0), 'seyreltmeyle atlanan devam adayı sayıldı');
+  const atl = rr.filter(x => x.feat.contSkipped > 0)[0];
+  assert(atl.feat.contSkipped <= 4, 'sampleGapMin=5 → ardışık dakikalarda en çok 4 atlanır: ' + atl.feat.contSkipped);
+  const noGap = run(path1, { overrides: ov, opts: { sampleGapMin: 0 } }).ev;
+  assert(noGap.every(x => x.feat.contSkipped === 0), 'seyreltme kapalıyken atlanan yok');
+  // kapanmış mumlu RSI
+  const re = rr.filter(x => x.feat.rsi1hc != null);
+  assert(re.length && re.every(x => Number.isFinite(x.feat.rsi15c) && Number.isFinite(x.feat.rsi1hc) && 'rsi4hc' in x.feat), 'rsi*c sayı (4s: test geçmişi 15 mumdan kısa → null)');
+  assert(re.some(x => x.feat.rsi1hc !== x.feat.rsi1h), 'rsi1hc kısmi mumlu rsi1h\'den farklı olabilir: ' + re.slice(0, 3).map(x => x.feat.rsi1hc + '/' + x.feat.rsi1h));
+  // cfg*
+  const cf = run(path1, { overrides: ov, sets: { ...s, minTFs: 3, rsiMin: 77 }, opts: { dropPct: 2, contPct: 0.1 } }).ev;
+  assert(cf.length && cf.every(x => x.feat.cfgMinTFs === 3 && x.feat.cfgRsiMin === 77 && x.feat.cfgDropPct === 2 && x.feat.cfgContPct === 0.1), 'cfg değerleri');
+  assert(rr.every(x => x.feat.cfgMinTFs === s.minTFs && x.feat.cfgRsiMin === s.rsiMin && x.feat.cfgDropPct === 1.5 && x.feat.cfgContPct === 0));
+  ok(`H46 kolonları: sameBar (tek eşik 0 / aynı mum 1), cardWhen önce/arada/sonra/null, contSkipped (en çok ${Math.max(...rr.map(x => x.feat.contSkipped))}), rsi1hc ${re[0].feat.rsi1hc} vs rsi1h ${re[0].feat.rsi1h}, cfg* ayar değişince izleniyor`);
 }
 
 console.log('\n' + R.join('\n'));

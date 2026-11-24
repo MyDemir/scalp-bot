@@ -18,6 +18,10 @@
  *   Fotoğraf : temel göstergeler + 1m–4h + VWAP seti + tepki seviyesi (marketSnap) + ek özellikler (peakFeatures: CVD, mum
  *              yapısı, hacim, uyumsuzluk, Bollinger, hız, piyasa, zaman, coin geçmişi, büyük resim) + baz + likidasyon +
  *              (canlıda, sonradan eklenir) açık pozisyon, long/short oranları, emir defteri, spot (marketData)
+ *   Doğruluk : sameBar (sonuç mumunda hem düşüş hem devam eşiği vardı, 1/0) · cardWhen (en erken kart: önce / arada / sonra;
+ *              arada = tepe < kart ≤ düşüş anı (düşüş yoksa pencere sonu)) · contSkipped (önceki kayıttan beri seyreltmeyle atlanan
+ *              devam adayı) · rsi15c / rsi1hc / rsi4hc (yalnız kapanmış mumlarla RSI) · cfgMinTFs / cfgRsiMin / cfgDropPct /
+ *              cfgContPct (kayıt anındaki ayarlar)
  *   Dipte    : tepeden sonraki 60 dk'nın en düşüğü — %, dk, en yakın destek ve EMA21 merdiveni
  *
  * Kartı ve tetik kurallarını ETKİLEMEZ. Rapor dili "eşlik eden durum"dur; kazanç/kayıp hesabı yoktur.
@@ -79,7 +83,9 @@ const BASE_COLS = Object.keys(features({ price: 1 }, { col: () => [] }));
 const PEAK_COLS = ['pumpPct', 'pumpMin', 'pkLv', 'pkLvKind', 'pkLvDist', 'pkLvTouches', 'pkNear'];
 const TROUGH_COLS = ['trPct', 'trMin', 'trLv', 'trLvKind', 'trLvDist', 'trLvTouches', 'trNear', 'trEma', 'trFalling'];
 const OUTCOME_COLS = ['outcome', 'upBeforeDrop', 't1', 't2', 't3', 'c5Red', 'c5Engulf', 'c5BelowPrev', 'c5ClosePct', 'c5Next60Low'];
-const FEATURE_COLS = [...BASE_COLS, ...PEAK_COLS, ...TF_COLS, ...VWAP_COLS, ...EXTRA_COLS, 'basisPct', ...LIQ_COLS, ...ENRICH_COLS, ...TROUGH_COLS, ...OUTCOME_COLS];
+// H46 veri doğruluğu kolonları — eski CSV'lerle kıyas bozulmasın diye hep SONA eklenir
+const AUDIT_COLS = ['sameBar', 'cardWhen', 'contSkipped', 'rsi15c', 'rsi1hc', 'rsi4hc', 'cfgMinTFs', 'cfgRsiMin', 'cfgDropPct', 'cfgContPct'];
+const FEATURE_COLS = [...BASE_COLS, ...PEAK_COLS, ...TF_COLS, ...VWAP_COLS, ...EXTRA_COLS, 'basisPct', ...LIQ_COLS, ...ENRICH_COLS, ...TROUGH_COLS, ...OUTCOME_COLS, ...AUDIT_COLS];
 
 /** Tepe anının tam fotoğrafı */
 function peakFeatures(series, s, ctx, high, pump, loT, tc, history = null) {
@@ -99,6 +105,10 @@ function peakFeatures(series, s, ctx, high, pump, loT, tc, history = null) {
     basisPct: basisPct(prem),
     ...(ctx.liq ? ctx.liq(sym, tc, q15) : Object.fromEntries(LIQ_COLS.map(k => [k, null]))),
     ...Object.fromEntries(ENRICH_COLS.map(k => [k, null])),
+    // yalnız KAPANMIŞ mumlarla RSI (rsi15/rsi1h/rsi4h kısmi mumludur)
+    rsi15c: num(ta.rsiLast(series.col('15m', 'c', false), s.rsiPeriod), 1),
+    rsi1hc: num(ta.rsiLast(series.col('1h', 'c', false), s.rsiPeriod), 1),
+    rsi4hc: num(ta.rsiLast(series.col('4h', 'c', false), s.rsiPeriod), 1),
   });
 }
 
@@ -120,7 +130,7 @@ function createDropLedger(opts = {}) {
   const state = new Map();     // sym → { cand, lastCommit, open: [], hist: [{t, outcome}], obAt, ob }
   const cards = new Map();     // sym → [{t, grade}]
   let openN = 0;
-  const st = sym => { let x = state.get(sym); if (!x) { x = { cand: null, lastCommit: 0, open: [], hist: [], obAt: 0, ob: null }; state.set(sym, x); } return x; };
+  const st = sym => { let x = state.get(sym); if (!x) { x = { cand: null, lastCommit: 0, skipped: 0, open: [], hist: [], obAt: 0, ob: null }; state.set(sym, x); } return x; };
 
   function history(sym, x, t) {
     const h = x.hist.filter(e => e.t >= t - 1440 * MIN);
@@ -134,7 +144,11 @@ function createDropLedger(opts = {}) {
     const until = (e.dropT ?? e.t + E.peakWindowMin * MIN) + E.cardAfterMin * MIN;
     const cs = (cards.get(e.symbol) || []).filter(c => c.t >= e.t - E.cardBeforeMin * MIN && c.t <= until);
     const trMin = e.trT != null ? Math.round((e.trT - e.t) / MIN) : null;
+    const cardT = cs.length ? Math.min(...cs.map(c => c.t)) : null;
+    const endT = e.dropT ?? e.t + E.peakWindowMin * MIN;
     const tail = {
+      sameBar: e.sameBar ? 1 : 0,
+      cardWhen: cardT == null ? null : cardT <= e.t ? 'önce' : cardT <= endT ? 'arada' : 'sonra',
       trPct: e.trLow < Infinity ? num((e.trLow - e.price) / e.price * 100, 3) : null, trMin,
       trLv: null, trLvKind: null, trLvDist: null, trLvTouches: null, trNear: '', trEma: null, ...(e.trSnap || {}), trFalling: trMin != null && trMin >= TROUGH_MIN - 5,
       outcome: e.status, upBeforeDrop: num(e.upMax * 100, 3), t1: e.hit[1], t2: e.hit[2], t3: e.hit[3],
@@ -166,7 +180,7 @@ function createDropLedger(opts = {}) {
     if (e.status == null) {
       const drop = c.l <= p * (1 - E.dropPct / 100), cont = c.h > p * (1 + E.contPct / 100);
       if (!drop) e.upMax = Math.max(e.upMax, (c.h - p) / p);
-      if (drop && cont) e.status = c.c < c.o ? 'düştü' : 'devam';
+      if (drop && cont) { e.status = c.c < c.o ? 'düştü' : 'devam'; e.sameBar = 1; }
       else if (drop) e.status = 'düştü';
       else if (cont) e.status = 'devam';
       else if (el >= E.peakWindowMin * MIN) e.status = 'yatay';
@@ -191,8 +205,10 @@ function createDropLedger(opts = {}) {
   function newSample(series, s, ctx, x, c, tc, pump, loT) {
     const sym = series.symbol;
     const e = { id: `${sym}-${tc}`, symbol: sym, t: tc, price: c.h, anchorT: loT, status: null, dropT: null, upMax: 0,
-      hit: { 1: null, 2: null, 3: null }, c5: null, lo: Infinity, hi: -Infinity, last: null, out: {}, trLow: Infinity, trT: null,
+      hit: { 1: null, 2: null, 3: null }, sameBar: 0, c5: null, lo: Infinity, hi: -Infinity, last: null, out: {}, trLow: Infinity, trT: null,
       feat: peakFeatures(series, s, ctx, c.h, pump, loT, tc, history(sym, x, tc)) };
+    // kayıt anındaki geçerli ayarlar (minTFs/rsiMin Telegram'dan değişebilir; observe'e geçen `s` canlıda settings.get())
+    Object.assign(e.feat, { cfgMinTFs: s.minTFs ?? null, cfgRsiMin: s.rsiMin ?? null, cfgDropPct: E.dropPct, cfgContPct: E.contPct });
     // Emir defteri tepe anında (coin başına en fazla 60 sn'de bir; araya giren adaylar son fotoğrafı kullanır)
     if (E.orderBook) {
       if (tc - x.obAt >= MIN) {
@@ -208,6 +224,7 @@ function createDropLedger(opts = {}) {
   function commit(series, x, e) {
     x.open.push(e); openN++;
     x.lastCommit = e.t;
+    e.feat.contSkipped = x.skipped; x.skipped = 0;
     x.hist.push({ t: e.t, outcome: e.status });
     while (x.hist.length && x.hist[0].t < e.t - 1440 * MIN) x.hist.shift();
     if (E.enrich) {
@@ -252,7 +269,7 @@ function createDropLedger(opts = {}) {
           if (cd.status !== 'devam' || cd.t - x.lastCommit >= E.sampleGapMin * MIN) {
             commit(series, x, cd);
             if (cd.out[WMAX]) { done.push(finish(cd)); x.open.pop(); openN--; }
-          }
+          } else x.skipped++;   // seyreltmeyle atlanan devam adayı
         }
       }
       // 3) yeni aday: 60 dk'nın en yükseği + pompa (önceki aday daha yüksek tepeyle "devam" olarak kapandıysa bu mum yeni aday)
@@ -519,6 +536,7 @@ function teyitText(rows, { title = '', E = DEFAULTS, minN = 5 } = {}) {
 • Satır: o durum varken / yokken adayların yüzde kaçı düştü, parantezde varken adet (en az ${minN}). Fark ≥ 3 puan olanlar
 • Aynı pompadan birden fazla aday olabilir (devam en fazla ${E.sampleGapMin} dk'da bir) — adaylar birbirinden bağımsız değildir
 • 5dk teyit mumu: tepeden sonraki ilk tam 5dk mum; oran mumun kapanışından sonraki 60 dk'ya göre
+• CSV: sameBar = sonuç mumunda iki eşik birden vardı · cardWhen = kart tepeye göre önce/arada/sonra · contSkipped = atlanan devam adayı · rsi15c/rsi1hc/rsi4hc = kapanmış mumlu RSI · cfg* = kayıt anı ayarı
 • Kazanç/kayıp değildir, "eşlik eden durum"dur; az örnekte farklar tesadüf olabilir</blockquote>`,
   ].filter(Boolean);
   return parts.join('\n\n').slice(0, 4096);

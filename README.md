@@ -302,6 +302,13 @@ ilk günlerde az örnek olur, backtest hemen geçmiş veriden verir.
 `tepeler.csv` (tüm tepe adayları + `outcome`, tüm göstergeler), `kartlar.csv` (kartlar + kart anı göstergeleri — funding, 5dk ATR, 3/5dk ayrışma, OI 1s, 1s trend dahil — + 5/15/30/60/240 dk sonrası),
 `temaslar.csv` (seviye tepkisi), `akis.csv` (alım-satım akışı pencereleri + 🐋 büyük işlem sayıları; akış kapalıysa yok). UTF-8, virgülle ayrılmış, ondalık nokta → Google Sheets / Excel / Python (pandas).
 Zip 40 MB'ı aşarsa (Telegram sınırı 50 MB) kalan satırlar `…-2.zip`'e geçer (`tepeler-2.csv`).
+
+`tepeler.csv` veri doğruluğu sütunları (hep en sonda; eski kayıtlarda boş):
+- `sameBar` — 1: sonucu belirleyen 1dk mumda hem düşüş eşiği hem devam şartı vardı (sonuç mum rengine göre verilir); 0: değil / yatay
+- `cardWhen` — kartlı kayıtlarda en erken kartın zamanı: `önce` (kart ≤ tepe) · `arada` (tepe < kart ≤ düşüş anı; düşüş yoksa pencere sonu) · `sonra` (sonrası, `cardAfterMin` içinde); kart yoksa boş
+- `contSkipped` — bu kayıttan önce, son kayıttan beri `sampleGapMin` seyreltmesiyle kaydedilmeden atlanan "devam" adayı sayısı
+- `rsi15c`, `rsi1hc`, `rsi4hc` — 15dk / 1s / 4s RSI, yalnız KAPANMIŞ mumlarla (`rsi15`, `rsi1h`, `rsi4h` kısmi mumludur)
+- `cfgMinTFs`, `cfgRsiMin`, `cfgDropPct`, `cfgContPct` — adayın oluştuğu andaki ayarlar (minTFs / rsiMin Telegram'dan değişebilir)
 Komut satırından: `fly ssh console` → `cd /app && node src/exportData.js --days 30` → `/data/export/veri.zip`,
 bilgisayara: `fly ssh sftp get /data/export/veri.zip`.
 
