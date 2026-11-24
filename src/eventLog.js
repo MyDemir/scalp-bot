@@ -24,7 +24,10 @@
  *              cfgContPct (kayıt anındaki ayarlar) · wick_5mc/clv_5mc/wick_15mc/clv_15mc (son KAPANMIŞ
  *              mumdan; wick_5m vb. kısmi) · bar5Pct/bar15Pct (devam eden mumun ilerlemesi 0–100) · volPeakXc (volPeakX, payda
  *              gerçek mum sayısı, tepe mumu hariç) · miss60 (tepeden önceki 60 dk'da eksik 1m mum) · futQ60t/spotQ60/spotShare60t
- *              (futures ve spot 60 dk, ikisi de tepe anında biten aynı aralık)
+ *              (futures ve spot 60 dk, ikisi de tepe anında biten aynı aralık) · rsi3c/rsi5c (kapanmış mumlu RSI) · sep3c/sep5c
+ *              (son kapanmış mum kapanışı ve kapanmış mumlu EMA21'e göre ayrışma %; sep3/sep5 canlı fiyatlı) · cfgPeakWindowMin/
+ *              cfgSampleGapMin/cfgVer (ayarlar, package.json sürümü) · dropC15 (15 dk içinde fiyat GİRİŞ KAPANIŞININ %dropPct altına
+ *              indi mi, 1/0; outcome tepe high'ından ölçülür) · lowC15 / closeC60 (15 dk en düşük, 60 dk kapanış; giriş kapanışına göre %)
  *   Dipte    : tepeden sonraki 60 dk'nın en düşüğü — %, dk, en yakın destek ve EMA21 merdiveni
  *
  * Kartı ve tetik kurallarını ETKİLEMEZ. Rapor dili "eşlik eden durum"dur; kazanç/kayıp hesabı yoktur.
@@ -36,6 +39,7 @@ const { tfIndicators, vwapSet, vwapFeatures, refLevels, nearest, TF_COLS, VWAP_C
 const { maLadder, stopOf } = require('./levelTouch');
 const { extraFeatures, EXTRA_COLS, EXTRA_AUDIT_COLS } = require('./peakFeatures');
 const { basisPct, ENRICH_COLS, LIQ_COLS } = require('./marketData');
+const PKG_VERSION = String(require('../package.json').version ?? '');
 
 const MIN = 60_000;
 const TROUGH_MIN = 60;      // dip: tepeden sonraki 60 dk'nın en düşüğü
@@ -88,7 +92,8 @@ const TROUGH_COLS = ['trPct', 'trMin', 'trLv', 'trLvKind', 'trLvDist', 'trLvTouc
 const OUTCOME_COLS = ['outcome', 'upBeforeDrop', 't1', 't2', 't3', 'c5Red', 'c5Engulf', 'c5BelowPrev', 'c5ClosePct', 'c5Next60Low'];
 // H46 veri doğruluğu kolonları — eski CSV'lerle kıyas bozulmasın diye hep SONA eklenir
 const AUDIT_COLS = ['sameBar', 'cardWhen', 'contSkipped', 'rsi15c', 'rsi1hc', 'rsi4hc', 'cfgMinTFs', 'cfgRsiMin', 'cfgDropPct', 'cfgContPct',
-  ...EXTRA_AUDIT_COLS, 'spotQ60', 'spotShare60t'];
+  ...EXTRA_AUDIT_COLS, 'spotQ60', 'spotShare60t',
+  'rsi3c', 'rsi5c', 'sep3c', 'sep5c', 'cfgPeakWindowMin', 'cfgSampleGapMin', 'cfgVer', 'dropC15', 'lowC15', 'closeC60'];
 const FEATURE_COLS = [...BASE_COLS, ...PEAK_COLS, ...TF_COLS, ...VWAP_COLS, ...EXTRA_COLS, 'basisPct', ...LIQ_COLS, ...ENRICH_COLS, ...TROUGH_COLS, ...OUTCOME_COLS, ...AUDIT_COLS];
 
 /** Tepe anının tam fotoğrafı */
@@ -113,7 +118,23 @@ function peakFeatures(series, s, ctx, high, pump, loT, tc, history = null) {
     rsi15c: num(ta.rsiLast(series.col('15m', 'c', false), s.rsiPeriod), 1),
     rsi1hc: num(ta.rsiLast(series.col('1h', 'c', false), s.rsiPeriod), 1),
     rsi4hc: num(ta.rsiLast(series.col('4h', 'c', false), s.rsiPeriod), 1),
+    rsi3c: num(ta.rsiLast(series.col('3m', 'c', false), s.rsiPeriod), 1),
+    rsi5c: num(ta.rsiLast(series.col('5m', 'c', false), s.rsiPeriod), 1),
+    sep3c: sepClosed(series, '3m'), sep5c: sepClosed(series, '5m'),
   });
+}
+
+/** EMA21 ayrışması (%) — yalnız KAPANMIŞ mumlar: son kapanmış mum kapanışı ve kapanmış mumlarla EMA21 (sep3/sep5 canlı fiyatlı, kısmi mumludur) */
+function sepClosed(series, tf) {
+  const c = series.col(tf, 'c', false), e = ta.emaSeries(c, 21);
+  if (!e.length) return null;
+  const ema = e[e.length - 1], last = c[c.length - 1];
+  return ema > 0 && last > 0 ? num((last - ema) / ema * 100) : null;
+}
+
+/** Çıkış değerleri (tepeye göre %) → GİRİŞ KAPANIŞINA (price) göre %: v = peak*(1+x/100)/price − 1 */
+function fromEntry(x, peak, price) {
+  return x == null || !(peak > 0) || !(price > 0) ? null : (peak * (1 + x / 100) / price - 1) * 100;
 }
 
 /** Dip anı: en yakın destek + EMA21 merdiveni */
@@ -151,7 +172,10 @@ function createDropLedger(opts = {}) {
     const trMin = e.trT != null ? Math.round((e.trT - e.t) / MIN) : null;
     const cardT = cs.length ? Math.min(...cs.map(c => c.t)) : null;
     const endT = e.dropT ?? e.t + E.peakWindowMin * MIN;
+    const entry = e.feat.price;
+    const lowC15 = num(fromEntry(e.out[15]?.low, e.price, entry), 3), closeC60 = num(fromEntry(e.out[60]?.close, e.price, entry), 3);
     const tail = {
+      lowC15, closeC60, dropC15: lowC15 == null ? null : lowC15 <= -E.dropPct ? 1 : 0,
       sameBar: e.sameBar ? 1 : 0,
       cardWhen: cardT == null ? null : cardT <= e.t ? 'önce' : cardT <= endT ? 'arada' : 'sonra',
       trPct: e.trLow < Infinity ? num((e.trLow - e.price) / e.price * 100, 3) : null, trMin,
@@ -231,7 +255,8 @@ function createDropLedger(opts = {}) {
       hit: { 1: null, 2: null, 3: null }, sameBar: 0, c5: null, lo: Infinity, hi: -Infinity, last: null, out: {}, trLow: Infinity, trT: null,
       feat: peakFeatures(series, s, ctx, c.h, pump, loT, tc, history(sym, x, tc)) };
     // kayıt anındaki geçerli ayarlar (minTFs/rsiMin Telegram'dan değişebilir; observe'e geçen `s` canlıda settings.get())
-    Object.assign(e.feat, { cfgMinTFs: s.minTFs ?? null, cfgRsiMin: s.rsiMin ?? null, cfgDropPct: E.dropPct, cfgContPct: E.contPct });
+    Object.assign(e.feat, { cfgMinTFs: s.minTFs ?? null, cfgRsiMin: s.rsiMin ?? null, cfgDropPct: E.dropPct, cfgContPct: E.contPct,
+      cfgPeakWindowMin: E.peakWindowMin, cfgSampleGapMin: E.sampleGapMin, cfgVer: PKG_VERSION });
     // Emir defteri tepe anında (coin başına en fazla 60 sn'de bir; araya giren adaylar son fotoğrafı kullanır)
     if (E.orderBook) {
       if (tc - x.obAt >= MIN) {
@@ -566,7 +591,7 @@ function teyitText(rows, { title = '', E = DEFAULTS, minN = 5 } = {}) {
 • Satır: o durum varken / yokken adayların yüzde kaçı düştü, parantezde varken adet (en az ${minN}). Fark ≥ 3 puan olanlar
 • Aynı pompadan birden fazla aday olabilir (devam en fazla ${E.sampleGapMin} dk'da bir) — adaylar birbirinden bağımsız değildir
 • 5dk teyit mumu: tepeden sonraki ilk tam 5dk mum; oran mumun kapanışından sonraki 60 dk'ya göre
-• CSV: sameBar = sonuç mumunda iki eşik birden vardı · cardWhen = kart tepeye göre önce/arada/sonra · contSkipped = atlanan devam adayı · rsi15c/rsi1hc/rsi4hc = kapanmış mumlu RSI · cfg* = kayıt anı ayarı · *c = kapanmış mum, miss60 = eksik dk, *60t = tepe anında biten pencere
+• CSV: sameBar = sonuç mumunda iki eşik birden vardı · cardWhen = kart tepeye göre önce/arada/sonra · contSkipped = atlanan devam adayı · rsi15c/rsi1hc/rsi4hc/rsi3c/rsi5c = kapanmış mumlu RSI · sep3c/sep5c = kapanmış mumlu ayrışma · dropC15/lowC15/closeC60 = giriş kapanışından ölçü · cfg* = kayıt anı ayarı · *c = kapanmış mum, miss60 = eksik dk, *60t = tepe anında biten pencere
 • Kazanç/kayıp değildir, "eşlik eden durum"dur; az örnekte farklar tesadüf olabilir</blockquote>`,
   ].filter(Boolean);
   return parts.join('\n\n').slice(0, 4096);
@@ -608,4 +633,4 @@ function flatDrop(r, windows = DEFAULTS.windows) {
 }
 const dropCols = (windows = DEFAULTS.windows) => Object.keys(flatDrop({ out: {}, feat: {} }, windows));
 
-module.exports = { teyitText, teyitRows, createTeyitAcc, slimDrop, DROP_REPORT_FIELDS, csvLine, csvHeader, CANDS, createDropLedger, createPeakLedger, features, peakFeatures, FEATURE_COLS, TROUGH_COLS, OUTCOME_COLS, DEFAULTS, dropText, toCsv, flatDrop, dropCols };
+module.exports = { sepClosed, teyitText, teyitRows, createTeyitAcc, slimDrop, DROP_REPORT_FIELDS, csvLine, csvHeader, CANDS, createDropLedger, createPeakLedger, features, peakFeatures, FEATURE_COLS, TROUGH_COLS, OUTCOME_COLS, DEFAULTS, dropText, toCsv, flatDrop, dropCols };
