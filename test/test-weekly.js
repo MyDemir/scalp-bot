@@ -107,5 +107,13 @@ ok(`Dosyalar: ${w.files.map(f => f.name).join(', ')} (zip: ${Object.keys(Z).join
   st2.close();
   ok(`Büyük hafta: ${N} tepe adayı + ${NT} seviye teması ${(ms / 1000).toFixed(1)} sn'de, bellek artışı en fazla ${(peak / 1e6).toFixed(0)} MB, ${wb.files.length} zip parçası (sınır 150 KB), MD'de ilk 300 düşüş; olay döngüsü dönmeye devam etti (${ticks} tik)`);
 }
+  // zipWriter: sınırda bölünen girdinin devam parçası boşsa (son yazma sınırı aştı) boş "-2" girdisi eklenmez
+  { const { createZipSet } = require(`${REPO}/src/zipWriter`); const rnd = require('crypto').randomBytes(300000).toString('hex');
+    const zs = createZipSet('bos-devam', { maxBytes: 100e3 }); const md = zs.entry('rapor.md', ''); await md.write(rnd); await md.end();
+    const fz = await zs.finish(); const names = fz.flatMap(f => Object.keys(unzip(f.buf)));
+    assert.deepStrictEqual(names, ['rapor.md'], 'boş devam parçası zipe girmez: ' + names.join(','));
+    const zs2 = createZipSet('dolu-devam', { maxBytes: 100e3 }); const e2 = zs2.entry('rapor.md', ''); await e2.write(rnd); await e2.write('son\n'); await e2.end();
+    const n2 = (await zs2.finish()).flatMap(f => Object.keys(unzip(f.buf))); assert.deepStrictEqual(n2, ['rapor.md', 'rapor-2.md'], 'dolu devam parçası korunur: ' + n2.join(','));
+    ok('zipWriter: sınırda bölünüp devam parçası boş kalan girdi için boş …-2.md eklenmez; dolu devam parçası korunur'); }
   console.log('\n' + R.join('\n'));
 })().catch(e => { console.error(e); process.exit(1); });
