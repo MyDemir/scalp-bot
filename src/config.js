@@ -15,6 +15,9 @@ module.exports = {
     gradeRsi1h:    80,
     gradeRsi15m:   85,
     gradeAtr5Pct:  1.2,      // derece şartı: 5dk ATR (fiyatın %'si) en az; 0 = kapalı
+    gradeRsi3m:    95,       // derece şartı: 3dk RSI ≥ (0 = kapalı)
+    gradeMacd5m:   true,     // derece şartı: 5dk MACD zayıflıyor (histogram düşüyor / ≤ 0, aşağı kesişim dahil) → +1 daire
+    gradeStoch5m:  true,     // derece şartı: 5dk Stoch RSI aşağı kesişim (son kapanmış mumda) → +1 daire
     gradeRsi1hMax: 88,      // sart3: 1s RSI bu ve üstü ya da 4s RSI ≥ gradeRsi4hMax → kaçak pompa (0 = kapalı)
     gradeRsi4hMax: 80,
     gradeRunawayMax: 2,     // kaçak pompada en fazla bu kadar daire
@@ -58,7 +61,7 @@ module.exports = {
     seriesMinRsi15m: 85,     // seri içi için o an 15m RSI ≥ 85
 
     // EMA21 yüzde ayrışma (güven skoru kademeli)
-    sepPct2:       2,
+    sepPct2:       3,       // EMA21 ayrışma eşiği (3m ve 5m, %) — derece şartı; 24.11.2026'da 2 → 3
     sepPct5:       5,
     sepPct10:      10,
     sepATR:        0.5,      // eski ATR (isteğe bağlı bilgi)

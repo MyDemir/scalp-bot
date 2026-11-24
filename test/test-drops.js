@@ -4,6 +4,7 @@
 const REPO = require('path').resolve(__dirname, '..'); const assert = require('assert'); const fs = require('fs');
 const { Series } = require(`${REPO}/src/series`); const cfg = require(`${REPO}/src/config`);
 const { createDropLedger, dropText, teyitText, teyitRows, FEATURE_COLS, toCsv, flatDrop, dropCols } = require(`${REPO}/src/eventLog`);
+const eng = require(`${REPO}/src/infoEngine`);
 const { createCardStore } = require(`${REPO}/src/cardStore`);
 const { buildExports } = require(`${REPO}/src/exportData`);
 const { toPlain } = require(`${REPO}/src/infoCard`);
@@ -14,7 +15,7 @@ const t0 = Date.UTC(2026, 0, 1);
 const hist = Array.from({ length: 3000 }, (_, i) => 100 + Math.sin(i / 9) * 0.15);
 const candle = (i, c, o, hOver) => ({ t: t0 + i * MIN, o, h: hOver ?? Math.max(o, c) * 1.0004, l: Math.min(o, c) * 0.9996, c, v: 100, tb: 55, q: 100 * c, tq: 55 * c, closed: true });
 const drops = ev => ev.filter(e => e.outcome === 'düştü');
-function run(livePath, { overrides = {}, cards = [], opts = {}, ctx = {}, sets = s, skip = [] } = {}) {
+function run(livePath, { overrides = {}, cards = [], opts = {}, ctx = {}, sets = s, skip = [], stepCards = null } = {}) {
   const all = [...hist, ...livePath];
   const m1 = all.map((c, i) => candle(i, c, i ? all[i - 1] : c, overrides[i - hist.length]));
   const S = new Series('DROPUSDT');
@@ -23,10 +24,11 @@ function run(livePath, { overrides = {}, cards = [], opts = {}, ctx = {}, sets =
   const T0 = m1[hist.length].t;
   for (const [tf, m] of Object.entries({ '1d': 1440, '4h': 240, '1h': 60, '15m': 15, '5m': 5, '3m': 3 })) S.seed(tf, agg(m * MIN, T0).filter(c => c.t + m * MIN <= T0));
   S.seed('1m', m1.filter(c => c.t < T0).slice(-240));
-  const L = createDropLedger({ ...cfg.events, ...opts }); const ev = [];
+  const L = createDropLedger({ ...cfg.events, ...opts }); const ev = []; const trk = eng.createTracker();
   for (const c of m1.filter(c => c.t >= T0)) {
     if (skip.includes((c.t - T0) / MIN)) continue;     // 1m veri boşluğu (mum hiç gelmedi)
-    S.apply1m(c);
+    const closedTfs = S.apply1m(c);
+    if (stepCards) { const k = eng.step(S, closedTfs, sets, trk, ctx); if (k) stepCards.push(k); }
     for (const k of cards) if (k.t === c.t + MIN) L.noteCard('DROPUSDT', k.t, k.grade);
     ev.push(...L.observe(S, sets, ctx));
   }
@@ -253,7 +255,8 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
 {
   const AUD = ['sameBar', 'cardWhen', 'contSkipped', 'rsi15c', 'rsi1hc', 'rsi4hc', 'cfgMinTFs', 'cfgRsiMin', 'cfgDropPct', 'cfgContPct',
     'wick_5mc', 'clv_5mc', 'wick_15mc', 'clv_15mc', 'bar5Pct', 'bar15Pct', 'volPeakXc', 'miss60', 'futQ60t', 'spotQ60', 'spotShare60t',
-    'rsi3c', 'rsi5c', 'sep3c', 'sep5c', 'cfgPeakWindowMin', 'cfgSampleGapMin', 'cfgVer', 'dropC15', 'lowC15', 'closeC60', 'incTf', 'inc5', 'inc15', 'lvZoneHiN', 'lvZoneLoN', 'pkLvTouchUp', 'pkLvTouchDn'];
+    'rsi3c', 'rsi5c', 'sep3c', 'sep5c', 'cfgPeakWindowMin', 'cfgSampleGapMin', 'cfgVer', 'dropC15', 'lowC15', 'closeC60', 'incTf', 'inc5', 'inc15', 'lvZoneHiN', 'lvZoneLoN', 'pkLvTouchUp', 'pkLvTouchDn',
+    'gradeOld', 'g_sep', 'g_h1', 'g_r15', 'g_atr', 'g_macd', 'g_stoch', 'g_rsi3hi', 'g_runaway', 'cfgGradeRsi15m', 'cfgGradeAtr5Pct', 'cfgGradeMacd5m', 'cfgGradeStoch5m', 'cfgSepPct2', 'cfgGradeRsi3m', 'gradeVer'];
   assert.deepStrictEqual(dropCols().slice(-AUD.length), AUD, 'yeni kolonlar sütun sırasının SONUNDA');
   const old = flatDrop({ id: 'x', out: {}, feat: {} }); assert(AUD.every(k => old[k] == null), 'eski kayıtta boş');
   { const r = flatDrop({ id: 'z', out: {}, feat: { lvZoneHiN: 2, lvZoneLoN: 1 } }); assert.strictEqual(r.lvZoneHiN, 2); assert.strictEqual(r.lvZoneLoN, 1, 'bölge değerleri CSV satırına gelir');
@@ -305,7 +308,7 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   assert(rr.length && rr.every(x => Number.isFinite(x.feat.rsi3c) && Number.isFinite(x.feat.rsi5c) && Number.isFinite(x.feat.sep3c) && Number.isFinite(x.feat.sep5c)), 'rsi3c/5c, sep3c/5c sayı');
   assert(rr.some(x => x.feat.rsi3c !== x.feat.rsi3 || x.feat.rsi5c !== x.feat.rsi5), 'rsi*c kısmi mumlu rsi3/rsi5\'ten farklı olabilir');
   assert(rr.some(x => x.feat.sep3c !== x.feat.sep3), 'sep3c canlı sep3\'ten farklı olabilir');
-  assert(rr.every(x => x.feat.cfgPeakWindowMin === 15 && x.feat.cfgSampleGapMin === 7 && x.feat.cfgVer === require(`${REPO}/package.json`).version), 'cfg* ledger ayarları + sürüm');
+  assert(rr.every(x => x.feat.cfgPeakWindowMin === 15 && x.feat.cfgSampleGapMin === 7 && x.feat.cfgVer === '2026.11.24-3'), 'cfg* ledger ayarları + sürüm');
   // sep3c: kapanmış mumla elle hesap (yeni seri; kısmi mum sep3c'yi değiştirmez)
   {
     const ta = require(`${REPO}/src/ta`); const { sepClosed } = require(`${REPO}/src/eventLog`);
@@ -369,6 +372,87 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
     assert.strictEqual(c.cvdNet15, ratio(rng(215, 229)), 'cvdNet15 yalnız son 15 dk'); assert.strictEqual(c.cvdNet60, ratio(rng(200, 229)), '60 dk: 30 mum = ceil(60/2) → hesaplanır'); }
   { const c = cvdFeatures(mkS(230, rng(100, 200)).d['1m']); assert.strictEqual(c.cvdNet60, null, '60 dk penceresinde 29 mum < 30 → null'); }
   ok('A10: tepe anı dakika pencereleri zamana göre (boşluksuz aynı küme; yarıdan az mumda null)');
+}
+
+// ── Derece: MACD 5m + Stoch 5m (gradeVer 2) — gerçek kart ve tepe kaydı → buildWeekly zip ──
+{
+  const W = require(`${REPO}/src/weeklyReport`); const unzip = require('./unzip'); const dir = require('./_tmp') + '/grade-tmp';
+  fs.rmSync(dir, { recursive: true, force: true }); fs.mkdirSync(dir);
+  const GC = ['gradeOld', 'g_sep', 'g_h1', 'g_r15', 'g_atr', 'g_macd', 'g_stoch', 'g_rsi3hi', 'g_runaway', 'cfgGradeRsi15m', 'cfgGradeAtr5Pct', 'cfgGradeMacd5m', 'cfgGradeStoch5m', 'cfgSepPct2', 'cfgGradeRsi3m', 'gradeVer'];
+  const sc = []; const r = run(path1, { overrides: ov, stepCards: sc, sets: { ...s, rsiMin: 80, minTFs: 2 } });
+  const pk = drops(r.ev)[0];
+  assert(pk, 'tepe kaydı var');
+  for (const k of GC) assert(pk.feat[k] != null, 'tepe feat dolu: ' + k);
+  assert.strictEqual(pk.feat.gradeVer, 2); assert.strictEqual(pk.feat.cfgGradeMacd5m, 1); assert.strictEqual(pk.feat.cfgGradeStoch5m, 1);
+  assert.strictEqual(pk.feat.cfgVer, '2026.11.24-3', 'cfgVer elle artırılan sürüm');
+  assert(pk.feat.gradeOld <= pk.feat.grade || pk.feat.grade === 0, 'gradeOld ≤ grade (macd/stoch yalnız artırır)');
+  assert(sc.length > 0, 'gerçek kart üretildi: ' + sc.length);
+  const card = sc[0];
+  for (const k of GC) assert(card.gradeAudit[k] != null, 'kart gradeAudit: ' + k);
+  // kayıt: eski kart (grade alanları yok) + yeni kart karışık, ilk satır YENİ kart
+  const st = createCardStore({ file: dir + '/cards.db', logger: { log() {}, error: x => { throw new Error(x); } } });
+  const now = Date.UTC(2026, 9, 5, 0, 2), H = 3_600_000;
+  const { compact } = require(`${REPO}/src/infoStats`);
+  const newData = { ...compact(card), bursts: undefined, fwd: undefined };
+  const oldData = { grade: 2, hits: 2, rsi: { '3m': 91, '5m': 92, '15m': 88 }, level: { name: 'X', value: 1, dist: -0.3, zone: 'dip' } };
+  const flatCols = (firstNew) => {
+    const a = { id: 'N1', kind: 'card', symbol: 'AUSDT', t: now - 3 * 24 * H, seq: 1, price: 1, data: newData };
+    const b = { id: 'O1', kind: 'card', symbol: 'BUSDT', t: now - 2 * 24 * H, seq: 1, price: 1, data: oldData };
+    return firstNew ? [a, b] : [b, a];
+  };
+  const parseCsv = txt => { const out = []; let row = [], cell = '', q = false; txt = txt.replace('\uFEFF', '');
+    for (let i = 0; i < txt.length; i++) { const ch = txt[i];
+      if (q) { if (ch === '"') { if (txt[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+      else if (ch === '"') q = true; else if (ch === ',') { row.push(cell); cell = ''; } else if (ch === '\n') { row.push(cell); out.push(row); row = []; cell = ''; } else cell += ch; }
+    return out; };
+  const hdr = z => z['kartlar.csv'].replace('\uFEFF', '').split('\n')[0].split(',');
+  const cols = {};
+  for (const firstNew of [true, false]) {
+    const st2 = createCardStore({ file: `${dir}/c${firstNew}.db`, logger: { log() {}, error: x => { throw new Error(x); } } });
+    for (const c of flatCols(firstNew)) st2.add(c);
+    st2.addEvent({ id: 'E1', symbol: 'DROPUSDT', t: now - 3 * 24 * H, price: pk.price, dropT: pk.dropT, dropMin: pk.dropMin, card: false, cardGrade: null, feat: pk.feat, out: pk.out });
+    const w = await W.buildWeekly(st2, { now, s: cfg.info, E: cfg.events }); const Z = unzip(w.files[0].buf);
+    cols[firstNew] = { h: hdr(Z), Z, w }; st2.close();
+  }
+  const hn = cols[true].h, ho = cols[false].h;
+  assert.deepStrictEqual(hn, ho, 'ilk satır yeni ya da eski olsa da aynı başlık');
+  assert.deepStrictEqual(hn.slice(-GC.length), GC, 'kartlar.csv: 16 derece kolonu sonda');
+  const prefix = hn.slice(0, -GC.length);
+  assert(!prefix.some(k => GC.includes(k)), 'derece kolonları önde yok');
+  assert(prefix.includes('partial') && prefix.includes('time') && prefix.includes('symbol'));
+  const rows = parseCsv(cols[true].Z['kartlar.csv']).slice(1).filter(x => x.length > 1);
+  const gi = hn.indexOf('g_macd'), si = hn.indexOf('symbol');
+  const newRow = rows.find(x => x[si] === 'AUSDT'), oldRow = rows.find(x => x[si] === 'BUSDT');
+  assert(GC.every((k, i) => newRow[hn.length - GC.length + i] !== ''), 'yeni kart: 16 kolon DOLU');
+  assert(oldRow.slice(-GC.length).every(x => x === ''), 'eski kart: 16 kolon boş');
+  assert.strictEqual(newRow[hn.indexOf('gradeVer')], '2');
+  // tepeler.csv: yeni kolonlar sonda ve dolu
+  const th = parseCsv(cols[true].Z['tepeler.csv']); const tc = th[0], tv = th[1];
+  assert.deepStrictEqual(tc.slice(-GC.length), GC, 'tepeler.csv: derece kolonları sonda');
+  assert(tc.slice(-GC.length).every((k, i) => tv[tc.length - GC.length + i] !== ''), 'tepe satırı: 16 kolon dolu');
+  assert.strictEqual(tv[tc.indexOf('cfgVer')], '2026.11.24-3');
+  // MD: eski derece satırı + yeni kurulum grupları
+  const md = cols[true].w.md;
+  assert(/Eski derece \(MACD 5m, Stoch 5m ve 3dk RSI şartsız, gradeOld; 1 kart\): 🔴 \d+ · 🔴🔴 \d+ · 🔴🔴🔴 \d+ · 🔴🔴🔴🔴 \d+/.test(md), 'MD gradeOld satırı');
+  assert(md.includes('| MACD 5m zayıf') && md.includes('| Stoch 5m aşağı'), 'MD kurulum grupları');
+  assert(md.includes('Derece alanları') && md.includes('doğruluk sütunları'), 'MD sütun açıklaması');
+  // /disaaktar aynı sıra
+  const ex = await buildExports(createCardStoreFrom(dir + '/ctrue.db'), 30, now); const ez = unzip(ex.files[0].buf);
+  assert.deepStrictEqual(ez['kartlar.csv'].replace('\uFEFF', '').split('\n')[0].split(',').slice(-GC.length), GC, '/disaaktar kartlar.csv derece kolonları sonda');
+  assert(ez['kartlar.csv'].replace('\uFEFF', '').split('\n')[0].split(',').indexOf('time') < ez['kartlar.csv'].replace('\uFEFF', '').split('\n')[0].split(',').indexOf('partial'), '/disaaktar eski sıra: time, partial');
+  function createCardStoreFrom(f) { return createCardStore({ file: f, logger: { log() {}, error: x => { throw new Error(x); } } }); }
+  // /teyit: iki yeni aday satırı, en kötü uzunluk
+  const { CANDS } = require(`${REPO}/src/eventLog`);
+  assert(CANDS.some(c => c[0] === 'MACD 5m zayıf') && CANDS.some(c => c[0] === 'Stoch 5m aşağı'));
+  const fx = (m5, sc) => ({ id: 'f' + m5 + sc, outcome: 'düştü', card: true, feat: { macd5: m5, stochK: 90, stochCross: sc, hits: 3 }, out: {} });
+  const rowsT = teyitRows([fx('zayıf', 'down'), fx('güçlü', null), fx('down', null), fx('güçlü', 'down'), fx('zayıf', null), fx('güçlü', null)], 1);
+  const mac = rowsT.find(x => x.label === 'MACD 5m zayıf'), sto = rowsT.find(x => x.label === 'Stoch 5m aşağı');
+  assert(mac && mac.n === 3, 'MACD 5m zayıf satırı: ' + JSON.stringify(mac)); assert(sto && sto.n === 2);
+  // en kötü uzunluk: tüm adaylar farklı büyük fark (yukarı 14 + aşağı 6 satır) → 4096 sınırı ve ölçüm
+  const worst = teyitText(Array.from({ length: 200 }, (_, i) => ({ id: 'w' + i, outcome: i % 2 ? 'düştü' : 'devam', card: i % 3 === 0,
+    feat: Object.fromEntries(CANDS.map(([, f]) => [f, i % 2 ? 95 : -5])) })), { title: 'en kötü' });
+  assert(worst.length <= 4096, 'teyit metni ≤ 4096: ' + worst.length);
+  ok(`Derece 2: tepe ve kart kaydı dolu, kartlar.csv/tepeler.csv 16 kolon sonda (karışık hafta, başlık aynı), /disaaktar sırası aynı, MD gradeOld + kurulum grupları, /teyit en kötü ${worst.length} karakter`);
 }
 
 console.log('\n' + R.join('\n'));

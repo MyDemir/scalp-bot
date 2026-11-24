@@ -165,7 +165,7 @@ function checklist(snap, s) {
   let sepTxt = 'yok';
   if (sepPct >= (s.sepPct10 ?? 10)) { sepPts = 3; sepTxt = `≥%${s.sepPct10 ?? 10} (${sepPct.toFixed(1)}%)`; }
   else if (sepPct >= (s.sepPct5 ?? 5)) { sepPts = 2; sepTxt = `≥%${s.sepPct5 ?? 5} (${sepPct.toFixed(1)}%)`; }
-  else if (sepPct >= (s.sepPct2 ?? 2)) { sepPts = 1; sepTxt = `≥%${s.sepPct2 ?? 2} (${sepPct.toFixed(1)}%)`; }
+  else if (sepPct >= (s.sepPct2 ?? 3)) { sepPts = 1; sepTxt = `≥%${s.sepPct2 ?? 3} (${sepPct.toFixed(1)}%)`; }
 
   const n1 = snap.neg?.['1m']?.count ?? 0, n3 = snap.neg?.['3m']?.count ?? 0;
   const h1 = snap.conf?.h1, h4 = snap.conf?.h4;
@@ -210,7 +210,40 @@ function gradeConds(snap, s) {
     h1: Number.isFinite(h1) && h1 >= (s.gradeRsi1h ?? 80) && !(h1Max > 0 && h1 >= h1Max),
     r15: Number.isFinite(r15) && r15 >= (s.gradeRsi15m ?? 85),
     atr: (s.gradeAtr5Pct ?? 1.2) > 0 && Number.isFinite(snap.atr5Pct) && snap.atr5Pct >= (s.gradeAtr5Pct ?? 1.2),
+    // 5dk MACD zayıflıyor (histogram düşüyor / ≤ 0, aşağı kesişim dahil) · 5dk Stoch RSI aşağı kesişim (yalnız son kapanmış mumda)
+    macd: (s.gradeMacd5m ?? true) !== false && Boolean(snap.macd?.['5m']?.weakening),
+    stoch: (s.gradeStoch5m ?? true) !== false && snap.stoch?.cross === 'down',
+    // 3dk RSI ≥ gradeRsi3m (95; 0 = kapalı)
+    rsi3hi: (s.gradeRsi3m ?? 95) > 0 && Number.isFinite(snap.rsi?.['3m']?.v) && snap.rsi['3m'].v >= (s.gradeRsi3m ?? 95),
     runaway,
+  };
+}
+
+/** Derece, şart bayrakları verilmiş olarak (kaçak pompa ve seviye tavanı aynen). */
+function gradeFrom(snap, s, c) {
+  let g = Math.min(4, 1 + c.sep + c.h1 + c.r15 + c.atr + c.macd + c.stoch + c.rsi3hi);
+  if (c.runaway) g = Math.min(g, s.gradeRunawayMax ?? 2);
+  return !snap.level ? Math.min(g, s.gradeNoLevelMax ?? 3) : g;
+}
+
+/** Gölge (eski) derece: macd, stoch ve rsi3hi şartı kapalı hesaplanır — yalnız kayıt için. */
+function gradeOldOf(snap, s) {
+  if (!(snap.hits >= s.minTFs)) return 0;   // rsiGrade ile aynı: `grade` 0 ise gradeOld da 0 (kıyaslanabilir)
+  if ((s.gradeBy ?? 'sart3') === 'liste') return gradeOf(snap, s);
+  return gradeFrom(snap, s, { ...gradeConds(snap, s), macd: false, stoch: false, rsi3hi: false });
+}
+
+/** Kayıt alanları (kart ve tepe defteri): gradeOld, g_*, cfg*, gradeVer. */
+function gradeAudit(snap, s) {
+  const c = gradeConds(snap, s);
+  return {
+    gradeOld: gradeOldOf(snap, s),
+    g_sep: c.sep ? 1 : 0, g_h1: c.h1 ? 1 : 0, g_r15: c.r15 ? 1 : 0, g_atr: c.atr ? 1 : 0,
+    g_macd: c.macd ? 1 : 0, g_stoch: c.stoch ? 1 : 0, g_rsi3hi: c.rsi3hi ? 1 : 0, g_runaway: c.runaway ? 1 : 0,
+    cfgGradeRsi15m: s.gradeRsi15m ?? 85, cfgGradeAtr5Pct: s.gradeAtr5Pct ?? 1.2,
+    cfgGradeMacd5m: (s.gradeMacd5m ?? true) !== false ? 1 : 0, cfgGradeStoch5m: (s.gradeStoch5m ?? true) !== false ? 1 : 0,
+    cfgSepPct2: s.sepPct2 ?? 3, cfgGradeRsi3m: s.gradeRsi3m ?? 95,
+    gradeVer: 2,
   };
 }
 
@@ -223,9 +256,7 @@ function gradeConds(snap, s) {
 function gradeOf(snap, s) {
   if ((s.gradeBy ?? 'sart3') !== 'liste') {
     const c = gradeConds(snap, s);
-    let g = Math.min(4, 1 + c.sep + c.h1 + c.r15 + c.atr);
-    if (c.runaway) g = Math.min(g, s.gradeRunawayMax ?? 2);
-    return !snap.level ? Math.min(g, s.gradeNoLevelMax ?? 3) : g;
+    return gradeFrom(snap, s, c);
   }
   const sc = snap.check ? snap.check.score : 0;
   if (sc >= (s.grade4Min ?? 7)) return 4;
@@ -521,7 +552,7 @@ function evaluate(series, s, ctx = {}, force = false) {
     '5m': separationPct(series, '5m', price),
   };
   snap.sep = null;
-  snap.sepOk = ['3m', '5m'].every(tf => (snap.sepPct[tf] ?? 0) >= (s.sepPct2 ?? 2));
+  snap.sepOk = ['3m', '5m'].every(tf => (snap.sepPct[tf] ?? 0) >= (s.sepPct2 ?? 3));
 
   snap.neg = { '1m': negPeaks(series, '1m', 40, s.rsiPeriod), '3m': negPeaks(series, '3m', 40, s.rsiPeriod) };
   snap.ride = emaRide(series, '3m');
@@ -822,6 +853,7 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
     snap, news, trig, tags, followed, inSeries,
     moveStats: tracker.moveStats(sym, snap.t),
     grade: snap.grade,
+    gradeAudit: gradeAudit(snap, s),
     silent: !(s.cardSound !== false || snap.grade >= 3 || followed),
   };
 }
@@ -831,4 +863,4 @@ function movePct(prevClose, prevT, c) {
   return base > 0 ? (c.c - base) / base * 100 : null;
 }
 
-module.exports = { macdState, stochState, rsiOf, findHiddenPU, findGoldenCross, volStats, emaRide, moveText, evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, detectSfp, discoveryOf, negPeaks, movePct, volGrade, rsiGrade, gradeOf, gradeConds, checklist, circles, dirColor, RSI_TFS, separationPct };
+module.exports = { macdState, stochState, rsiOf, findHiddenPU, findGoldenCross, volStats, emaRide, moveText, evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, detectSfp, discoveryOf, negPeaks, movePct, volGrade, rsiGrade, gradeOf, gradeOldOf, gradeAudit, gradeConds, checklist, circles, dirColor, RSI_TFS, separationPct };

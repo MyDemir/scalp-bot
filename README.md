@@ -33,14 +33,14 @@ Kontrol anı: **3m / 5m / 15m mum kapanışları** + **hacimli her 1m mum kapan�
 4. 15m RSI ≥ 95 — 1 puan
 5. 5m ve 15m birlikte ≥ 95 — 1 puan
 6. 1h ve 4h RSI ≥ 80 (şişkin) — 1 puan
-7. EMA21 ayrışma: fiyat 3m **ve** 5m EMA21'in **üstünde** (ikisinin küçüğü puanlanır, dereceyle aynı) %2 / %5 / %10 → 1 / 2 / 3 puan (`sepPct2/5/10`; altındaysa 0) — yoksa "⚠️ RSI 95 üstü ama EMA21 yakın"
+7. EMA21 ayrışma: fiyat 3m **ve** 5m EMA21'in **üstünde** (ikisinin küçüğü puanlanır, dereceyle aynı) %3 / %5 / %10 → 1 / 2 / 3 puan (`sepPct2/5/10`; altındaysa 0) — yoksa "⚠️ RSI 95 üstü ama EMA21 yakın"
 8. 1m ya da 3m'de ≥ 2 negatif tepe — 1 puan
 9. 3m ya da 5m MACD sat (aşağı) kesişimi — 1 puan
 
 Detay'da 📏 hedef: 3m EMA21 ve 5m EMA21 uzaklığı. Kontrol listesi Detay'da bilgi olarak durur.
 
-**Derece (varsayılan `gradeBy = sart3`):** daireler hep 🔴 (short olgunluğu); 1 + sağlanan şart sayısı — EMA21 ayrışma (3m ve 5m ≥ `sepPct2`) ·
-1s RSI `gradeRsi1h`–`gradeRsi1hMax` (80–88) · 15dk RSI ≥ `gradeRsi15m` (85) · 5dk ATR ≥ `gradeAtr5Pct` (%1.2) — en fazla 4. **🚀 Kaçak pompa** (1s RSI ≥ 88 ya da 4s RSI ≥ `gradeRsi4hMax` 80):
+**Derece (varsayılan `gradeBy = sart3`):** daireler hep 🔴 (short olgunluğu); 1 + sağlanan şart sayısı — EMA21 ayrışma (3m ve 5m ≥ `sepPct2`, varsayılan %3; 24.11.2026'da 2 → 3) ·
+1s RSI `gradeRsi1h`–`gradeRsi1hMax` (80–88) · 15dk RSI ≥ `gradeRsi15m` (85) · 5dk ATR ≥ `gradeAtr5Pct` (%1.2) · 3dk RSI ≥ `gradeRsi3m` (95; 0 = kapalı) · 5dk MACD zayıflıyor (`gradeMacd5m`, açık; histogram bir önceki mumdan düşük ya da ≤ 0, aşağı kesişim dahil) · 5dk Stoch RSI aşağı kesişim (`gradeStoch5m`, açık; yalnız son kapanmış 5dk mumda, K/D ≥ 80 bölgesinden; kesişimden sonraki ilk 5dk mum kapanışında kalkar) — 7 şart, en fazla 4. **🚀 Kaçak pompa** (1s RSI ≥ 88 ya da 4s RSI ≥ `gradeRsi4hMax` 80):
 en fazla `gradeRunawayMax` (2) daire — bu durumda tepe çoğu zaman sürdü (60 dk sonra %27–39 aşağıda, önce medyan +%11–12).
 Direnç yoksa (fiyat keşfi) en fazla `gradeNoLevelMax` (3) daire. Kartta ek etiket yok: kaçak pompa, 3dk/5dk RSI ≥ 95 (`🔥`, tek başına sonucu
 ayırmadığı için dereceye girmez) ve son 15 dk yönü (▲/▼) yalnız Detay'ın 🏅 Derece bölümünde. Bu kurallarla aynı veride: 🔴 %14 · 🔴🔴 %29 · 🔴🔴🔴 %63 · 🔴🔴🔴🔴 %82 aşağıda
@@ -57,7 +57,9 @@ Aynı veride 3m/5m RSI eşikleri, tetik TF'si, günlük/çakışan direnç, nega
 (kontrol listesi skoru 3 → %47). Veri iki günlük; yeni dışa aktarmayla yeniden bakılmalı.
 **`gradeBy = liste`** eski hesap: kontrol listesi puanı 🔴 0–2 · 🔴🔴 3–4 · 🔴🔴🔴 5–6 · 🔴🔴🔴🔴 7+
 (`grade2Min` / `grade3Min` / `grade4Min`, `/ayarlar` → Derece). 🔴🔴🔴 ve 🔴🔴🔴🔴 sesli (kart sesi kapalıyken bile) ve `/konu kart3`'e gider.
-Eşikler `/ayarlar → 🏅 Derece ve kontrol listesi`: `gradeBy`, `gradeRsi1h`, `gradeRsi15m`, `strongRsi`, `rsiEntryMax`, `confRsi`, `confluencePct`, `sepPct2/5/10`, `grade2Min`, `grade3Min`, `grade4Min`.
+**Derece sürümü (24.11.2026, `gradeVer = 2`):** üç şart (3dk RSI ≥ 95, MACD 5m, Stoch 5m) eklendi ve `sepPct2` 2 → 3 oldu (kullanıcı kararları). Kart derecesi bu yüzden eskisinden yüksek çıkabilir; "derece önceki en yükseği geçerse yeni kart" kuralı yeni dereceyle çalıştığından kart ve sesli kart (🔴🔴🔴 ve üstü) sayısı DEĞİŞEBİLİR (önceden tahmin edilmedi). `sepRequired` açıksa `sepPct2` kart filtresini de sıkılaştırır. `kartlar.csv` ve `tepeler.csv`: `grade` = o anki kart derecesi (yeni formül, `gradeVer` 2; eski haftalarda `gradeVer` boş = eski formül). Karşılaştırma için sonda (bu sırayla) `gradeOld` (3dk RSI / MACD / Stoch şartsız eski formülle aynı anın derecesi; ayrışma eşiği güncel `sepPct2`; yalnız kayıt, kart metni/ses/seri yeni dereceyi kullanır), `g_sep`, `g_h1`, `g_r15`, `g_atr`, `g_macd`, `g_stoch`, `g_rsi3hi`, `g_runaway` (0/1), `cfgGradeRsi15m`, `cfgGradeAtr5Pct`, `cfgGradeMacd5m`, `cfgGradeStoch5m`, `cfgSepPct2`, `cfgGradeRsi3m` (kayıt anındaki ayar) ve `gradeVer`. Haftalık MD'de eski derece dağılımı satırı ve kurulum tablosunda "MACD 5m zayıf" / "Stoch 5m aşağı" / "3dk RSI ≥ 95" grupları (3dk grubu eşiği `gradeRsi3m`); `/teyit`'te aynı üç aday. Kurulum tablosu bellek: aday başına +1 bayt (grup maskesi Uint16).
+
+Eşikler `/ayarlar → 🏅 Derece ve kontrol listesi`: `gradeBy`, `gradeRsi1h`, `gradeRsi15m`, `gradeRsi3m`, `gradeMacd5m`, `gradeStoch5m`, `strongRsi`, `rsiEntryMax`, `confRsi`, `confluencePct`, `sepPct2/5/10`, `grade2Min`, `grade3Min`, `grade4Min`.
 Hacim/⚡ daireleri: 1 temel · 2 hacim ≥ 3× · 3 + yön uyumu ≥ %65; renk yönü gösterir (🟢 alış/yükseliş · 🔴 satış/düşüş · ⚪ nötr).
 
 **Seri içinde yeni kart:** bir coinde ilk karttan sonra seri sürerken (kapanmış 15m RSI 75'in altına
@@ -113,7 +115,7 @@ başlatmamış kullanıcıda buton botla özel sohbeti açar (bir kez **Başlat*
 - 📋 başlık — coin · kart no · saat · fiyat
 - 🆕 **Son karttan beri** (ilk kartta **Durum**) — kartta görünmeyen yenilikler: RSI eşik geçişleri, derece değişimi, negatif tepe,
   MACD/Stoch kesişimi, yeni / kırılan direnç. Seri içinde atlanan kapanışların değişiklikleri de burada birikir
-- 🏅 **Derece x/4** — her şart kendi satırında, değeriyle: `✅ EMA21 ayrışma: 3dk +%3.1 · 5dk +%4.2 (≥ %2)` · `✅ 1s RSI 84.9 (80–88)` ·
+- 🏅 **Derece x/4** — her şart kendi satırında, değeriyle: `✅ EMA21 ayrışma: 3dk +%3.1 · 5dk +%4.2 (≥ %3)` · `✅ 1s RSI 84.9 (80–88)` ·
   `✅ 15dk RSI 94.5 (≥ 85)` · `▫️ 5dk ATR %0.85 (≥ %1.2)`; tavan varsa başlıkta (kaçak pompa / direnç yok), kaçak pompada 🚀 satırı
 - 📈 **Momentum** — son 15 dk yön (▲/▼), 🔥 3dk/5dk RSI ≥ 95, MACD 3/5/15dk, 5dk Stoch RSI, negatif tepe sayısı, 3dk EMA21 durumu
   (izliyor / koptu / serbest), günlük VWAP uzaklığı
@@ -281,7 +283,7 @@ Haftalık rapor zip'ine kapsamdaki (`t < cutoff`) tüm yollar girer; `/disaaktar
 - `contSkipped` — bu kayıttan önce, son kayıttan beri `sampleGapMin` seyreltmesiyle kaydedilmeden atlanan "devam" adayı sayısı
 - `rsi15c`, `rsi1hc`, `rsi4hc` — 15dk / 1s / 4s RSI, yalnız KAPANMIŞ mumlarla (`rsi15`, `rsi1h`, `rsi4h` kısmi mumludur)
 - `rsi3c`, `rsi5c` — 3dk / 5dk RSI, yalnız KAPANMIŞ mumlarla; `sep3c`, `sep5c` — EMA21 ayrışması (%), son KAPANMIŞ 3dk / 5dk mum kapanışı ve kapanmış mumlarla EMA21'e göre (`sep3`, `sep5` canlı fiyatlı ve kısmi mumludur)
-- `cfgPeakWindowMin`, `cfgSampleGapMin`, `cfgVer` — kayıt anındaki tepe penceresi (dk), devam örnekleme aralığı (dk) ve `package.json` sürümü
+- `cfgPeakWindowMin`, `cfgSampleGapMin`, `cfgVer` — kayıt anındaki tepe penceresi (dk), devam örnekleme aralığı (dk) ve kayıt sürümü (`eventLog.js` içindeki elle artırılan `DATA_VER`, ör. `2026.11.24-3`; kayıt ya da derece davranışı değişince artırılır; eskiden `package.json` sürümüydü ve hep `1.0.0` idi)
 - `dropC15` — 1: tepeden sonraki 15 dk içinde fiyat GİRİŞ KAPANIŞININ (`price` sütunu; `peak` sütunu tepe high'ıdır) `cfgDropPct` altına indi (sıra fark etmez); 0: inmedi; pencere eksikse boş. `lowC15` (15 dk en düşük) ve `closeC60` (60 dk kapanış): giriş kapanışına göre %. `outcome` (düştü/devam/yatay) TEPE high'ından ve ilk eşikle ölçülür; giriş kapanışından ölçü için dropC15/lowC15/closeC60.
 - `incTf`, `inc5`, `inc15` — eksik 1m ile kapanmış mum işareti: `incTf` son 14 KAPANMIŞ mumunda eksik mum bulunan TF'ler (`3m|5m|15m|1h|4h`, yoksa boş); `inc5` / `inc15` 5dk / 15dk'da son 14 mumdaki eksik sayısı. Eksik = veri boşluğunda (bazı 1dk mumlar hiç gelmedi) üst TF mumu beklenenden az 1dk ile kapandı. Göstergeler aynı hesaplanır, yalnız işaretlenir; seed (REST) mumları tam sayılır
 - `lvZoneHiN`, `lvZoneLoN` — tepe anındaki en yakın seviye (`pkLv`) bölge ise bölgedeki tepe pivotu / dip pivotu sayısı (toplam = bölgedeki pivot sayısı, kartın bölge "N temas" sayısıyla aynı tanım; `pkLvTouches` ise 4s mum temas sayısıdır, farklıdır; kart seviyesinden (`lvName`) farklı seviye olabilir); destek-direnç karışmasını ölçmek için, kural değişmedi; bölge değilse boş
@@ -301,7 +303,7 @@ haftalık rapor veritabanını **parça parça** okur (100 satır, araya olay d�
 
 **Haftalık rapor belgesi:** Pazartesi 03:01'de gruba tek belge gider: `veri-<yıl>-H<hafta>.zip`; içinde `haftalik-<yıl>-H<hafta>.md` (özet + olay listesi) ve CSV'ler (`kartlar`, `temaslar`, `tepeler`, varsa `yollar`). Çok büyük haftada zip parçalara bölünür (Telegram 50 MB sınırı; `veri-…-1.zip`, `-2.zip`…; MD özeti en son hazırlandığı için son parçadadır). Silme akışı aynı: hepsi gittikten sonra.
 
-**Haftalık rapor "Kurulum tablosu"** (`src/setupTable.js`, "Teyit adayları"ndan sonra): tepe adayları aynı sembolde adaylar arası < 60 dk ise tek pompa sayılır; her grupta (tüm pompalar · pompa ≥ %5 · EMA21 ayrışma · 1s RSI bandı · 15dk RSI · bu 3 şarttan ≥ 2 · 3dk hacim ≥ 10 kat) pompa başına gruba uyan İLK aday alınır. Ölçüler 1dk kapanıştan (giriş): n pompa, "60 dk sonra aşağıda" %, "60 dk sonra ≤ −%1" % (düşüşün büyüklüğü), medyan 60 dk, "15 dk içinde −%1,5" %, kapsamın ilk / ikinci yarısı ayrı "aşağıda" %. Eşikler ayardan (`sepPct2` 2, `gradeRsi1h` 80, `gradeRsi1hMax` 88, `gradeRsi15m` 85). n < 20 satır "(az örnek)"; 60 dk sonucu olmayan (eksik takip) aday ölçüye girmez, sayısı tablonun altında yazılır. Bu tablo "ilk eşleşen aday"dır. İkinci tablo "Pompanın ilk adayı (grup şartı pompanın ilk anında)": her pompada yalnız ilk aday alınır ve grup şartı o adayda sınanır (şart sağlanmıyorsa pompa o gruba girmez); böylece grup ve taban aynı anı ölçer, aynı sütunlar. Alt notta örnek küçükse ± güven aralığı uyarısı vardır (n=100'de ±10 puan, %95; sütun eklenmez). Yalnız ölçümdür; kural önerisi değildir. Bellek: aday başına ~21 bayt (ek ölçü yok, ≤ −%1 mevcut close60'tan hesaplanır) (haftada ~45 bin aday ≈ 1 MB).
+**Haftalık rapor "Kurulum tablosu"** (`src/setupTable.js`, "Teyit adayları"ndan sonra): tepe adayları aynı sembolde adaylar arası < 60 dk ise tek pompa sayılır; her grupta (tüm pompalar · pompa ≥ %5 · EMA21 ayrışma · 1s RSI bandı · 15dk RSI · bu 3 şarttan ≥ 2 · 3dk hacim ≥ 10 kat) pompa başına gruba uyan İLK aday alınır. Ölçüler 1dk kapanıştan (giriş): n pompa, "60 dk sonra aşağıda" %, "60 dk sonra ≤ −%1" % (düşüşün büyüklüğü), medyan 60 dk, "15 dk içinde −%1,5" %, kapsamın ilk / ikinci yarısı ayrı "aşağıda" %. Eşikler ayardan (`sepPct2` 3, `gradeRsi1h` 80, `gradeRsi1hMax` 88, `gradeRsi15m` 85). n < 20 satır "(az örnek)"; 60 dk sonucu olmayan (eksik takip) aday ölçüye girmez, sayısı tablonun altında yazılır. Bu tablo "ilk eşleşen aday"dır. İkinci tablo "Pompanın ilk adayı (grup şartı pompanın ilk anında)": her pompada yalnız ilk aday alınır ve grup şartı o adayda sınanır (şart sağlanmıyorsa pompa o gruba girmez); böylece grup ve taban aynı anı ölçer, aynı sütunlar. Alt notta örnek küçükse ± güven aralığı uyarısı vardır (n=100'de ±10 puan, %95; sütun eklenmez). Yalnız ölçümdür; kural önerisi değildir. Bellek: aday başına ~21 bayt (ek ölçü yok, ≤ −%1 mevcut close60'tan hesaplanır) (haftada ~45 bin aday ≈ 1 MB).
 
 Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı konularına** gönderilebilir.
 1. Grup ayarları → **Konular**'ı aç (grup süpergrup olmalı; ID çoğunlukla değişmez). Yeni bir grup kullanacaksan
