@@ -141,8 +141,9 @@ function checklist(snap, s) {
   const band = ['3m', '5m'].filter(tf => inBand(r[tf].v));
   const over = ['3m', '5m'].filter(tf => r[tf].v > s.rsiEntryMax);
 
-  // Yalnız EMA21'in ÜSTÜNDEKİ ayrışma puan alır (short kurulumu: fiyat EMA21'den yukarı kopmuş); altındaysa 0
-  const sepPct = Math.max(0, snap.sepPct?.['3m'] ?? 0, snap.sepPct?.['5m'] ?? 0);
+  // Yalnız EMA21'in ÜSTÜNDEKİ ayrışma puan alır (short kurulumu: fiyat EMA21'den yukarı kopmuş); altındaysa 0.
+  // Derece (snap.sepOk) 3m VE 5m'nin ikisini de ister; liste de aynı: ikisinin küçüğü (biri yoksa 0).
+  const sepPct = Math.max(0, Math.min(snap.sepPct?.['3m'] ?? 0, snap.sepPct?.['5m'] ?? 0));
   let sepPts = 0;
   let sepTxt = 'yok';
   if (sepPct >= (s.sepPct10 ?? 10)) { sepPts = 3; sepTxt = `≥%${s.sepPct10 ?? 10} (${sepPct.toFixed(1)}%)`; }

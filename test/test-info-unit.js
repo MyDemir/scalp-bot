@@ -71,7 +71,7 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   // Kontrol listesi → derece
   const rsi = (a, b, c) => ({ '3m': { v: a }, '5m': { v: b }, '15m': { v: c } });
   const base = { price: 100, hits: 3, levels: [{ name: '1d MA200', value: 100.3, dist: -0.3 }, { name: '30 günlük tepe', value: 100.5, dist: -0.5 }, { name: '4h EMA200', value: 105, dist: -4.8 }],
-    level: { name: '1d MA200', value: 100.3, dist: -0.3, zone: 'dip' }, sepPct: { '3m': 6, '5m': 3 },
+    level: { name: '1d MA200', value: 100.3, dist: -0.3, zone: 'dip' }, sepPct: { '3m': 6, '5m': 5.5 },
     macd: { '3m': { cross: 'down' }, '5m': null }, conf: { h1: 85, h4: 82 }, neg: { '1m': { count: 2 }, '3m': { count: 0 } } };
   let ck = eng.checklist({ ...base, rsi: rsi(96, 96, 96) }, g);
   assert.strictEqual(ck.score, 10, JSON.stringify(ck.items.filter(x => !x.ok)));          // 8 madde × 1 + EMA %5 (2 puan) + MACD; toplam 9 madde
@@ -80,8 +80,17 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   // EMA21 ayrışma yalnız ÜSTTE puan alır: fiyat EMA21'in %12 altındaysa 0 puan
   ck = eng.checklist({ ...base, rsi: rsi(96, 96, 96), sepPct: { '3m': -12, '5m': -11 } }, g);
   assert(!ck.items.find(x => x.key === 'sep').ok && ck.score === 8, 'EMA altı puan almamalı: ' + ck.score);
-  ck = eng.checklist({ ...base, rsi: rsi(96, 96, 96), sepPct: { '3m': 10.5, '5m': 1 } }, g);
-  assert.strictEqual(ck.items.find(x => x.key === 'sep').pts, 3);                         // ≥ %10 → 3 puan
+  ck = eng.checklist({ ...base, rsi: rsi(96, 96, 96), sepPct: { '3m': 10.5, '5m': 10.2 } }, g);
+  assert.strictEqual(ck.items.find(x => x.key === 'sep').pts, 3);                         // ikisi de ≥ %10 → 3 puan
+  // K7: liste dereceyle hizalı — 3m ve 5m'nin KÜÇÜĞÜ puanlanır (eskisi büyüğü)
+  ck = eng.checklist({ ...base, rsi: rsi(96, 96, 96), sepPct: { '3m': 6, '5m': 1 } }, g);
+  assert.strictEqual(ck.items.find(x => x.key === 'sep').pts, 0, 'sep3=6, sep5=1 → 0 puan (eskisi 2)');
+  assert.strictEqual(ck.items.find(x => x.key === 'sep').text, 'EMA21 % ayrışma yok');
+  ck = eng.checklist({ ...base, rsi: rsi(96, 96, 96), sepPct: { '3m': 6, '5m': 5.5 } }, g);
+  assert.strictEqual(ck.items.find(x => x.key === 'sep').pts, 2, 'sep3=6, sep5=5.5 → 2 puan');
+  assert(ck.items.find(x => x.key === 'sep').text.includes('(5.5%)'), 'metin yeni değeri (küçük) gösterir');
+  ck = eng.checklist({ ...base, rsi: rsi(96, 96, 96), sepPct: { '3m': 6 } }, g);
+  assert.strictEqual(ck.items.find(x => x.key === 'sep').pts, 0, '5m yoksa 0');
   ck = eng.checklist({ ...base, rsi: rsi(99, 91, 88), sepPct: { '3m': 0.5, '5m': 0.2 }, macd: {}, conf: { h1: 85, h4: 60 }, neg: { '1m': { count: 1 }, '3m': { count: 0 } } }, g);
   assert(ck.items[2].ok && ck.items[2].text.includes('95–100'));                           // RSI bandı 95–100
   assert(ck.warn && ck.warn.includes('EMA21'));
