@@ -56,6 +56,32 @@ assert.deepStrictEqual([all.n1, all.n2, all.h1, all.h2], [1, 1, 100, 0]);
   assert.strictEqual(q['EMA21 ayrışma'].n, 0); assert.strictEqual(q['1s RSI bandı'].n, 0); assert.strictEqual(q['Bu 3 şarttan ≥ 2'].n, 0);
 }
 
+// (a) ≤ −%1 sütunu: peak = giriş = 100 → close60 değeri doğrudan kapanıştan %. −0,5 aşağıda ama ≤ −1 değil; −1,0 ve −3 ≤ −1; +2 yukarıda
+{
+  const a3 = createSetupAcc({ s: {} });
+  [[-0.5, 0], [-1, 100], [-3, 200], [2, 300]].forEach(([c, tm], k) => a3.add(mk(`X${k}USDT`, tm, { ...base }, o(0, c), 100)));
+  const r = a3.stats().rows[0];
+  assert.strictEqual(r.n, 4);
+  assert.strictEqual(r.below60, 75, 'aşağıda: -0,5, -1, -3');
+  assert.strictEqual(r.le1, 50, '≤ -1: yalnız -1 ve -3 (−0,5 değil)');
+  assert(a3.text().includes('60 dk sonra ≤ −%1'));
+}
+
+// (b) İlk aday tablosu: pompanın ilk adayı şartı sağlamıyorsa pompa o gruba girmez; ilk eşleşen tablosunda girer
+{
+  const a4 = createSetupAcc({ s: {} });
+  a4.add(mk('PUSDT', 0, { ...base, pumpPct: 2 }, o(0, -10)));                 // ilk aday: pompa < 5
+  a4.add(mk('PUSDT', 10, { ...base, pumpPct: 8 }, o(0, -10)));                // sonraki aday: pompa ≥ 5
+  a4.add(mk('QUSDT', 500, { ...base, pumpPct: 9 }, o(0, 10)));                // ilk aday şartı sağlıyor
+  const st4 = a4.stats(), g = 1;
+  assert.strictEqual(st4.rows[g].n, 2, 'ilk eşleşen: PUSDT (2. aday) + QUSDT');
+  assert.strictEqual(st4.rows2[g].n, 1, 'ilk aday: yalnız QUSDT; PUSDT ilk adayı şartı sağlamadı');
+  assert.strictEqual(st4.rows2[0].n, 2, 'Tüm pompalar iki tabloda aynı');
+  assert.strictEqual(st4.rows2[g].below60, 0);
+  const t4 = a4.text();
+  assert(t4.includes('### Pompanın ilk adayı (grup şartı pompanın ilk anında)') && t4.includes('(ilk eşleşen aday)') && t4.includes('tesadüf olabilir'));
+}
+
 const txt = acc.text();
 assert(txt.includes('Nasıl okunur') && txt.includes('(az örnek)') && txt.includes('Eksik takip') && txt.includes('Tüm pompalar'));
 assert(!/(^|[^\p{L}])(al|sat)(?![\p{L}])/iu.test(txt.replace(/Nasıl okunur.*\n/, '')), 'al/sat ifadesi yok');
