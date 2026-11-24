@@ -35,6 +35,7 @@ assert.deepStrictEqual(w.files.map(f => f.name), ['haftalik-2026-H40.md', 'veri-
 const Z = unzip(w.files[1].buf);
 assert.deepStrictEqual(Object.keys(Z).sort(), ['kartlar.csv', 'temaslar.csv', 'tepeler.csv']);
 assert(w.md.includes('## Teyit adayları'), 'MD teyit bölümü');
+assert(w.md.indexOf('## Kurulum tablosu (pompa başına ilk aday, giriş 1dk kapanış)') > w.md.indexOf('## Teyit adayları') && w.md.includes('Nasıl okunur'), 'MD kurulum tablosu teyitten sonra');
 assert(w.md.includes('# Haftalık istatistik — 2026-H40') && w.md.includes('## Düşüşler (1)') && w.md.includes('**BUSDT**') && w.md.includes('tepki: Günlük VWAP +2σ') && w.md.includes('dip −%3.1 (18 dk) 15dk EMA21') && w.md.includes('kart ❌ eksik: seviye'));
 assert(w.md.includes('## Kartlar (1)') && w.md.includes('**AUSDT** #1 derece 3'));
 const dcsv = Z['tepeler.csv'];

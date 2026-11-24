@@ -278,6 +278,8 @@ haftalık rapor veritabanını **parça parça** okur (100 satır, araya olay d�
 özetler sayaçlarla hesaplanır, `/kacan` yalnız "düştü"leri rapor alanlarıyla tutar. Bu raporlardan aynı anda yalnız biri çalışır. Backtest de aynı defteri hesaplar
 (`backtest-results/tepeler-*.csv`, gruba rapor + teyit tablosu).
 
+**Haftalık rapor "Kurulum tablosu"** (`src/setupTable.js`, "Teyit adayları"ndan sonra): tepe adayları aynı sembolde adaylar arası < 60 dk ise tek pompa sayılır; her grupta (tüm pompalar · pompa ≥ %5 · EMA21 ayrışma · 1s RSI bandı · 15dk RSI · bu 3 şarttan ≥ 2 · 3dk hacim ≥ 10 kat) pompa başına gruba uyan İLK aday alınır. Ölçüler 1dk kapanıştan (giriş): n pompa, "60 dk sonra aşağıda" %, medyan 60 dk, "15 dk içinde −%1,5" %, kapsamın ilk / ikinci yarısı ayrı "aşağıda" %. Eşikler ayardan (`sepPct2` 2, `gradeRsi1h` 80, `gradeRsi1hMax` 88, `gradeRsi15m` 85). n < 20 satır "(az örnek)"; 60 dk sonucu olmayan (eksik takip) aday ölçüye girmez, sayısı tablonun altında yazılır. Yalnız ölçümdür; kural önerisi değildir. Bellek: aday başına ~21 bayt (haftada ~45 bin aday ≈ 1 MB).
+
 Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı konularına** gönderilebilir.
 1. Grup ayarları → **Konular**'ı aç (grup süpergrup olmalı; ID çoğunlukla değişmez). Yeni bir grup kullanacaksan
    botu ekle, gruba bir komut yaz ve `fly logs`'ta `Tanımsız sohbetten mesaj yok sayıldı: … ID -100…` satırındaki

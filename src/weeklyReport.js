@@ -22,6 +22,7 @@
 const fs = require('fs');
 const path = require('path');
 const { rowToStat, rowToTouch } = require('./cardStore');
+const { createSetupAcc } = require('./setupTable');
 const { flatDrop, dropCols, dropText, teyitText, createTeyitAcc, slimDrop, csvLine, csvHeader } = require('./eventLog');
 const { createZipSet } = require('./zipWriter');
 const { touchText } = require('./infoStats');
@@ -132,6 +133,7 @@ async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = n
   // Tepe adayları: parça parça oku → CSV satırı zip'e, teyit sayaçları, "düştü"ler sade biçimde (rapor alanları)
   const acc = createTeyitAcc();
   if (E.dropPct) acc.setDropPct(E.dropPct);
+  const setup = createSetupAcc({ s });
   const drops = [];
   const dcols = dropCols(), te = zip.entry('tepeler.csv', csvHeader(dcols));
   if (store.forEachEvent) {
@@ -139,6 +141,7 @@ async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = n
       counts.peaks++;
       if (r.t < from) from = r.t;
       acc.add(r);
+      setup.add(r);
       if ((r.outcome || 'düştü') === 'düştü') { counts.drops++; drops.push(slimDrop(r)); }
       await te.write(csvLine(flatDrop(r), dcols));
     });
@@ -167,6 +170,9 @@ async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = n
     '```',
     plain(teyitText(acc, { title: `${counts.peaks} tepe adayı`, E })),
     '```',
+    '',
+    '## Kurulum tablosu (pompa başına ilk aday, giriş 1dk kapanış)',
+    setup.text(),
     '',
     '## Seviye tepkisi (özet)',
     '```',
