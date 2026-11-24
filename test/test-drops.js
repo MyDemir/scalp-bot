@@ -459,14 +459,16 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   ok(`Derece 2: tepe ve kart kaydı dolu, kartlar.csv/tepeler.csv 16 kolon sonda (karışık hafta, başlık aynı), /disaaktar sırası aynı, MD gradeOld + kurulum grupları, /teyit en kötü ${worst.length} karakter`);
 }
 
-// ── kolon sırası: ilk satırda olmayan anahtar sonra çıksa da derece kolonları son 16 ──
+// ── kolon sırası: ilk satırda olmayan anahtar sonra çıksa da filtre dışı 4 + derece 16 kolon son 20 ──
 {
-  const { colsOf, GRADE_COLS: GCs } = require('../src/exportData');
-  const rows = [{ symbol: 'A', gradeOld: 1, gradeVer: 2, g_sep: 1 }, { symbol: 'B', level: 5, gradeOld: 1, burst: 2 }];
+  const { colsOf, GRADE_COLS: GCs, BYPASS_COLS: BCs } = require('../src/exportData');
+  assert.deepStrictEqual(BCs, ['snapOk', 'snapFails', 'filterBypass', 'bypassBy']);
+  const rows = [{ symbol: 'A', gradeOld: 1, gradeVer: 2, g_sep: 1 }, { symbol: 'B', level: 5, gradeOld: 1, burst: 2, filterBypass: 1 }];
   const c = colsOf(rows);
   assert.deepStrictEqual(c.slice(-16), GCs, 'derece kolonları son 16');
-  assert.deepStrictEqual(c.slice(0, -16), ['symbol', 'level', 'burst'], 'diğer kolonlar ilk görülme sırasıyla');
-  ok('kolon sırası: derece kolonları hep sonda');
+  assert.deepStrictEqual(c.slice(-20, -16), BCs, 'filtre dışı 4 kolon GRADE_COLS\'tan önce');
+  assert.deepStrictEqual(c.slice(0, -20), ['symbol', 'level', 'burst'], 'diğer kolonlar ilk görülme sırasıyla');
+  ok('kolon sırası: filtre dışı 4 kolon + derece kolonları hep sonda');
 }
 
 console.log('\n' + R.join('\n'));

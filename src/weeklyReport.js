@@ -160,6 +160,11 @@ async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = n
   const grade = g => cards.filter(c => c.grade === g).length;
   const gradeOld = g => cards.filter(c => c.gradeOld === g).length;
   const oldN = cards.filter(c => c.gradeOld != null).length;
+  const byp = cards.filter(c => c.filterBypass === 1);
+  const bypBy = k => byp.filter(c => c.bypassBy === k).length;
+  const bypFull = byp.filter(c => c.fwd?.[60]?.close != null && c.fwd[60].full !== false);
+  const bypDown = bypFull.filter(c => c.fwd[60].close < 0).length;
+  const bypLine = `Filtre dışı kart: ${byp.length} (SFP ${bypBy('sfp')} · patlama ${bypBy('burst')} · hareket ${bypBy('move')}); 60 dk sonra aşağı ${bypFull.length ? '%' + (bypDown / bypFull.length * 100).toFixed(0) : '—'} (${bypFull.length})`;
   const oc = { düştü: counts.drops, devam: acc.oc('devam'), yatay: acc.oc('yatay') };
   const md = [
     `# Haftalık istatistik — ${label}`,
@@ -171,6 +176,7 @@ async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = n
     '## Kartlar',
     `Derece: 🔴 ${grade(1)} · 🔴🔴 ${grade(2)} · 🔴🔴🔴 ${grade(3)} · 🔴🔴🔴🔴 ${grade(4)}`,
     oldN ? `Eski derece (MACD 5m, Stoch 5m ve 3dk RSI şartsız, gradeOld; ${oldN} kart): 🔴 ${gradeOld(1)} · 🔴🔴 ${gradeOld(2)} · 🔴🔴🔴 ${gradeOld(3)} · 🔴🔴🔴🔴 ${gradeOld(4)}` : null,
+    bypLine,
     '',
     '## Düşüş defteri (özet)',
     '```',
@@ -211,6 +217,7 @@ async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = n
     '- temaslar.csv: lvTouches = seviyenin önceki ~100 günde (4s mumlar) kaç ayrı kez test edildiği · kartlar.csv: level_touches',
     '- tepeler.csv doğruluk sütunları (sonda): sameBar, cardWhen, contSkipped, rsi15c/rsi1hc/rsi4hc/rsi3c/rsi5c (kapanmış mumlu RSI), sep3c/sep5c, cfg* (kayıt anı ayarı; cfgVer = package.json sürümü; dataVer = el ile artırılan kayıt/derece sürümü), wick_/clv_ 5mc/15mc, bar5Pct/bar15Pct, volPeakXc (tepe 1dk hacmi / pompa süresindeki mumların ortalaması; payda gerçek mum sayısı), miss60, futQ60t/spotQ60/spotShare60t, dropC15/lowC15/closeC60 (girişe göre), incTf/inc5/inc15 (eksik 1m\'li mum), lvZoneHiN/lvZoneLoN, pkLvTouchUp/pkLvTouchDn',
     '- Derece alanları (tepeler.csv sonda; kartlar.csv son 16 kolon): grade = o anki kart derecesi (gradeVer 2: 1 + ayrışma + 1s + 15dk + ATR + MACD 5m + Stoch 5m + 3dk RSI), gradeOld = MACD/Stoch/3dk RSI şartsız eski formül (ayrışma eşiği güncel), g_sep/g_h1/g_r15/g_atr/g_macd/g_stoch/g_rsi3hi/g_runaway (0/1), cfgGradeRsi15m/cfgGradeAtr5Pct/cfgGradeMacd5m/cfgGradeStoch5m/cfgSepPct2/cfgGradeRsi3m (o andaki ayar). Eski satırlarda boş',
+    '- Filtre dışı kart (kartlar.csv; mevcut kolonlardan sonra, derece alanlarından önce): snapOk (0/1: kart anında zorunlu filtreler sağlandı mı), snapFails (sağlanmayan şartlar, | ile), filterBypass (1: kart snapOk=0 iken SFP / seri patlaması / hareket yüzünden çıktı), bypassBy (sfp | burst | move). Yalnız kayıt, kural değişmedi; eski satırlarda boş. MD satırındaki "aşağı" = 60 dk kapanış < 0 (tam pencereli kartlar, n parantezde)',
     '- temaslar.csv: pb0, belowMin (sonda)',
     '- Kart şartı: rsiOk, hits, ok, fails (rsi|seviye…), score, checkOk · sonrası: low/high/close 5, 15, 30, 60, 240 (tepeye göre %)',
     '',

@@ -371,4 +371,36 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   for (const tf of ['3m', '5m', '15m']) { const g = BT.d[tf], l = LIVE.d[tf], n = g.t.length; assert.deepStrictEqual(g.t.slice(-100), l.t.slice(-100)); assert(near(g.c[n - 5], oracle(0, N - 1, g.t[n - 5], TF_MS[tf]).c)); }
   ok(`K33 look-ahead: ${nClosed} üst TF kapanışı ve ${nPart} kısmi mum, t'ye kadarki 1m'lerden toplananla birebir (sonraki 1m'ler katılmıyor); canlı ve backtest yolu ${cmp} ölçümde rsi/ema/macd aynı; gelecek mum bozulunca t anı değişmiyor`);
 }
+
+// ── K17: filtre dışı kart kaydı (SFP kartı snap.ok=false iken de çıkar; kural değişmedi, yalnız kayıt) ──
+{
+  const { gen, agg } = require('./gen'); const { compact } = require(`${REPO}/src/infoStats`);
+  const D = 1440, start = Date.UTC(2026, 0, 1), pumpAt = 41 * D;
+  const m1 = gen({ seed: 21, days: 42, start, p0: 100, pumps: [{ at: pumpAt, len: 400, rate: 0.0011, vol: 3, dumpLen: 0 }] });
+  const T0 = start + (pumpAt - 60) * MIN;
+  const run = sx => {
+    const S = new Series('SFPUSDT');
+    for (const [tf, m] of Object.entries({ '1d': 1440, '4h': 240, '1h': 60, '15m': 15, '5m': 5, '3m': 3 })) S.seed(tf, agg(m1, m * MIN, T0));
+    S.seed('1m', m1.filter(c => c.t < T0).slice(-240));
+    const tr = eng.createTracker(); const cards = []; let armed = false;
+    for (const c of m1.filter(c => c.t >= T0)) {
+      const closed = S.apply1m({ ...c, closed: true });
+      // izlenen seviye elle kurulur: 5m kapanışta fiyatın %1 üstündeki seviyenin altında kapanış → SFP
+      if (closed.has('5m') && c.t - T0 > 200 * MIN && !armed) { tr.sfpWatch('SFPUSDT').set('x', { name: '30 günlük tepe', value: S.price() * 1.01, kind: 'major', t: c.t, left: 5 }); armed = true; }
+      const card = eng.step(S, closed, sx, tr, {}); if (card) cards.push(card);
+    }
+    return cards;
+  };
+  // normal: tüm filtreler sağlanıyor → bypass 0
+  const norm = run({ ...cfg.info }).find(c => c.trig.sfp);
+  assert(norm && norm.snap.ok === true, 'normal SFP kartı snap.ok=true');
+  assert.strictEqual(norm.snapOk, 1); assert.strictEqual(norm.filterBypass, 0); assert.strictEqual(norm.bypassBy, ''); assert.strictEqual(norm.snapFails, '');
+  // ayrışma zorunlu ve imkansız → snap.ok=false, yine de SFP kartı çıkar → bypass 1
+  const byp = run({ ...cfg.info, sepRequired: true, sepPct2: 99 }).find(c => c.trig.sfp);
+  assert(byp && byp.snap.ok === false, 'SFP kartı snap.ok=false iken çıkmalı');
+  assert.strictEqual(byp.snapOk, 0); assert.strictEqual(byp.filterBypass, 1); assert.strictEqual(byp.bypassBy, 'sfp'); assert.strictEqual(byp.snapFails, 'ayrışma');
+  const cp = compact(byp); assert(cp.snapOk === 0 && cp.filterBypass === 1 && cp.bypassBy === 'sfp' && cp.snapFails === 'ayrışma', 'compact alanları taşır');
+  const cn = compact(norm); assert(cn.snapOk === 1 && cn.filterBypass === 0 && cn.bypassBy === '', 'compact normal kart');
+  ok('K17: SFP kartı snap.ok=false iken çıkınca filterBypass=1, bypassBy=sfp, snapFails=ayrışma; normal kartta 0 / boş; compact() alanları taşır');
+}
 console.log(R.join('\n'));
