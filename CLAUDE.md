@@ -125,8 +125,8 @@ info-bt`.
   `scalp-bot`, workflow `--app` ile ezer).
 - Bellek dar: tüm USDT perpetual evreni tek süreçte tutulur. Coin başına
   dizi, önbellek ya da kuyruk ekleyen değişiklikte bellek etkisi
-  raporlanır. Node heap sınırı (`--max-old-space-size`) şu an
-  `fly.toml`/`Dockerfile`'da ayarlı değil; eklemek onay kapısıdır.
+  raporlanır. Node heap sınırı `fly.toml`'da
+  `NODE_OPTIONS = '--max-old-space-size=320'`; değiştirmek onay kapısıdır.
 - Saatler kullanıcıya TSİ (Europe/Istanbul, `DISPLAY_TZ`) yazılır.
   Haftalık rapor her Pazartesi 03:01 TSİ gruba gider, ardından ilgili
   kayıtlar veritabanından **silinir** (`src/weeklyReport.js`).
