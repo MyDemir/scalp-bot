@@ -34,6 +34,33 @@ const ENRICH_COLS = ['oiChg15', 'oiChg60', 'oiUsd', 'lsTopAcc', 'lsTopPos', 'lsG
 const LIQ_COLS = ['liqShort15', 'liqLong15', 'liqShort60', 'liqLong60', 'liqShortPct15'];
 
 /**
+ * openInterestHist 5m satırlarından (eskiden yeniye, son satır t'ye kadarki son nokta; canlıda 13 nokta)
+ * tepe kaydı OI alanları. Canlı enrich ve backtest ortak kullanır (aynı hesap).
+ * @returns {{oiChg15:?number, oiChg60:?number, oiUsd:?number}}  4 noktadan azsa hepsi null
+ */
+function oiFields(rows) {
+  const out = { oiChg15: null, oiChg60: null, oiUsd: null };
+  if (Array.isArray(rows) && rows.length >= 4) {
+    const v = rows.map(r => parseFloat(r.sumOpenInterest));
+    const n = v.length;
+    out.oiChg15 = v[n - 4] > 0 ? num((v[n - 1] / v[n - 4] - 1) * 100) : null;
+    out.oiChg60 = v[0] > 0 ? num((v[n - 1] / v[0] - 1) * 100) : null;
+    out.oiUsd = num(parseFloat(rows[n - 1].sumOpenInterestValue), 0);
+  }
+  return out;
+}
+
+/**
+ * Kart "Açık pozisyon 1s" değeri (card.oi.changePct): ilk ve son nokta arası % değişim (yuvarlanmaz).
+ * Canlı fetchOIChange1h ve backtest ortak kullanır. 2 noktadan azsa null.
+ */
+function oiChange1h(rows) {
+  if (!Array.isArray(rows) || rows.length < 2) return null;
+  const a = parseFloat(rows[0].sumOpenInterest), b = parseFloat(rows[rows.length - 1].sumOpenInterest);
+  return a > 0 && Number.isFinite(b) ? (b - a) / a * 100 : null;
+}
+
+/**
  * @param {object} o { client: binanceClient modülü, spotBase, fetchFn, maxBacklogMs, logger }
  */
 function createEnricher({ client, spotBase = process.env.BINANCE_SPOT_BASE_URL || 'https://api.binance.com', fetchFn = globalThis.fetch, maxBacklogMs = 15_000, logger = console } = {}) {
@@ -93,13 +120,7 @@ function createEnricher({ client, spotBase = process.env.BINANCE_SPOT_BASE_URL |
       safe(client.call(1, `takerLS ${sym}`, () => rc.getTakerBuySellVolume({ ...P, limit: 1 }))),
     ]);
     const out = Object.fromEntries(ENRICH_COLS.filter(k => !k.startsWith('ob')).map(k => [k, null]));
-    if (Array.isArray(oi) && oi.length >= 4) {
-      const v = oi.map(r => parseFloat(r.sumOpenInterest));
-      const n = v.length;
-      out.oiChg15 = v[n - 4] > 0 ? num((v[n - 1] / v[n - 4] - 1) * 100) : null;
-      out.oiChg60 = v[0] > 0 ? num((v[n - 1] / v[0] - 1) * 100) : null;
-      out.oiUsd = num(parseFloat(oi[n - 1].sumOpenInterestValue), 0);
-    }
+    Object.assign(out, oiFields(oi));
     out.lsTopAcc = num(parseFloat(last(ta)?.longShortRatio), 3);
     out.lsTopPos = num(parseFloat(last(tp)?.longShortRatio), 3);
     out.lsGlobal = num(parseFloat(last(gl)?.longShortRatio), 3);
@@ -156,4 +177,4 @@ function createLiqStream({ url = `${(process.env.BINANCE_WS_MARKET_URL || 'wss:/
   };
 }
 
-module.exports = { basisPct, spotOf, createEnricher, createLiqStream, ENRICH_COLS, LIQ_COLS };
+module.exports = { basisPct, spotOf, oiFields, oiChange1h, createEnricher, createLiqStream, ENRICH_COLS, LIQ_COLS };

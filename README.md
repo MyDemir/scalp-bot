@@ -398,13 +398,23 @@ coinlerde 1 dk ≥ %2 hareket sayısı, **seviye tepkisi tablosu** (canlıdaki `
 ile süzülür) ve `backtest-results/info-*.json`. Varsayılan ayarlar canlıyla aynıdır.
 **Kanıt modu:** `--kanit` yalnızca o backtest çalışmasında RSI eşiğini 70'e, sıfırlamayı 60'a indirir (çok kart →
 motorun çalıştığı görülür); canlı bota ve ayar dosyasına dokunmaz. `--canli-ayar` ayar dosyasını yalnızca okur.
-**Canlıdan eksik bağlam** (konsolda tek satır, JSON'da `params.limits`): funding yok; likidasyon yok;
+**Funding ve OI geçmişi:** coin başına bir kez `/fapi/v1/fundingRate` (limit 1000, sayfalı; dönem başından 2 gün
+öncesinden) ve `/futures/data/openInterestHist` (5m, limit 500, sayfalı) çekilir; istekler REST weight bütçesinden
+geçer. Her an yalnız o ana kadar bilinen değer kullanılır (look-ahead yok): funding = o andan önce son ödenen oran
+(canlıdaki `premiumIndex` oranının geçmişteki en yakın karşılığı; "sonraki funding" son iki ödemenin aralığıyla
+hesaplanır), OI = o ana kadar kapanmış son 13 adet 5m nokta. Kart "Açık pozisyon 1s" ve tepe kaydındaki
+`oiChg15` / `oiChg60` / `oiUsd` canlıdakiyle aynı fonksiyonla (`marketData.js`) hesaplanır; 60 dk'yı tam
+kapsamayan OI boş kalır. Binance OI geçmişini yalnız **son 30 gün** verir: daha eski kısım için istek atılmaz,
+o kısımda OI alanları boştur. Ek istek (coin başına): funding `⌈(gün + 2) × günlük ödeme / 1000⌉` (8 saatlik coinde 365 güne kadar 1–2; 1 saatlik coinde 30 gün 1, 365 gün 9), OI `⌈(min(gün, 30) × 288 + 13) / 500⌉`
+(7 gün → 5, 30 gün → 18); her biri weight 1. Örnek: 7 gün × 50 coin → 50 + 250 = 300 ek istek (300 weight).
+**Canlıdan eksik bağlam** (konsolda tek satır, JSON'da `params.limits`): OI yalnız son 30 gün (daha eskisi boş);
+baz (`basisPct`, mark − endeks) yok; likidasyon yok;
 `breadth80` / `pumping` yok (evrenin aynı andaki durumu gerekir, backtest sembol sembol koşar → null);
-spot / emir defteri yok; sessize alma ve takip canlıdaki gibi işlemez; evren BUGÜNKÜ 24s hacme göre
+spot / emir defteri / long-short oranları yok; sessize alma ve takip canlıdaki gibi işlemez; evren BUGÜNKÜ 24s hacme göre
 (hayatta kalma yanlılığı). Tepe kaydındaki `btc5`, `btc15`, `btcRsi15` ise zaten çekilen BTC 1m'den,
 yalnız o andan önce kapanmış mumlarla hesaplanır (canlıyla aynı tanım; BTC verisinde o dakikanın mumu eksikse boş). `btcRsi15` dönem başında BTC 15m
 geçmişi çekilmediği için ilk ~3 saat boş, sonraki ilk saatlerde ısınma farkı olabilir.
-Süre: coin başına ~`gün × 0.7` sn veri çekme (30 gün ≈ 20–25 sn/coin).
+Süre: coin başına ~`gün × 0.7` sn veri çekme (30 gün ≈ 20–25 sn/coin); funding/OI sayfaları arasında da aynı bekleme var (30 gün ≈ +6–7 sn/coin).
 
 ### Duraklatma
 `fly secrets set BOT_PAUSED=1` → makine açık kalır, bot hiçbir bağlantı açmaz (uzun backtest'ler için).

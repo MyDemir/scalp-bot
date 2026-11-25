@@ -3,6 +3,7 @@
 require('dotenv').config();
 const { USDMClient } = require('binance');
 const { createStreamClient } = require('./streamClient');
+const { oiChange1h } = require('./marketData');
 
 // REST istemcisi — kullanılan uç noktaların hepsi public (key gerektirmez)
 const restClient = new USDMClient({
@@ -107,12 +108,57 @@ async function fetchPremium() {
   return out;
 }
 
-/** Son 1 saatteki açık pozisyon değişimi (%) — openInterestHist 5m × 13 */
+/** Son 1 saatteki açık pozisyon değişimi (%) — openInterestHist 5m × 13 (hesap: marketData.oiChange1h, backtest ile ortak) */
 async function fetchOIChange1h(symbol) {
   const rows = await call(1, `openInterestHist ${symbol}`, () => restClient.getOpenInterestStatistics({ symbol, period: '5m', limit: 13 }));
-  if (!Array.isArray(rows) || rows.length < 2) return null;
-  const a = parseFloat(rows[0].sumOpenInterest), b = parseFloat(rows[rows.length - 1].sumOpenInterest);
-  return a > 0 && Number.isFinite(b) ? (b - a) / a * 100 : null;
+  return oiChange1h(rows);
+}
+
+// ── Geçmiş (yalnız backtest) ───────────────────────────────────────────────
+
+const DAY_MS = 86_400_000;
+/** Binance openInterestHist yalnız son 30 günü verir; sınırdan 10 dk içeride kalınır (saat farkı payı) */
+const OI_HIST_DAYS = 30;
+const oiHistFloor = (now = Date.now()) => now - OI_HIST_DAYS * DAY_MS + 10 * 60_000;
+
+/**
+ * [startTime, endTime] arası ödenmiş funding oranları (/fapi/v1/fundingRate, limit 1000, sayfalı, eskiden yeniye).
+ * @param {{delayMs?:number}} o  sayfalar arası bekleme (bu uç IP başına 500 istek / 5 dk ile sınırlı)
+ * @returns {Promise<{symbol:string, fundingTime:number, fundingRate:string, markPrice:string}[]>}
+ */
+async function fundingRateHistory(symbol, startTime, endTime, { delayMs = 0 } = {}) {
+  const out = [];
+  let t = startTime;
+  while (t <= endTime) {
+    const rows = await call(1, `fundingRate ${symbol}`, () => restClient.getFundingRateHistory({ symbol, startTime: t, endTime, limit: 1000 }));
+    if (!Array.isArray(rows) || !rows.length) break;
+    for (const r of rows) { const ft = Number(r.fundingTime); if (ft >= t && ft <= endTime && (!out.length || ft > Number(out[out.length - 1].fundingTime))) out.push(r); }
+    const next = Number(rows[rows.length - 1].fundingTime) + 1;
+    if (!(next > t) || rows.length < 1000) break;
+    t = next;
+    if (delayMs) await sleep(delayMs);
+  }
+  return out;
+}
+
+/**
+ * [startTime, endTime] arası 5m açık pozisyon geçmişi (/futures/data/openInterestHist, period 5m, limit 500, sayfalı).
+ * Binance yalnız son 30 günü verir: daha eski kısım için istek atılmaz (o kısım boş kalır).
+ * @returns {Promise<{timestamp:number, sumOpenInterest:string, sumOpenInterestValue:string}[]>}  eskiden yeniye
+ */
+async function openInterestHistRange(symbol, startTime, endTime, { delayMs = 0, now = Date.now() } = {}) {
+  const out = [];
+  let t = Math.max(startTime, oiHistFloor(now));
+  while (t <= endTime) {
+    const rows = await call(1, `openInterestHist ${symbol}`, () => restClient.getOpenInterestStatistics({ symbol, period: '5m', startTime: t, endTime, limit: 500 }));
+    if (!Array.isArray(rows) || !rows.length) break;
+    for (const r of rows) { const ts = Number(r.timestamp); if (ts >= t && ts <= endTime && (!out.length || ts > Number(out[out.length - 1].timestamp))) out.push(r); }
+    const next = Number(rows[rows.length - 1].timestamp) + 1;
+    if (!(next > t) || rows.length < 500) break;
+    t = next;
+    if (delayMs) await sleep(delayMs);
+  }
+  return out;
 }
 
 // ── Sembol listesi ─────────────────────────────────────────────────────────
@@ -230,6 +276,10 @@ module.exports = {
   fetch24hTickers,
   fetchPremium,
   fetchOIChange1h,
+  fundingRateHistory,
+  openInterestHistRange,
+  OI_HIST_DAYS,
+  oiHistFloor,
   getTradableSymbols,
   isTradfi,
   getLiquidSymbols,

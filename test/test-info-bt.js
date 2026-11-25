@@ -3,6 +3,7 @@
 const SP = require('./_tmp'), REPO = require('path').resolve(__dirname, '..');
 const assert = require('assert'); const fs = require('fs'); const { execFileSync } = require('child_process');
 const { gen, agg, MIN } = require('./gen'); const M = require('./mockinfo');
+const { formatCard } = require('../src/infoCard');
 const PR = 18401, PT = 18403, CHAT = '-1001234567890';
 const D = 1440, nowF = Math.floor(Date.now() / MIN) * MIN, start = nowF - 42 * D * MIN;
 const pumpAt = 40 * D + 600;                        // dönemin içinde (son 2 günün ortası)
@@ -18,6 +19,8 @@ const defs = {
   PUMPUSDT: { m1: pump, histUntil: nowF, vol: 3e8 },
   CALMUSDT: { m1: gen({ seed: 7, days: 42, start, p0: 2 }), histUntil: nowF, vol: 2e7 },
   LOWUSDT: { m1: gen({ seed: 8, days: 42, start, p0: 1 }), histUntil: nowF, vol: 1e6 },
+  // OI 30 gün sınırı testi (evrene girmez: hacim düşük): sınırdan önce, hemen önce ve sonra pompalar
+  OLDUSDT: { m1: gen({ seed: 11, days: 42, start, p0: 50, pumps: [7, 11, 13].map(d => ({ at: d * D + 600, len: 90, rate: 0.0012, vol: 3, dumpLen: 40 })) }), histUntil: nowF, vol: 1e6 },
 };
 const market = M.buildMarket(defs); const hits = []; const srv = M.startRest(PR, market, hits);
 const tg = M.startTelegram(PT);
@@ -116,9 +119,62 @@ const results = []; const ok = s => results.push('✅ ' + s);
     const r = await bt.runSymbol('PUMPUSDT', { start: st, end: nowF, s, btcClose, btcMarket: bt.createBtcMarket(market.BTCUSDT.tfs['1m'].filter(c => c.t >= st - 61 * MIN && c.t < nowF)) });
     const ready = r.drops.filter(d => d.t > st + 6 * 60 * MIN);
     assert(r.drops.length > 0 && ready.length > 0 && ready.every(d => d.feat.btc5 != null && d.feat.btc15 != null && d.feat.btcRsi15 != null && d.feat.breadth80 == null && d.feat.pumping == null), 'tepe kaydında btc5/btc15/btcRsi15 dolu, breadth80/pumping null');
-    assert(Array.isArray(J.params.limits) && J.params.limits.length >= 5 && J.params.limits.some(x => /breadth80/.test(x)) && J.params.limits.some(x => /funding/.test(x)), 'params.limits');
+    assert(Array.isArray(J.params.limits) && J.params.limits.length >= 5 && J.params.limits.some(x => /breadth80/.test(x)) && J.params.limits.some(x => /OI yalnız son 30 gün/.test(x)) && !J.params.limits.some(x => /^funding yok/.test(x)), 'params.limits');
     assert(out.includes('Canlıdan eksik bağlam'));
     ok(`BTC bağlamı: btc5=${got.btc5} btc15=${got.btc15} btcRsi15=${got.btcRsi15} elle hesapla eşit; gelecek mum değişince aynı; ${ready.length} tepe kaydında dolu, breadth80/pumping null; params.limits ${J.params.limits.length} madde + konsol satırı`); }
+
+  // 6) Funding / OI geçmişi: canlı ctx biçimi, t anında bilinen son değer (look-ahead yok), OI yalnız son 30 gün
+  { const { oiFields, oiChange1h } = require(`${REPO}/src/marketData`); const { compact } = require(`${REPO}/src/infoStats`);
+    const fAt = t => { const ft = Math.floor((t - M.FUND_OFF) / M.FUND_MS) * M.FUND_MS + M.FUND_OFF; return { ft, rate: parseFloat(M.fundingRateOf(ft)) }; };
+    const oiRows = t => { const last = Math.floor(t / M.OI_MS) * M.OI_MS; return Array.from({ length: 13 }, (_, j) => M.oiAt(last - (12 - j) * M.OI_MS)); };
+    // birim: ödeme anından 1 ms önce önceki oran, ödeme anında yeni oran; next son iki ödemenin aralığıyla
+    const rows = [0, 1, 2].map(k => ({ fundingTime: st + k * M.FUND_MS + M.FUND_OFF, fundingRate: M.fundingRateOf(st + k * M.FUND_MS + M.FUND_OFF) }));
+    const fa = bt.createFundingAt(rows);
+    assert.strictEqual(fa(rows[0].fundingTime - 1), null, 'ilk ödemeden önce funding boş olmalı');
+    assert.deepStrictEqual(fa(rows[0].fundingTime), { rate: parseFloat(rows[0].fundingRate), next: null, mark: null, index: null });
+    assert.strictEqual(fa(rows[2].fundingTime - 1).rate, parseFloat(rows[1].fundingRate), 'look-ahead: t\'den sonraki ödeme t anında görünmemeli');
+    assert.notStrictEqual(parseFloat(rows[1].fundingRate), parseFloat(rows[2].fundingRate));
+    assert.strictEqual(fa(rows[2].fundingTime - 1).next, st + 2 * M.FUND_MS);
+    // uçtan uca: kart ve tepe kaydı
+    const nOiBefore = hits.filter(h => h.startsWith('openInterestHist')).length, nFrBefore = hits.filter(h => h.startsWith('fundingRate')).length;
+    const r = await bt.runSymbol('PUMPUSDT', { start: st, end: nowF, s, btcClose, keepCards: true });
+    const nOi = hits.filter(h => h.startsWith('openInterestHist')).length - nOiBefore, nFr = hits.filter(h => h.startsWith('fundingRate')).length - nFrBefore;
+    assert(r.cards.length >= 1 && r.drops.length >= 5);
+    for (const c of r.cards) {
+      const e = fAt(c.t);
+      assert.strictEqual(c.snap.funding.rate, e.rate, `kart funding t=${c.t}`);
+      assert.strictEqual(c.snap.funding.next, Math.round(e.ft / MIN) * MIN + M.FUND_MS);
+      assert.strictEqual(c.oi.changePct, oiChange1h(oiRows(c.t)), 'kart OI 1s = canlı fetchOIChange1h hesabı');
+      const k = compact(c); assert(k.funding === +(e.rate * 100).toFixed(4) && k.oiChg60 === +c.oi.changePct.toFixed(2), 'kart kaydı funding/oiChg60');
+      assert(/Funding: /.test(c.text) && /Açık pozisyon 1s: /.test(formatCard(c, s).details), 'kart metninde funding ve OI');
+    }
+    let crossed = 0;
+    for (const d of r.drops) {
+      const e = fAt(d.t);
+      assert.strictEqual(d.feat.funding, +(e.rate * 100).toFixed(4), `tepe funding t=${d.t}`);
+      const nextRate = parseFloat(M.fundingRateOf(e.ft + M.FUND_MS));
+      if (d.feat.funding !== +(nextRate * 100).toFixed(4)) crossed++;
+      assert(Number.isFinite(d.feat.minToFunding) && d.feat.minToFunding > 0 && d.feat.minToFunding <= 480, 'minToFunding');
+      const want = oiFields(oiRows(d.t));
+      assert.deepStrictEqual({ oiChg15: d.feat.oiChg15, oiChg60: d.feat.oiChg60, oiUsd: d.feat.oiUsd }, want, `tepe OI t=${d.t}`);
+      assert(want.oiChg60 != null && d.feat.lsTopAcc == null && d.feat.obBid1 == null && d.feat.spotPrem == null, 'enrich\'in diğer alanları backtest\'te yok');
+      assert.strictEqual(d.feat.basisPct, null);
+    }
+    assert.strictEqual(crossed, r.drops.length, 'her tepe kaydında sonraki ödemenin oranı değil, bilinen oran');
+    assert(nFr === 1 && nOi >= 1 && nOi <= Math.ceil((3 * D + 65 + 30) / 5 / 500) + 1, `istek sayısı: fundingRate ${nFr}, openInterestHist ${nOi}`);
+    // 30 günden eski dönem: OI isteği atılmaz, alanlar boş; sınırı geçen dönemde yalnız sınırdan sonrası dolu
+    const floor = nowF - 30 * D * MIN;
+    const DM = D * MIN, oSt = Math.floor((start + 6 * DM) / DM) * DM, oEnd = oSt + 3 * DM;
+    const h0 = hits.filter(h => h.startsWith('openInterestHist')).length;
+    const old = await bt.runSymbol('OLDUSDT', { start: oSt, end: oEnd, s, btcClose });
+    assert.strictEqual(hits.filter(h => h.startsWith('openInterestHist')).length, h0, '30 günden eski dönem için OI isteği atılmamalı');
+    assert(old.drops.length > 0 && old.drops.every(d => d.feat.oiChg15 == null && d.feat.oiChg60 == null && d.feat.oiUsd == null && d.feat.funding != null), 'eski dönemde OI boş, funding dolu');
+    const xSt = Math.floor((start + 10.5 * DM) / DM) * DM, xEnd = xSt + 5 * DM;
+    const x = await bt.runSymbol('OLDUSDT', { start: xSt, end: xEnd, s, btcClose });
+    const pre = x.drops.filter(d => d.t < floor + 65 * MIN), post = x.drops.filter(d => d.t > floor + 80 * MIN);
+    assert(pre.length > 0 && post.length > 0, `sınırın iki yanında tepe kaydı (${pre.length}/${post.length})`);
+    assert(pre.every(d => d.feat.oiChg60 == null) && post.every(d => d.feat.oiChg60 != null), 'OI yalnız 30 gün sınırından sonra dolu');
+    ok(`Funding/OI geçmişi: ${r.cards.length} kart + ${r.drops.length} tepe kaydında funding = t'ye kadar son ödenen oran (sonraki ödeme görünmüyor), kart OI 1s ve tepe oiChg15/oiChg60/oiUsd canlıyla aynı hesap; istek fundingRate ${nFr}, openInterestHist ${nOi}; 30 günden eski dönemde OI isteği yok ve boş (${old.drops.length} tepe), sınırı geçen dönemde ${pre.length} boş / ${post.length} dolu`); }
 
   console.log(results.join('\n')); srv.close(); tg.srv.close(); process.exit(0);
 })().catch(e => { console.log('❌ BAŞARISIZ:', e.stack || e.message); console.log(results.join('\n')); process.exit(1); });
