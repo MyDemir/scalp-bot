@@ -366,6 +366,20 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
     let nth = 0;
     const evMix = run(pathV, { opts: { onCandidate: (sr, e) => { Object.assign(e.feat, sc, nth++ === 0 ? { volx_3m: 1 } : {}); } } }).ev.slice().sort((a, b) => a.t - b.t);
     assert.strictEqual(evMix[0].feat.v3S, 3); assert.strictEqual(evMix.slice(0, 5).reduce((a, x) => a + x.feat.v3B, 0), 1, 'S<4 ilk aday v3B tüketmez; pompada yine tek v3B');
+    // 1m boşluğu: aynı pompada iki aday (ikisi de S≥4, pompa≥5), 240 dk kapanışları tek mumda tetiklenir → v3B finish sırasına değil t'ye bağlı (erken adayda 1, geç adayda 0)
+    {
+      const T0 = t0 + 3000 * MIN, rel = x => (x.t - T0) / MIN;
+      const gap = Array.from({ length: 11 }, (_, i) => 330 + i);          // 94+240=334 ve 99+240=339 boşluğa düşer; ilk gelen mumda ikisi birden biter
+      const evG = run(pathV, { skip: gap, opts: { onCandidate: (sr, e) => { Object.assign(e.feat, sc); } } }).ev;
+      const early = evG.find(x => rel(x) === 94), late = evG.find(x => rel(x) === 99);
+      assert(early && late && early.feat.pumpPct >= 5 && late.feat.pumpPct >= 5, 'iki aday var ve ikisi de pompa≥5');
+      const iE = evG.indexOf(early), iL = evG.indexOf(late);
+      assert(iE >= 0 && iL >= 0 && Math.abs(iE - iL) <= 3, 'aynı çağrıda bitti (done yakın)');
+      assert.strictEqual(early.feat.v3B, 1, 'erken aday v3B=1');
+      assert.strictEqual(late.feat.v3B, 0, 'geç aday v3B=0');
+      assert(iE < iL, 'aynı çağrıda t artan sırada işlenir');
+      assert.strictEqual(evG.filter(x => rel(x) >= 94 && rel(x) <= 120).reduce((a, x) => a + x.feat.v3B, 0), 1, 'pompada tek v3B');
+    }
     const c = flatDrop(ev3[exp.indexOf(1)]); assert.strictEqual(c.v3B, 1); assert.strictEqual(c.v3_liq, null, 'liq yok → boş');
   }
   assert(dropCols()[dropCols().length - 8] === 'atr2C15' && dropCols()[dropCols().length - 9] === 'dataVer' && dropCols()[dropCols().length - 1] === 'v3B');
