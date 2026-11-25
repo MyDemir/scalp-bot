@@ -334,6 +334,7 @@ function createDropLedger(opts = {}) {
       const c = { t: d.t[i], o: d.o[i], h: d.h[i], l: d.l[i], c: d.c[i] }, tc = c.t + MIN;
       const x = st(sym);
       const done = [];
+      const fin = [];   // bu mumda biten kayıtlı örnekler: finish t'ye göre ARTAN sırada çalışır (v3B ilk adaya yazılsın; 1m boşluğunda birden çok örnek aynı mumda biter)
       // 1) kaydedilmiş örnekler
       for (let k = x.open.length - 1; k >= 0; k--) {
         const e = x.open[k];
@@ -341,8 +342,10 @@ function createDropLedger(opts = {}) {
         confirm5(e, series);
         if (e.trPending) { e.trSnap = troughFeatures(series, s, e.trLow, e.anchorT); e.trPending = false; }
         emitPath(e);
-        if (e.out[WMAX]) { emitPath(e, true); done.push(finish(e)); x.open.splice(k, 1); openN--; }
+        if (e.out[WMAX]) { emitPath(e, true); fin.push(e); x.open.splice(k, 1); openN--; }
       }
+      fin.sort((a, b) => a.t - b.t);
+      for (const e of fin) done.push(finish(e));
       // 2) açık aday: sonuç belli olduysa kaydet ya da bırak
       const cd = x.cand;
       if (cd && tc > cd.t) {
