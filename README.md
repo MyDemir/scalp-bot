@@ -407,11 +407,22 @@ hesaplanır), OI = o ana kadar kapanmış son 13 adet 5m nokta. Kart "Açık poz
 kapsamayan OI boş kalır. Binance OI geçmişini yalnız **son 30 gün** verir: daha eski kısım için istek atılmaz,
 o kısımda OI alanları boştur. Ek istek (coin başına): funding `⌈(gün + 2) × günlük ödeme / 1000⌉` (8 saatlik coinde 365 güne kadar 1–2; 1 saatlik coinde 30 gün 1, 365 gün 9), OI `⌈(min(gün, 30) × 288 + 13) / 500⌉`
 (7 gün → 5, 30 gün → 18); her biri weight 1. Örnek: 7 gün × 50 coin → 50 + 250 = 300 ek istek (300 weight).
+**Funding notu:** funding = son ödenmiş oran; canlıdaki `premiumIndex` `lastFundingRate` o dönemin tahmini oranı olduğundan
+backtest funding'i canlıya göre bir dönem geriden gelir (look-ahead'i önlemek için bilinçli). Funding aralığı değişen coinde
+değişimden sonraki ilk dönemde `minToFunding` sapabilir.
+**Evren seçimi** (`--symbol` verilmezse): dönem başından önceki 24 saatin (UTC günü) USDT hacmi, `--min-volume` (varsayılan
+`minVolumeM`) ve `--max-coins` aynı anlamla uygulanır; bugünkü 24s hacim kullanılmaz. Aday: exchangeInfo'daki USDT perpetual'lar
+(`TRADING` ve kapanış sürecindeki `SETTLING`); `deliveryDate` dönem başından önceyse (zaten kapanmış) ve `onboardDate` dönem
+başından 1 günden yakınsa (dönem başında listelenmemiş ya da önceki gün tam 24 saat yok; look-ahead olmasın diye) elenir.
+Hacim, aday başına dönem başından önceki 1d mumun `quoteVolume`'u (1 istek, weight 1); ön süzgeç yok, yanlılık yok.
+Ek REST maliyeti: 1 exchangeInfo + uygun aday sayısı kadar istek (~550 coin ≈ 550 weight ≈ bütçeyle ~20 sn); eski sürümdeki
+tek `ticker/24hr` çağrısı (weight 40) kalktı. Örnek: 7 gün, `--max-coins 50` da dahil ~550 istek (seçim tüm adaylara bakar, sonra keser).
+Sınır: listeden tamamen çıkmış (DELISTED) sembolleri Binance exchangeInfo'da vermez; onlar evrene giremez (kalan hayatta kalma yanlılığı).
 **Canlıdan eksik bağlam** (konsolda tek satır, JSON'da `params.limits`): OI yalnız son 30 gün (daha eskisi boş);
 baz (`basisPct`, mark − endeks) yok; likidasyon yok;
 `breadth80` / `pumping` yok (evrenin aynı andaki durumu gerekir, backtest sembol sembol koşar → null);
-spot / emir defteri / long-short oranları yok; sessize alma ve takip canlıdaki gibi işlemez; evren BUGÜNKÜ 24s hacme göre
-(hayatta kalma yanlılığı). Tepe kaydındaki `btc5`, `btc15`, `btcRsi15` ise zaten çekilen BTC 1m'den,
+spot / emir defteri / long-short oranları yok; sessize alma ve takip canlıdaki gibi işlemez; evren dönem başından önceki 24s hacme göre
+(aşağıdaki "Evren seçimi"; Binance listeden tamamen çıkmış coinleri exchangeInfo'da vermediği için kalan hayatta kalma yanlılığı). Tepe kaydındaki `btc5`, `btc15`, `btcRsi15` ise zaten çekilen BTC 1m'den,
 yalnız o andan önce kapanmış mumlarla hesaplanır (canlıyla aynı tanım; BTC verisinde o dakikanın mumu eksikse boş). `btcRsi15` dönem başında BTC 15m
 geçmişi çekilmediği için ilk ~3 saat boş, sonraki ilk saatlerde ısınma farkı olabilir.
 Süre: coin başına ~`gün × 0.7` sn veri çekme (30 gün ≈ 20–25 sn/coin); funding/OI sayfaları arasında da aynı bekleme var (30 gün ≈ +6–7 sn/coin).

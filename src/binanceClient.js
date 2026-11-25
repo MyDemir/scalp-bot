@@ -196,6 +196,43 @@ async function getTradableSymbols(excludeBaseAssets = [], { tradfi = false } = {
 }
 
 /**
+ * Backtest evreni: DÖNEM BAŞINDAN ÖNCEKİ 24 saatin (start-1g .. start, UTC günü) USDT hacmine göre en likit perpetual'lar.
+ * Bugünkü 24s hacim kullanılmaz (hayatta kalma yanlılığını azaltır). Canlı evren (getLiquidSymbols) değişmez.
+ *  - Aday: exchangeInfo'daki USDT PERPETUAL, status TRADING ya da SETTLING (kapanış sürecindeki coin dönemde hâlâ vardı).
+ *  - Elenir: onboardDate > start - 1 gün (dönem başında listelenmemiş ya da önceki gün tam 24 saat yok: look-ahead olurdu),
+ *    deliveryDate < start (dönem başında zaten kapanmış). deliveryDate sürekli kontratlarda çok ileri bir tarihtir, etkisizdir.
+ *  - Hacim: start öncesi tam 1 günlük (1d) mumun quoteVolume'u, aday başına 1 istek (weight 1; ~550 aday ≈ 550 weight, bütçe içinde).
+ *  - Binance listeden çıkmış (DELISTED) sembolleri exchangeInfo'da genelde vermez: onlar adaya girmez (bkz. LIMITS).
+ * @returns {Promise<{symbols:string[], stats:{candidates:number, eligible:number, failed:number, requests:number}}>}
+ */
+async function getPeriodLiquidSymbols({ minVolume24hUSDT, maxCoins = 0, excludeBaseAssets = [], tradfi = false, start }) {
+  if (!Number.isFinite(start)) throw new Error('getPeriodLiquidSymbols: start (ms) gerekli');
+  const info = await fetchExchangeInfo();
+  const exclude = new Set(excludeBaseAssets.map(s => String(s).toUpperCase()));
+  const cand = info.symbols.filter(s => s.quoteAsset === 'USDT' && (s.status === 'TRADING' || s.status === 'SETTLING')
+    && (isTradfiInfo(s) ? tradfi : s.contractType === 'PERPETUAL')
+    && !exclude.has(String(s.baseAsset).toUpperCase()));
+  const eligible = cand.filter(s => !(Number(s.onboardDate) > start - DAY_MS) && !(Number(s.deliveryDate) < start));
+  const vols = []; let failed = 0;
+  for (const s of eligible) {
+    try {
+      const rows = await call(klineWeight(1), `periodVolume ${s.symbol}`,
+        () => restClient.getKlines({ symbol: s.symbol, interval: '1d', startTime: start - DAY_MS, endTime: start - 1, limit: 1 }));
+      const r = Array.isArray(rows) ? rows[0] : null;
+      if (!r || Number(r[0]) !== start - DAY_MS) continue;       // o gün mum yok → hacim bilinmiyor, seçilmez
+      const qv = parseFloat(r[7]);
+      if (Number.isFinite(qv) && qv >= minVolume24hUSDT) vols.push([s.symbol, qv]);
+    } catch (err) {
+      failed++;
+      console.warn(`[evren] ${s.symbol}: dönem öncesi hacim alınamadı — ${err?.message || err}`);
+    }
+  }
+  vols.sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+  const list = vols.map(v => v[0]);
+  return { symbols: maxCoins > 0 ? list.slice(0, maxCoins) : list, stats: { candidates: cand.length, eligible: eligible.length, failed, requests: 1 + eligible.length } };
+}
+
+/**
  * Production: hacme göre en likit perpetual'lar.
  * Eski sürüm 'UP' gibi kelimeleri alt dize olarak arıyordu → JUPUSDT, SUPERUSDT yanlışlıkla eleniyordu.
  * Artık exchangeInfo'dan PERPETUAL + TRADING + USDT filtreleniyor, hariç tutma baz varlıkta TAM eşleşme.
@@ -267,6 +304,7 @@ function takeWsStats() {
 }
 
 module.exports = {
+  getPeriodLiquidSymbols,
   restClient,
   call,
   restBacklogMs,

@@ -15,7 +15,7 @@
  *     (btc5/btc15/btcRsi15) geçmişten hesaplanır; breadth80/pumping null. Eksik bağlam listesi: LIMITS (konsol + JSON params.limits).
  *
  * Çalıştırma (Binance'e erişen yerde — Fly makinesinde):
- *   node src/infoBacktest.js                         # tüm evren (24s hacim ≥ ayar), son 30 gün
+ *   node src/infoBacktest.js                         # tüm evren (dönem öncesi 24s hacim ≥ ayar), son 30 gün
  *   node src/infoBacktest.js --days 7 --max-coins 50 # hızlı deneme
  *   node src/infoBacktest.js --symbol ETHUSDT,SOLUSDT --days 60 --ornek 5
  *   node src/infoBacktest.js --ayar rsiMin=95,minTFs=3,levelMaxPct=2   # ayar dene
@@ -88,12 +88,14 @@ async function fetchBefore(symbol, tf, start, n) {
 /** Backtest'te canlıdan eksik kalan bağlam (konsol + JSON params.limits + README) */
 const LIMITS = [
   'OI yalnız son 30 gün (daha eskisi boş; Binance openInterestHist sınırı)',
+  'funding = son ödenmiş oran; canlıdaki premiumIndex lastFundingRate o dönemin tahmini oranı olduğundan backtest funding\'i canlıya göre bir dönem geriden gelir (look-ahead\'i önlemek için bilinçli)',
+  'funding aralığı değişen coinde değişimden sonraki ilk dönemde minToFunding sapabilir',
   'baz (mark − endeks) yok: funding geçmişinde mark/endeks yok → basisPct boş',
   'likidasyon akışı yok',
   'breadth80 ve pumping yok (evrenin aynı andaki durumu gerekir; backtest sembol sembol koşar → null)',
   'spot / emir defteri / long-short oranları verisi yok',
   'sessize alma ve takip (cooldown, seri akışı) canlıdaki gibi işlemez',
-  'evren BUGÜNKÜ 24s hacme göre seçilir (hayatta kalma yanlılığı: dönemde listeden çıkan coinler yok)',
+  'evren dönem başından önceki 24s hacme göre seçilir; Binance listeden tamamen çıkmış (DELISTED) coinleri exchangeInfo\'da vermediği için onlar yok (kalan hayatta kalma yanlılığı); dönem başından önceki gün listelenenler dışarıda',
 ];
 
 /**
@@ -268,7 +270,7 @@ function printReport(p, cards, perSym) {
   const top = perSym.filter(x => x.n).sort((a, b) => b.n - a.n).slice(0, 12);
   if (top.length) console.log(`\nEn çok kart: ${top.map(x => `${x.symbol} ${x.n}`).join(' · ')}`);
   console.log('\nNot: bu bir kazanç/kayıp testi değildir; "sonrasında fiyat" sütunları yalnızca kart sınıflarını kıyaslamak içindir.');
-  console.log('     Evren BUGÜNKÜ hacme göre seçildi (dönem içinde listeden çıkan coinler yok). Funding geçmişi kullanıldı; OI yalnız son 30 gün.');
+  console.log('     Evren dönem öncesi 24s hacme göre seçildi (listeden tamamen çıkmış coinler yok). Funding geçmişi kullanıldı; OI yalnız son 30 gün.');
 }
 
 function moveRows(moves) {
@@ -341,20 +343,23 @@ async function main() {
   }
   const s = { ...settings.get() };
 
+  const end   = Math.floor(Date.now() / MIN) * MIN;
+  const start = Math.floor((end - DAYS * DAY) / DAY) * DAY;
   let symbols, universe;
   if (a.symbol) {
     symbols = String(a.symbol).split(',').map(x => x.trim().toUpperCase()).filter(Boolean).map(x => (x.endsWith('USDT') ? x : x + 'USDT'));
     universe = '--symbol';
   } else {
     const minVol = Number(a['min-volume'] ?? s.minVolumeM * 1e6);
-    const { getLiquidSymbols } = require('./binanceClient');
-    symbols = await getLiquidSymbols({ minVolume24hUSDT: minVol, maxCoins: Number(a['max-coins'] ?? 0), excludeBaseAssets: cfg.autoFilter.excludeBaseAssets, tradfi: Boolean(s.tradfi) });
-    universe = `24s hacim ≥ ${(minVol / 1e6).toLocaleString()}M $${a['max-coins'] ? `, en likit ${a['max-coins']}` : ''}`;
+    const { getPeriodLiquidSymbols } = require('./binanceClient');
+    // dönem başından önceki 24 saatin hacmi (bugünkü değil): aday başına 1 istek (weight 1)
+    const r = await getPeriodLiquidSymbols({ minVolume24hUSDT: minVol, maxCoins: Number(a['max-coins'] ?? 0), excludeBaseAssets: cfg.autoFilter.excludeBaseAssets, tradfi: Boolean(s.tradfi), start });
+    symbols = r.symbols;
+    universe = `dönem öncesi 24s hacim ≥ ${(minVol / 1e6).toLocaleString()}M $${a['max-coins'] ? `, en likit ${a['max-coins']}` : ''}`;
+    console.log(`Evren seçimi: ${r.stats.candidates} aday, ${r.stats.eligible} uygun (dönem başında listeli), ${r.stats.requests} REST isteği${r.stats.failed ? `, ${r.stats.failed} coin hacim alınamadığı için dışarıda` : ''}`);
   }
   if (!symbols.length) throw new Error('Sembol listesi boş');
 
-  const end   = Math.floor(Date.now() / MIN) * MIN;
-  const start = Math.floor((end - DAYS * DAY) / DAY) * DAY;
   const p = { start, end, days: DAYS, symbols, universe, limits: LIMITS };
 
   console.log('\n════════════════════════════════════════════');
