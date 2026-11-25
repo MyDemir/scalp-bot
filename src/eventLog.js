@@ -38,7 +38,7 @@ const ta = require('./ta');
 const { tfIndicators, vwapSet, vwapFeatures, refLevels, nearest, TF_COLS, VWAP_COLS } = require('./marketSnap');
 const { maLadder, stopOf } = require('./levelTouch');
 const { extraFeatures, EXTRA_COLS, EXTRA_AUDIT_COLS } = require('./peakFeatures');
-const { setupScore, SETUP_DEFAULTS, SETUP_VER } = require('./setupScore');
+const { setupScore, SETUP_DEFAULTS, SETUP_VER, FLAGS: SETUP_FLAGS } = require('./setupScore');
 const { basisPct, ENRICH_COLS, LIQ_COLS } = require('./marketData');
 const PKG_VERSION = String(require('../package.json').version ?? '');
 // Kayıt / derece davranışı değişince elle artır (tepeler.csv dataVer; cfgVer package.json sürümü kalır). 24.11.2026-2: derece = 1 + sep+h1+r15+atr+macd+stoch+rsi3hi; sepPct2 3.
@@ -159,6 +159,20 @@ function troughFeatures(series, s, low, anchorT) {
 }
 
 /**
+ * v3B pompa zinciri tek adım (saf; girdiyi değiştirmez). Pompa = sembolde adaylar arası < 60 dk; pompada ilk
+ * S ≥ SETUP_DEFAULTS.min ve pumpPct ≥ SETUP_DEFAULTS.pumpMin aday b = 1. Kayıttaki v3B ve kurulum kartı kararı bunu kullanır.
+ * @param {?{start:number,last:number,b:number}} p  önceki zincir (yoksa null)
+ * @returns {{p:{start,last,b}, b:0|1}}
+ */
+function v3Next(p, e, sc) {
+  const q = !p || e.t - p.last >= 60 * MIN ? { start: e.t, last: e.t, b: -Infinity } : { start: p.start, last: p.last, b: p.b };   // yeni pompa
+  let b = 0;
+  if (sc.v3S != null && sc.v3S >= SETUP_DEFAULTS.min && e.feat.pumpPct >= SETUP_DEFAULTS.pumpMin && q.b === -Infinity) { b = 1; q.b = e.t; }
+  if (e.t > q.last) q.last = e.t;
+  return { p: q, b };
+}
+
+/**
  * @param {object} opts  DEFAULTS + { enrich(sym, {t, price, futQ60}) → Promise<obj|null>, orderBook(sym) → Promise<obj|null>,
  *                       onCandidate(series, aday) — yeni tepe adayı oluşunca (isteğe bağlı; canlıda kullanılmıyor) }
  */
@@ -168,10 +182,12 @@ function createDropLedger(opts = {}) {
   const state = new Map();     // sym → { cand, lastCommit, open: [], hist: [{t, outcome}], obAt, ob }
   const cards = new Map();     // sym → [{t, grade}]
   let openN = 0;
-  // v3B pompa tekilliği: coin başına iki sayı (son aday zamanı, son v3B zamanı); finish sırasıyla (t sırası) güncellenir
-  const v3p = new Map();      // sym → { last, b }
+  // v3B pompa tekilliği: coin başına üç sayı (pompa başı, son aday zamanı, son v3B zamanı); finish sırasıyla (t sırası) güncellenir
+  const v3p = new Map();      // sym → { start, last, b }
+  // Kurulum kartı kararı için aynı zincirin commit anındaki aynası (coin başına üç sayı; v3p ile aynı v3Next)
+  const v3m = new Map();      // sym → { start, last, b }
   const PATH_MIN = 15;         // tepeden sonraki 1m yolu: dakika sayısı (onPath verilmezse toplanmaz)
-  const st = sym => { let x = state.get(sym); if (!x) { x = { cand: null, lastCommit: 0, skipped: 0, open: [], hist: [], obAt: 0, ob: null }; state.set(sym, x); } return x; };
+  const st = sym => { let x = state.get(sym); if (!x) { x = { cand: null, lastCommit: 0, skipped: 0, open: [], hist: [], obAt: 0, ob: null, v3card: null, setup: null }; state.set(sym, x); } return x; };
 
   function history(sym, x, t) {
     const h = x.hist.filter(e => e.t >= t - 1440 * MIN);
@@ -183,14 +199,24 @@ function createDropLedger(opts = {}) {
 
   /** v3 gölge puanı + v3B (aynı pompada yalnız ilk S≥4 ve pompa≥%5 aday; pompa = sembolde adaylar arası < 60 dk) */
   function v3Fields(e) {
-    const f = e.feat, sc = setupScore(f);
-    let p = v3p.get(e.symbol);
-    if (!p || e.t - p.last >= 60 * MIN) p = { last: e.t, b: -Infinity };   // yeni pompa
-    let b = 0;
-    if (sc.v3S != null && sc.v3S >= SETUP_DEFAULTS.min && f.pumpPct >= SETUP_DEFAULTS.pumpMin && p.b === -Infinity) { b = 1; p.b = e.t; }
-    if (e.t > p.last) p.last = e.t;
-    v3p.set(e.symbol, p);
-    return { ...sc, v3B: sc.v3S == null ? null : b, cfgSetupVer: SETUP_VER };
+    const sc = setupScore(e.feat);
+    const r = v3Next(v3p.get(e.symbol), e, sc);
+    v3p.set(e.symbol, r.p);
+    return { ...sc, v3B: sc.v3S == null ? null : r.b, cfgSetupVer: SETUP_VER };
+  }
+
+  /**
+   * v3 B kart tetiği (canlı / backtest ortak): aday OLUŞTUĞU anda (tc kapanışı, eldeki veriyle) kayıttaki v3B ile aynı kural.
+   * Zincir aynası v3m, kayıttaki v3p gibi yalnız KAYDEDİLEN örneklerle (commit sırası = t sırası = finish sırası) ilerler;
+   * bu aday henüz kaydedilmediği için "kaydedilirse v3B ne olur" sorusu v3Next ile mutasyonsuz sorulur.
+   * x.v3card: bu sembolde son kurulum kararının t'si — aday sonradan seyreltmeyle atlansa da aynı pompada ikinci karar yok.
+   */
+  function v3Live(x, e) {
+    const sc = setupScore(e.feat);
+    const r = v3Next(v3m.get(e.symbol), e, sc);
+    if (r.b !== 1 || (x.v3card != null && x.v3card >= r.p.start)) return null;
+    x.v3card = e.t;
+    return { id: e.id, t: e.t, S: sc.v3S, flags: SETUP_FLAGS.filter(k => sc[k] === 1), pumpPct: e.feat.pumpPct };
   }
 
   function finish(e) {
@@ -300,6 +326,7 @@ function createDropLedger(opts = {}) {
   }
 
   function commit(series, x, e) {
+    v3m.set(e.symbol, v3Next(v3m.get(e.symbol), e, setupScore(e.feat)).p);   // kayıttaki v3p'nin aynası (aynı örnek, aynı sıra)
     x.open.push(e); openN++;
     emitPath(e);
     x.lastCommit = e.t;
@@ -333,6 +360,7 @@ function createDropLedger(opts = {}) {
       if (i < 30) return [];
       const c = { t: d.t[i], o: d.o[i], h: d.h[i], l: d.l[i], c: d.c[i] }, tc = c.t + MIN;
       const x = st(sym);
+      x.setup = null;   // karar yalnız bu mumda oluşan aday için geçerli
       const done = [];
       const fin = [];   // bu mumda biten kayıtlı örnekler: finish t'ye göre ARTAN sırada çalışır (v3B ilk adaya yazılsın; 1m boşluğunda birden çok örnek aynı mumda biter)
       // 1) kaydedilmiş örnekler
@@ -370,7 +398,19 @@ function createDropLedger(opts = {}) {
       if (!(pump >= E.pumpPct)) return done;
       x.cand = newSample(series, s, ctx, x, c, tc, pump, loT);
       if (E.onCandidate) { try { E.onCandidate(series, x.cand); } catch { /* bildirim hatası defteri bozmasın */ } }
+      x.setup = v3Live(x, x.cand);   // kurulum kartı kararı (takeSetup ile aynı mumda alınır)
       return done;
+    },
+
+    /**
+     * Bu mumda (son observe çağrısında) oluşan aday v3 B ise kurulum kararı { id, t, S, flags, pumpPct }, değilse null.
+     * Bir kez okunur (okununca silinir).
+     */
+    takeSetup(sym) {
+      const x = state.get(sym);
+      if (!x || !x.setup) return null;
+      const r = x.setup; x.setup = null;
+      return r;
     },
 
     noteCard(sym, t, grade) {
@@ -388,7 +428,7 @@ function createDropLedger(opts = {}) {
         while (x.hist.length && x.hist[0].t < now - 1440 * MIN) x.hist.shift();
         if (!x.open.length && !x.cand && !x.hist.length) state.delete(sym);
       }
-      for (const [sym, p] of v3p) if (p.last < now - (60 + WMAX + 15) * MIN) v3p.delete(sym);
+      for (const m of [v3p, v3m]) for (const [sym, p] of m) if (p.last < now - (60 + WMAX + 15) * MIN) m.delete(sym);
       for (const [sym, a] of cards) if (!a.length || a[a.length - 1].t < now - 1500 * MIN) cards.delete(sym);
     },
     openCount: () => openN,
@@ -671,4 +711,4 @@ function flatDrop(r, windows = DEFAULTS.windows) {
 }
 const dropCols = (windows = DEFAULTS.windows) => Object.keys(flatDrop({ out: {}, feat: {} }, windows));
 
-module.exports = { sepClosed, teyitText, teyitRows, createTeyitAcc, slimDrop, DROP_REPORT_FIELDS, csvLine, csvHeader, CANDS, createDropLedger, createPeakLedger, features, peakFeatures, FEATURE_COLS, TROUGH_COLS, OUTCOME_COLS, DEFAULTS, dropText, toCsv, flatDrop, dropCols };
+module.exports = { v3Next, sepClosed, teyitText, teyitRows, createTeyitAcc, slimDrop, DROP_REPORT_FIELDS, csvLine, csvHeader, CANDS, createDropLedger, createPeakLedger, features, peakFeatures, FEATURE_COLS, TROUGH_COLS, OUTCOME_COLS, DEFAULTS, dropText, toCsv, flatDrop, dropCols };
