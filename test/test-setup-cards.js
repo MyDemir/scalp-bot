@@ -50,7 +50,7 @@ function run({ s = cfg.info, mode = 'setup', inject = () => SC4, skip = [] } = {
     if (card) { cards.push(card); n++; }
     perCandle.push(n);
   }
-  return { ev: ev.sort((a, b) => a.t - b.t), cards, decisions, stepAt, perCandle, T0 };
+  return { ev: ev.sort((a, b) => a.t - b.t), cards, decisions, stepAt, perCandle, T0, S };
 }
 
 const view = c => ({ ...compact(c), text: formatCard(c, cfg.info, { now: c.t }).text, details: formatCard(c, cfg.info, { now: c.t }).details, silent: c.silent, id: c.id });
@@ -111,13 +111,29 @@ const A = run();
   // açıkken de mevcut kartların hiçbiri eksilmez: base'deki her kart (t) açık koşuda da var, derece aynı
   const on = run({ s: cfg.info, mode: 'setup' }), base = run({ s: cfg.info, mode: 'base' });
   for (const b of base.cards) { const x = on.cards.find(c => c.t === b.t); assert(x, 'mevcut kart eksilmedi: ' + b.t); assert.strictEqual(x.grade, b.grade); assert.strictEqual(x.snap.grade, b.snap.grade); }
+  // çok kartlı akışta tek başına kurulum kartları: mevcut kartların hiçbiri eksilmez, içerikleri (yenilikler) aynı kalır
+  const lo2 = { ...cfg.info, rsiMin: 55, rsiMin2: 60, minTFs: 1, levelRequired: false };
+  const on2 = run({ s: lo2, mode: 'setup' }), base2 = run({ s: lo2, mode: 'base' });
+  const alone = on2.cards.filter(c => c.trig.setup && !on2.stepAt.has(c.t));
+  assert(alone.length >= 1, 'test geçerli: tek başına kurulum kartı var');
+  for (const b of base2.cards) {
+    const x = on2.cards.find(c => c.t === b.t); assert(x, 'çok kartlı: mevcut kart eksilmedi');
+    assert.strictEqual(x.grade, b.grade); assert.deepStrictEqual(x.trig.setup ? x.news.slice(1) : x.news, b.news, 'yenilikler aynı (seri durumu değişmedi)');
+  }
+  assert.strictEqual(on2.cards.length, base2.cards.length + alone.length);
+  // doğrudan: hazır seride tek başına kurulum kartı tracker'ı seri içine almaz
+  const trk = eng.createTracker(), su = { id: 'z', t: 0, S: 4, flags: ['v3_rsi1m'], pumpPct: 6 };
+  const k1 = eng.setupCard(on2.S, lo2, trk, {}, su, null), k2 = eng.setupCard(on2.S, lo2, trk, {}, su, null);
+  assert(k1 && k2 && k1.seq === 1 && k2.seq === 2, 'kart numarası ilerler');
+  assert.strictEqual(trk.active('SETUPUSDT'), false, 'seri başlamadı (seri içi patlama açılmaz)'); assert.strictEqual(trk.maxGrade('SETUPUSDT'), 0, 'seri en yüksek derecesi değişmedi');
+  assert(k2.news.includes('İlk kart') || k1.snap.rsiOk === false, 'son kart durumu değişmedi: ikinci kurulum kartında da "İlk kart"');
   assert.strictEqual(on.cards.length, base.cards.length + on.cards.filter(c => c.trig.setup && !base.cards.some(b => b.t === c.t)).length, 'fark yalnız tek başına kurulum kartları');
   ok(`(d) setupCards=false: ${B.cards.length} + ${B2.cards.length} kart ve ${B.ev.length} tepe kaydı birebir aynı; açıkken ${base.cards.length} mevcut kartın hepsi aynı derecede duruyor`);
 }
 
 // ── (c) aynı mumda normal kart: düşük RSI eşiğiyle step pompa boyunca kart üretir → kurulum ayrı mesaj değil, o karta ⭐ ──
 {
-  const lo = { ...cfg.info, rsiMin: 55, rsiMin2: 60, minTFs: 1, levelRequired: false, moveAlertPct: 0.1 };   // ⚡ her pompa mumunda kart
+  const lo = { ...cfg.info, rsiMin: 55, rsiMin2: 60, minTFs: 1, levelRequired: false, moveAlertPct: 0.1, cardSound: false };   // ⚡ her pompa mumunda kart; ses yalnız derece ≥ 3 / kurulum
   const base0 = run({ s: lo, mode: 'base' });
   // S ≥ 4 yalnız normal kartın çıktığı mumlardaki adaylara (pompa ≥ %5): kurulum kararı tam o mumda düşer
   const cardT = new Set(base0.cards.map(c => c.t));
@@ -131,7 +147,7 @@ const A = run();
     assert(b, 'aynı mumda normal kart vardı');
     assert.strictEqual(c.seq, b.seq, 'kart numarası değişmedi (ikinci kart yok)');
     assert.strictEqual(c.bypassBy, b.bypassBy, 'bypassBy normal kartınki');
-    assert.strictEqual(c.silent, false); assert(c.tags.includes('#KURULUM'));
+    assert.strictEqual(c.silent, false); assert.strictEqual(b.silent, !(b.grade >= 3), 'normal hali'); assert(c.tags.includes('#KURULUM'));
     assert.deepStrictEqual(c.news.slice(1), b.news, 'yalnız ⭐ satırı eklendi'); assert(c.news[0].startsWith('⭐ v3 kurulumu: S 4/5'));
     assert(/⭐ Kurulum/.test(formatCard(c, lo, { now: c.t }).text));
   }
