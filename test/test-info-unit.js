@@ -443,4 +443,29 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   ok('S1-100: 3m=5/5m=1 → derece sep yok + liste 0 puan; 3m=5/5m=4 → ikisi de %3 kademesini alır; derece ve liste kararı aynı');
 }
 
+// ── v3 kurulum puanı (gölge): her şart tek tek, sınır, null ──
+{
+  const { setupScore, SETUP_DEFAULTS, SETUP_VER } = require('../src/setupScore');
+  const { CANDS } = require('../src/eventLog');
+  assert.deepStrictEqual(SETUP_DEFAULTS, { rsi1m: 85, vol3: 3, pumpMin: 5, min: 4 }); assert.strictEqual(SETUP_VER, 1);
+  const none = { rsi_1m: 10, bbB_15m: 0.5, stochCross: 'up', volx_3m: 1, liqShortPct15: 0 };
+  const z = setupScore(none); assert.deepStrictEqual(z, { v3S: 0, v3_rsi1m: 0, v3_bb15: 0, v3_stoch5: 0, v3_vol3: 0, v3_liq: 0 }, 'hiçbiri yok → S=0');
+  const one = (k, v, flag) => { const r = setupScore({ ...none, [k]: v }); assert.strictEqual(r[flag], 1, k + ' → ' + flag); assert.strictEqual(r.v3S, 1, k + ' tek başına S=1'); return r; };
+  one('rsi_1m', 85, 'v3_rsi1m'); assert.strictEqual(setupScore({ ...none, rsi_1m: 84.9 }).v3_rsi1m, 0, 'rsi 84.9 → 0');
+  one('bbB_15m', 1.01, 'v3_bb15'); assert.strictEqual(setupScore({ ...none, bbB_15m: 1 }).v3_bb15, 0, 'bbB tam 1 → 0 (> 1)');
+  one('stochCross', 'down', 'v3_stoch5');
+  one('volx_3m', 3, 'v3_vol3'); assert.strictEqual(setupScore({ ...none, volx_3m: 2.99 }).v3_vol3, 0);
+  one('liqShortPct15', 0.001, 'v3_liq'); assert.strictEqual(setupScore({ ...none, liqShortPct15: 0 }).v3_liq, 0, 'liq 0 → 0');
+  assert.strictEqual(setupScore({ rsi_1m: 90, bbB_15m: 2, stochCross: 'down', volx_3m: 5, liqShortPct15: 1 }).v3S, 5, 'hepsi → 5');
+  // null: alan yok → bayrak null, S'ye 0 katar
+  const p = setupScore({ rsi_1m: 90, bbB_15m: 2 });
+  assert.deepStrictEqual(p, { v3S: 2, v3_rsi1m: 1, v3_bb15: 1, v3_stoch5: null, v3_vol3: null, v3_liq: null });
+  assert.deepStrictEqual(setupScore({}), { v3S: null, v3_rsi1m: null, v3_bb15: null, v3_stoch5: null, v3_vol3: null, v3_liq: null }, 'hepsi null → S null');
+  assert.strictEqual(setupScore(null).v3S, null); assert.strictEqual(setupScore({ rsi_1m: NaN, volx_3m: 'x' }).v3S, null, 'sayı olmayan → null');
+  assert.strictEqual(setupScore({ rsi_1m: 80 }, { setupRsi1m: 80 }).v3_rsi1m, 1, 'eşik s.setupRsi1m ile değişir'); assert.strictEqual(setupScore({ volx_3m: 4 }, { setupVol3: 5 }).v3_vol3, 0);
+  const f = { rsi_1m: 90, volx_3m: 4 }, c = JSON.stringify(f); assert.deepStrictEqual(setupScore(f), setupScore(f)); assert.strictEqual(JSON.stringify(f), c, 'girdiyi değiştirmez');
+  assert(CANDS.some(x => x[0] === 'v3 S≥4' && x[2]({ v3S: 4 }) && !x[2]({ v3S: 3 }) && !x[2]({})), '/teyit adayı v3 S≥4');
+  ok('v3 kurulum puanı: 5 şart tek tek + sınır + null + deterministik; CANDS "v3 S≥4"');
+}
+
 console.log(R.join('\n'));

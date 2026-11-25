@@ -52,8 +52,9 @@ assert(!w.md.includes('Eski derece'), 'gradeOld olmayan eski kartlarda eski dere
 const dcsv = Z['tepeler.csv'];
 {
   const hd = dcsv.replace('\uFEFF', '').split('\n'); const hc = hd[0].trim().split(',');
-  assert.strictEqual(hc[hc.length - 1], 'atr2C15', 'tepeler.csv son kolon atr2C15'); assert.strictEqual(hc[hc.length - 2], 'dataVer');
-  assert(hd[1].replace(/\r?\n$/, '').endsWith(','), 'eski satırda atr2C15 boş');
+  assert.deepStrictEqual(hc.slice(-8), ['atr2C15', 'v3S', 'v3_rsi1m', 'v3_bb15', 'v3_stoch5', 'v3_vol3', 'v3_liq', 'v3B'], 'tepeler.csv: atr2C15, sonra v3 kolonları sırayla'); assert.strictEqual(hc[hc.length - 9], 'dataVer');
+  assert(hd[1].replace(/\r?\n$/, '').endsWith(',,,,,,,'), 'eski satırda atr2C15 ve 7 v3 kolonu boş');
+  assert(w.md.includes('v3 kurulum puanı (tepeler.csv, atr2C15') && w.md.includes('v3B = 1: v3S ≥ 4'), 'MD v3 sütun açıklaması');
   assert(w.md.includes("tepe high'ından ölçülür, ilk eşik; contPct 0 olduğundan 'devam' = sonraki mumda herhangi bir yeni high, tepenin ayakta kaldığı anlamına gelmez"), 'MD outcome notu');
   assert(w.md.includes('atr2C15 (en sonda; 1: giriş kapanışından 15 dk içinde 2×ATR(5m)% kadar düştü'), 'MD atr2C15 açıklaması');
 }
