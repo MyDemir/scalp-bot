@@ -324,3 +324,22 @@ const flow = createSpotFlow({ file: path.join(dir, 'flow.db'), fetchFn, futuresK
   bt.stop(); wss.close();
   console.log('✅ 🐋 WebSocket: aggTrade aboneliği, spot PEPE → 1000PEPEUSDT kaydı (saat başı), evren değişince UNSUBSCRIBE/SUBSCRIBE');
 })().catch(err => { console.error('❌ BAŞARISIZ', err); process.exit(1); });
+
+// ── 🐋 flow_big saklama: 1d turunda 180 günden eski saatlik sayaçlar silinir, 180 gün içindekiler kalır ──
+(async () => {
+  const d4 = path.join(__dirname, '.tmp', 'spot-flow-purge-big');
+  fs.rmSync(d4, { recursive: true, force: true });
+  const t = Date.UTC(2026, 9, 21, 12, 5);
+  const f4 = createSpotFlow({ file: path.join(d4, 'flow.db'), spotGapMs: 0, now: () => t, logger: { log() {}, warn() {}, error() {} }, getSymbols: () => [],
+    getSettings: () => ({ flowBigPct: 0.05, flowBigMinUsd: 5000 }), fetchFn: null, futuresKlines: async () => [] });
+  const h = Math.floor((t - 181 * DAY) / HOUR) * HOUR, k = Math.floor((t - 179 * DAY) / HOUR) * HOUR;   // 181 ve 179 gün önce (saat başı)
+  f4.recordBig([{ symbol: 'PURGEUSDT', t: h, buyN: 1, buyUsd: 10000, sellN: 0, sellUsd: 0 }, { symbol: 'PURGEUSDT', t: k, buyN: 2, buyUsd: 20000, sellN: 0, sellUsd: 0 }]);
+  assert.strictEqual(f4.bigSum('PURGEUSDT', 0, t + 1).hours, 2, 'purge öncesi 2 saat');
+  await f4.tick();                                       // ilk tur 1d'yi de vadeli sayar → purge çalışır
+  const after = f4.bigSum('PURGEUSDT', 0, t + 1);
+  assert.strictEqual(after.hours, 1, 'purge sonrası yalnız 179 günlük saat kalır');
+  assert.strictEqual(after.buyN, 2, '179 günlük satır (buyN 2) korunur');
+  assert.strictEqual(f4.bigSum('PURGEUSDT', h, h + HOUR), null, '181 günlük satır silindi (kayıt yok → null)');
+  f4.close();
+  console.log('✅ 🐋 flow_big saklama: 1d turunda 181 günlük saatlik sayaç silinir, 179 günlük kalır (KEEP_BIG_DAYS = 180)');
+})().catch(err => { console.error('❌ BAŞARISIZ', err); process.exit(1); });

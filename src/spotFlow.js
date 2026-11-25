@@ -30,7 +30,7 @@ const HOUR = 3_600_000, DAY = 86_400_000, WEEK = 7 * DAY, MONDAY0 = 4 * DAY;   /
 const TFS = ['1h', '4h', '1d', '1w', '1M'];
 const HISTORY = { '1h': 168, '4h': 120, '1d': 60, '1w': 30, '1M': 12 };     // ilk yüklemede kaç kapanmış pencere
 const AVG_N = { '1h': 24, '4h': 20, '1d': 30, '1w': 12, '1M': 6 };          // hacim katı için önceki pencere sayısı
-const KEEP_1H_DAYS = 30, KEEP_4H_DAYS = 180;
+const KEEP_1H_DAYS = 30, KEEP_4H_DAYS = 180, KEEP_BIG_DAYS = 180;   // flow_big (büyük işlem sayaçları) saklama
 const SETTLE_MS = 90_000;                                         // kapanıştan sonra bekleme (Binance mumu kesinleşsin)
 const UNIVERSE_MS = HOUR;                                         // evren (eşleşen spot+futures pariteleri) yenileme aralığı
 
@@ -327,7 +327,7 @@ function createSpotFlow({
         if (fresh) seeded.add(sym);
       }
       for (const tf of due) done[tf] = lastClosedStart(tf, t);
-      if (due.includes('1d')) { st.purge4h.run(t - KEEP_4H_DAYS * DAY); st.purge1h.run(t - KEEP_1H_DAYS * DAY); st.purgeBig.run(t - 400 * DAY); }
+      if (due.includes('1d')) { st.purge4h.run(t - KEEP_4H_DAYS * DAY); st.purge1h.run(t - KEEP_1H_DAYS * DAY); st.purgeBig.run(t - KEEP_BIG_DAYS * DAY); }
       return { symbols: syms.length, due, changed };
     } finally {
       stats.running = false;

@@ -75,7 +75,7 @@ gösterim + Telegram komutu) her alan ayrı iş sayılır, ortak ARAYÜZ
     Saklama: kart 90 gün, temas ve tepe 60 gün, yol 60 gün.
   - `src/spotFlow.js` + `src/bigTrades.js` → `flow.db`: `flow`,
     `flow_label`, `flow_changes`, `flow_big` (1s 30 gün, 4s 180 gün,
-    büyük işlem 400 gün).
+    büyük işlem 180 gün).
   - `src/logStore.js` → `logs/events-YYYY-MM-DD.jsonl`
     (`LOG_RETENTION_DAYS`, varsayılan 14).
   - Tepe anı fotoğrafı: `src/marketSnap.js`, `src/peakFeatures.js`,
