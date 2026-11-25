@@ -126,7 +126,7 @@ const A = run();
   const k1 = eng.setupCard(on2.S, lo2, trk, {}, su, null), k2 = eng.setupCard(on2.S, lo2, trk, {}, su, null);
   assert(k1 && k2 && k1.seq === 1 && k2.seq === 2, 'kart numarası ilerler');
   assert.strictEqual(trk.active('SETUPUSDT'), false, 'seri başlamadı (seri içi patlama açılmaz)'); assert.strictEqual(trk.maxGrade('SETUPUSDT'), 0, 'seri en yüksek derecesi değişmedi');
-  assert(k2.news.includes('İlk kart') || k1.snap.rsiOk === false, 'son kart durumu değişmedi: ikinci kurulum kartında da "İlk kart"');
+  assert(!k1.news.concat(k2.news).some(n => n.startsWith('İlk')), 'kurulum kartı RSI kartı değil: "İlk ..." satırı yok');
   assert.strictEqual(on.cards.length, base.cards.length + on.cards.filter(c => c.trig.setup && !base.cards.some(b => b.t === c.t)).length, 'fark yalnız tek başına kurulum kartları');
   ok(`(d) setupCards=false: ${B.cards.length} + ${B2.cards.length} kart ve ${B.ev.length} tepe kaydı birebir aynı; açıkken ${base.cards.length} mevcut kartın hepsi aynı derecede duruyor`);
 }
@@ -169,6 +169,44 @@ const A = run();
   assert.strictEqual(trk.commitExtra('X', snap), 1); assert.strictEqual(trk.active('X'), false); assert.strictEqual(trk.maxGrade('X'), 0);
   trk.observe15m('X', 10, { resetRsi: 50 }); assert.strictEqual(trk.commitExtra('X', snap), 1, '15m RSI sıfırlaması kurulum sayacını da sıfırlar');
   ok('tracker.commitExtra: yalnız kart numarası; seri durumu (active/maxGrade) aynı');
+}
+
+{ // entegrasyon (step → setupCard akışı): tek başına kurulum kartından ≤ 60 dk sonra gelen normal kart işareti alır
+  const lone = A.cards.filter(c => c.trig.setup && !A.stepAt.has(c.t)), marked = A.cards.filter(c => c.trig.afterSetup);
+  assert(lone.length >= 1 && marked.length >= 1, 'akışta kurulum sonrası kart var');
+  for (const c of marked) {
+    const prev = lone.filter(x => x.t < c.t && c.t - x.t <= 3600_000).pop(); assert(prev && !c.trig.setup, 'önceki tek başına kurulum var, kart normal');
+    const mn = Math.floor((c.t - prev.t) / 60000), pc = (c.price - prev.price) / prev.price * 100;
+    assert(c.tags.includes('#KURULUMSONRASI') && c.news.includes(`⭐ Kurulum kartından ${mn} dk sonra · fiyat kurulumdan ${pc > 0 ? '+' : pc < 0 ? '−' : ''}%${Math.abs(pc).toFixed(2)}`), c.news.join('|'));
+    assert(/⭐ Kurulum sonrası/.test(formatCard(c, cfg.info, { now: c.t }).text));
+  }
+  assert(A.cards.filter(c => !c.trig.afterSetup).every(c => !c.tags.includes('#KURULUMSONRASI')));
+}
+// ── ⭐ Kurulum sonrası işareti: tek başına kurulum kartından ≤ 60 dk sonra gelen normal kart ──
+{
+  const MINm = 60_000, lo = { ...cfg.info, rsiMin: 55, rsiMin2: 60, minTFs: 1, levelRequired: false, moveAlertPct: 0.1, cardSound: false }, base = run({ s: lo, mode: 'base', inject: () => SC4 }), c0 = base.cards[base.cards.length - 1];
+  const mk = () => { const trk = eng.createTracker(); trk.commitExtra('X', { t: t0, price: 100 }); return trk; };
+  // (a) 5 dk sonra: işaret + doğru dk / yüzde
+  const ra = mk().afterSetup('X', t0 + 5 * MINm, 103.5); assert(ra.min === 5 && Math.abs(ra.pct - 3.5) < 1e-9, '(a) 5 dk sonra');
+  const rb = mk().afterSetup('X', t0 + 60 * MINm, 95); assert(rb.min === 60 && Math.abs(rb.pct + 5) < 1e-9, '60 dk dahil');
+  // (b) 61 dk sonra: yok
+  assert.strictEqual(mk().afterSetup('X', t0 + 61 * MINm, 103), null, '(b) 61 dk sonra yok');
+  // (c) kurulum kartı yok: yok
+  assert.strictEqual(eng.createTracker().afterSetup('X', t0, 100), null, '(c) kurulum yok');
+  // (d) birleşik ⭐ (setupCard card ile; commitExtra çağrılmaz): işaret yok
+  { const trk = eng.createTracker(), card = JSON.parse(JSON.stringify(base.cards[0])); card.trig = { ...card.trig, setup: false }; card.tags = card.tags.filter(x => x !== '#KURULUM');
+    const su = { id: 'x', t: card.t, S: 4, flags: ['v3_rsi1m'], pumpPct: 7 };
+    eng.setupCard(null, lo, trk, {}, su, card); assert.strictEqual(trk.afterSetup('X', card.t + 5 * MINm, 100), null, '(d) birleşik ⭐ sonrası yok'); }
+  // sıfırlama (15m RSI düşük) işareti de siler
+  { const trk = mk(); trk.observe15m('X', 10, { resetRsi: 50 }); assert.strictEqual(trk.afterSetup('X', t0 + MINm, 100), null, 'reset siler'); }
+  // kart etiketi: 🔔 satırı + ⭐ satırı; yokken metin birebir aynı
+  const plainTxt = formatCard(c0, lo, { now: c0.t }), mark = { min: 5, pct: -1.234 };
+  const c1 = { ...c0, trig: { ...c0.trig, afterSetup: mark }, news: [...c0.news, '⭐ Kurulum kartından 5 dk sonra · fiyat kurulumdan −%1.23'] };
+  const f1 = formatCard(c1, lo, { now: c0.t });
+  assert(/🔔:.*⭐ Kurulum sonrası/.test(f1.text) && !/⭐ Kurulum sonrası/.test(plainTxt.text), 'işaret yalnız afterSetup varken');
+  assert(f1.details.includes('⭐ Kurulum kartından 5 dk sonra · fiyat kurulumdan −%1.23'));
+  assert.deepStrictEqual(formatCard({ ...c0 }, lo, { now: c0.t }), plainTxt, '(c) işaretsiz metin birebir aynı');
+  ok('⭐ Kurulum sonrası: 5 dk → +dk/%; 60 dk dahil, 61 dk yok; kurulum yok → yok; birleşik ⭐ → yok; reset siler; 🔔 + yenilik satırı');
 }
 
 // ── (e2) karar ile kayıt farklılaşabilir mi: seyreltmeyle atlanan aday ──

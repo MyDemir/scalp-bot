@@ -35,6 +35,15 @@ const tg = M.startTelegram(PT);
 const env = { ...process.env, BINANCE_REST_BASE_URL: `http://127.0.0.1:${PR}`, BACKTEST_REQ_DELAY_MS: '0', BINANCE_REST_WEIGHT_PER_MIN: '600000',
   TELEGRAM_BOT_TOKEN: 'TEST:TOKEN', TELEGRAM_CHAT_ID: CHAT, TELEGRAM_API_BASE: `http://127.0.0.1:${PT}`, DB_PATH: `${SP}/info-bt.db` };
 const results = []; const ok = s => results.push('✅ ' + s);
+// minToFunding sınırı deterministik (saatten bağımsız): ödeme anında 0, 1 dk önce 1, 8 saat önce 480
+{ const { Series } = require('../src/series'); const { extraFeatures } = require('../src/peakFeatures');
+  const S = new Series('FUSDT'), T0 = Date.UTC(2026, 0, 1, 7, 0), a = [];
+  for (let i = 0; i < 60; i++) a.push({ t: T0 + i * MIN, o: 100, h: 101, l: 99, c: 100, v: 1, tb: 1, q: 100, tq: 50, closed: true });
+  S.seed('1m', a); const pay = Date.UTC(2026, 0, 1, 8, 0);
+  const f = tt => extraFeatures(S, { t: tt, funding: { next: pay } });
+  assert.strictEqual(f(pay).minToFunding, 0, 'ödeme anı → 0');
+  assert.strictEqual(f(pay - 3).minToFunding, 0, '3 ms kala → 0 (geçerli değer)'); assert.strictEqual(f(pay - MIN).minToFunding, 1); assert.strictEqual(f(pay - 480 * MIN).minToFunding, 480); }
+
 
 (async () => {
   // 1) CLI: tüm evren, 3 gün, örnek + telegram (ayrı süreç; sunucular bu süreçte)
@@ -165,7 +174,7 @@ const results = []; const ok = s => results.push('✅ ' + s);
       assert.strictEqual(d.feat.funding, +(e.rate * 100).toFixed(4), `tepe funding t=${d.t}`);
       const nextRate = parseFloat(M.fundingRateOf(e.ft + M.FUND_MS));
       if (d.feat.funding !== +(nextRate * 100).toFixed(4)) crossed++;
-      assert(Number.isFinite(d.feat.minToFunding) && d.feat.minToFunding > 0 && d.feat.minToFunding <= 480, 'minToFunding');
+      assert(Number.isFinite(d.feat.minToFunding) && d.feat.minToFunding >= 0 && d.feat.minToFunding <= 480, 'minToFunding (0 geçerli: ödemeye < 30 sn kala)');
       const want = oiFields(oiRows(d.t));
       assert.deepStrictEqual({ oiChg15: d.feat.oiChg15, oiChg60: d.feat.oiChg60, oiUsd: d.feat.oiUsd }, want, `tepe OI t=${d.t}`);
       assert(want.oiChg60 != null && d.feat.lsTopAcc == null && d.feat.obBid1 == null && d.feat.spotPrem == null, 'enrich\'in diğer alanları backtest\'te yok');

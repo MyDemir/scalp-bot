@@ -94,6 +94,11 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   n = tr.news('X', snap({ hits: 3, rsi: { '3m': { v: 96 }, '5m': { v: 91 }, '15m': { v: 90 } }, macd: { '5m': { cross: 'down', crossKey: '5m:down:1' }, '15m': null }, stoch: { cross: 'down', crossKey: '5m:down:1' } }), { tfs: ['5m'], burst: { dir: 'sell', body: -1.3, volX: 3.2, taker: 30 } }, s);
   assert.deepStrictEqual(n, ['🔴 Hacimli düşen mum: −%1.3 · hacim 3.2 kat · satış %70', '5m MACD aşağı kesti', '5m Stoch RSI aşağı kesti']);
   assert.strictEqual(tr.log('X').length, 2);
+  { const t2 = eng.createTracker();
+    assert(t2.news('Y', snap(), { tfs: ['3m'] }, s)[0] === 'İlk kart');
+    t2.commitExtra('Y', snap());
+    assert(!t2.news('Y', snap(), { tfs: ['3m'], setup: true }, s).some(x => x.startsWith('İlk')), 'trig.setup → İlk satırı yok');
+    assert(t2.news('Y', snap(), { tfs: ['3m'] }, s)[0] === 'İlk RSI kartı (⭐ kurulum kartından sonra)', 'xs>0 → İlk RSI kartı'); }
   tr.observe15m('X', 80, s); assert(tr.news('X', snap(), { tfs: [] }, s).length === 0 || true);
   tr.observe15m('X', 74, s);
   n = tr.news('X', snap(), { tfs: ['3m'] }, s); assert(n[0].startsWith('İlk kart'));
@@ -221,6 +226,15 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
     const lv3 = [lv[0], { name: '4h EMA200', value: 100.3, dist: -(g.levelMaxPct + 1) }];
     ck = eng.checklist({ ...base, rsi: rsi(90, 90, 90), levels: lv3, level: lv3[0] }, g);
     assert(!ck.items[1].ok, 'levelMaxPct dışındaki seviye çakışma sayılmaz'); }
+  // also: aynı fiyata düşen ikinci seviye ref.also'da; çakışan direnç sayılır (Fib / 1h tepe sayılmaz)
+  { const r0 = { name: '30 günlük en yüksek', value: 100.3, dist: -0.3, also: ['7 günlük en yüksek'] };
+    ck = eng.checklist({ ...base, rsi: rsi(90, 90, 90), levels: [r0], level: r0 }, g);
+    assert(ck.items[1].ok && ck.confluence && ck.confluence.name === '7 günlük en yüksek' && ck.confluence.gapPct === 0, 'ref.also çakışma sayılır');
+    const r1 = { ...r0, also: ['Fib 0.618', '1h tepe'] };
+    ck = eng.checklist({ ...base, rsi: rsi(90, 90, 90), levels: [r1], level: r1 }, g);
+    assert(!ck.items[1].ok && ck.confluence === null, 'also içinde Fib / 1h tepe çakışma değil');
+    ck = eng.checklist({ ...base, rsi: rsi(90, 90, 90), levels: [r0], level: r0 }, { ...g, confluencePct: 0.2 });
+    assert(!ck.items[1].ok && ck.confluence === null, 'confluencePct 0.2 < 0.3: also yedeği çakışma saymaz'); }
   ck = eng.checklist({ ...base, rsi: rsi(90, 90, 90), levels: [{ name: '4h EMA200', value: 101, dist: -1 }], level: { name: '4h EMA200', value: 101, dist: -1, zone: 'near' } }, g);
   assert(!ck.items[0].ok && ck.items[0].text.includes('içinde yok'));   // yalnız 4h seviye → günlük madde yok
   ok('Derece (sart3: 1 + ayrışma + 1s RSI ≥ 80 + 15dk RSI ≥ 85; liste: kontrol skoru) · hacim 🔴/🔴🔴(≥3×)/🔴🔴🔴(+yön ≥%65) · kart derecesi puanla (9 madde; EMA21 üstü ayrışma %2/%5/%10 → 1/2/3 puan, altı 0; MACD 3m/5m sat kesişimi +1): 10 puan → 4 daire, 5 → 3, 3 → 2; RSI bandı 95–100; EMA21 yakın uyarısı; yalnız 4h seviyede günlük madde yok');

@@ -100,6 +100,7 @@ Tek başına kurulum kartı kart numarasını ilerletir ama serinin durumunu (so
 sonraki normal kartlar eskisi gibi gelir. Bilinen fark: pompa sürerken "devam" adayları en fazla 5 dk'da bir kaydedilir;
 pompanın ilk uygun adayı kaydedilmeyen bir aday ise kart o adayda (birkaç dk erken) çıkar, kayıttaki `v3B` aynı pompanın
 sonraki kaydedilen adayına yazılır; pompada yine tek kurulum kartı vardır. Bot yeniden başlarsa süren pompada ikinci kart çıkabilir.
+**⭐ Kurulum sonrası (#KURULUMSONRASI):** aynı sembolde son 60 dk içinde TEK BAŞINA çıkan ⭐ kurulum kartından sonra gelen normal RSI kartının 🔔 satırına `⭐ Kurulum sonrası`, yeniliklere `⭐ Kurulum kartından N dk sonra · fiyat kurulumdan %+x.xx` eklenir. Aynı mumda birleşen (⭐ eklenen) kart sayılmaz; kart üretimi, ses, derece ve seri kuralı değişmez; yeni kolon yok. Gerekçe (H46–H47): kurulumdan sonra 60 dk içinde gelen RSI kartı 60 vaka, medyan +%5.6 daha yukarıda, 15 dk sonra aşağıda %73 (kurulum kartında %28); 4 dönemde RSI kartı daha iyi. Bellek: sembol başına 2 sayı (son kurulum t ve fiyatı).
 
 ### Kartın içeriği
 Hızlı okunsun diye kısa ve her şey açıkta (açılır kutu yok):
@@ -147,7 +148,7 @@ Ayrıntılar bellekte tutulur (son 3000 kart); bot yeniden başlayınca eski kar
   ("2–3 tepe negatif yapıp çakarsa"). Son tepe 6 mumdan eskiyse sayılmaz. ≥2 ise `#NEGTEPE`.
 - **Hacim sayacı** (60 dk ve 15 dk): 1m gövde ≥ %1 / ≥ %1.5 ve hacim ≥ 2× (önceki 20 **dakikadaki** mumların ortalaması; veri boşluğunda bulunan mumlara bölünür, pencerenin yarısından az mum varsa sayılmaz);
   taker alış > %55 → alım, < %45 → satış, arası nötr. Art arda gelen patlama mumları tek patlama sayılır.
-- Hashtag'ler (Detay mesajında; dokununca o sınıftaki tüm kartlar listelenir): `#COIN #DERECE1/2/3/4 #DIRENCTE/#YAKLASIYOR #HACIM #SERI #SAHTEKIRILIM #FIYATKESFI #NEGTEPE #AYRISMA #TAKIP #KURULUM`
+- Hashtag'ler (Detay mesajında; dokununca o sınıftaki tüm kartlar listelenir): `#COIN #DERECE1/2/3/4 #DIRENCTE/#YAKLASIYOR #HACIM #SERI #SAHTEKIRILIM #FIYATKESFI #NEGTEPE #AYRISMA #TAKIP #KURULUM #KURULUMSONRASI`
 - **Bildirim:** her yeni kart sesli gelir (`/ayarlar` → "Kart sesli" kapatılırsa yalnız 🔴🔴🔴 ve takipteki coinler sesli).
 
 ### Grafik
