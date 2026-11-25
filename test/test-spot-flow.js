@@ -164,7 +164,15 @@ const flow = createSpotFlow({ file: path.join(dir, 'flow.db'), fetchFn, futuresK
   const zf = require('./unzip')((await buildExports(fakeStore, 30, now, { flow })).files[0].buf)['akis.csv'];
   const hdr = csvHeader(oldCols);
   assert.strictEqual(zf, hdr + all.map(r => csvLine(r, oldCols)).join(''), 'akis.csv eski colsOf(rows) çıktısıyla bayt bayt aynı');
-  assert.strictEqual(hdr.replace(/^\uFEFF/, '').trim(), 'symbol,market,tf,time,vol_usd,buy_usd,sell_usd,net_usd,buy_pct,open,close,chg_pct,trades,big_buy_n,big_buy_usd,big_sell_n,big_sell_usd,' + GRADE_COLS_LIST.join(','));
+  const hdrCols = hdr.replace(/^\uFEFF/, '').trim().split(',');
+  // (a) akış kolonları literal ve sıralı kilitli (başlığın ilk 17 kolonu)
+  const FLOW_LITERAL = 'symbol,market,tf,time,vol_usd,buy_usd,sell_usd,net_usd,buy_pct,open,close,chg_pct,trades,big_buy_n,big_buy_usd,big_sell_n,big_sell_usd'.split(',');
+  assert.deepStrictEqual(FLOW_EXPORT_COLS, FLOW_LITERAL, 'FLOW_EXPORT_COLS literal liste');
+  assert.deepStrictEqual(hdrCols.slice(0, FLOW_LITERAL.length), FLOW_LITERAL, 'başlığın ilk 17 kolonu akış kolonları');
+  // (b) tam başlık exportData'nın colsOf çıktısıyla aynı; kuyruk boş akış başlığıyla aynı (ek kolonlar PR'larda eklenebilir)
+  assert.strictEqual(hdr, csvHeader(colsOf([Object.fromEntries(FLOW_EXPORT_COLS.map(k => [k, null]))])), 'tam başlık = csvHeader(colsOf(...))');
+  const emptyCols = colsOf([]);
+  assert.deepStrictEqual(hdrCols.slice(FLOW_LITERAL.length), emptyCols, 'başlık kuyruğu = colsOf([]) (derece/ek kolonlar)');
   ok(`CSV akıtma: başlık/kolon sırası kilitli (${FLOW_EXPORT_COLS.length}+16), ${all.length} satır eski çıktıyla birebir`);
 
   // Sayfalama: küçük parça (7) sınırlarında da çıktı bayt bayt aynı
