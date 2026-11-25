@@ -6,7 +6,7 @@
 
 const { formatCard, summaryText, esc, px, pct, dayTime } = require('./infoCard');
 const { evaluate, circles } = require('./infoEngine');
-const { classTable, median, touchText } = require('./infoStats');
+const { classTable, nLabel, median, touchText } = require('./infoStats');
 const { rowToStat } = require('./cardStore');
 const { dropText, teyitText, createTeyitAcc, slimDrop } = require('./eventLog');
 const { buildExports } = require('./exportData');
@@ -367,7 +367,7 @@ Kart ne zaman gelir: 3m/5m/15m'den en az <b>${settings.get().minTFs}</b> tanesin
       const cards = rows.filter(r => r.kind === 'card'), moves = rows.filter(r => r.kind === 'move');
       if (!rows.length) return `Son ${days} günde kayıt yok.`;
       const cls = classTable(cards).filter(r => r.n > 0).map(r =>
-        `${esc(r.name.trim())}: <b>${r.n}</b> · dip 5/15/30/60 ${[r.low5, r.low15, r.low30, r.low60].map(v => pct(v, 1)).join(' / ')} · tepe60 ${pct(r.high60, 1)} · son60 ${pct(r.close60, 1)}`);
+        `${esc(r.name.trim())}: <b>${nLabel(r)}</b> · dip 5/15/30/60 ${[r.low5, r.low15, r.low30, r.low60].map(v => pct(v, 1)).join(' / ')} · tepe60 ${pct(r.high60, 1)} · son60 ${pct(r.close60, 1)}`);
       const mv = [['▲ yükseliş', moves.filter(m => m.movePct > 0)], ['▼ düşüş', moves.filter(m => m.movePct < 0)]].map(([k, a]) => {
         const f = a.filter(m => m.fwd[60]);
         return `${k}: <b>${a.length}</b> · 60dk sonra medyan ${pct(median(f.map(m => m.fwd[60].close)))} (en düşük ${pct(median(f.map(m => m.fwd[60].low)))} / en yüksek ${pct(median(f.map(m => m.fwd[60].high)))})`;

@@ -9,11 +9,13 @@
  *     o ana kadarki 1m'lerden üretilir. Dönem başlangıcı UTC gece yarısına hizalanır (yarım mum kalmaz).
  *   • Kazanç/kayıp hesabı YOK. Her kart için yalnızca "sonrasında fiyat ne yaptı" bilgisi (sonraki
  *     15/60 dk'daki en düşük / en yüksek / kapanış) tutulur — kart sınıflarını kıyaslamak için.
- *   • Funding ve OI geçmişi kullanılmaz (kartlarda "—"); BTC 1h bağlamı ve ctx.market (btc5/btc15/btcRsi15) geçmişten
- *     hesaplanır; breadth80/pumping null. Eksik bağlam listesi: LIMITS (konsol + JSON params.limits).
+ *   • Funding ve OI geçmişi coin başına bir kez çekilir (fundingRate, openInterestHist 5m); t anında yalnız t'ye kadar
+ *     bilinen değer verilir (ctx.funding canlı biçimiyle, kart oi ve tepe kaydı oiChg15/oiChg60/oiUsd marketData'daki
+ *     ortak hesapla). OI yalnız son 30 gün (Binance sınırı; daha eskisi boş). BTC 1h bağlamı ve ctx.market
+ *     (btc5/btc15/btcRsi15) geçmişten hesaplanır; breadth80/pumping null. Eksik bağlam listesi: LIMITS (konsol + JSON params.limits).
  *
  * Çalıştırma (Binance'e erişen yerde — Fly makinesinde):
- *   node src/infoBacktest.js                         # tüm evren (24s hacim ≥ ayar), son 30 gün
+ *   node src/infoBacktest.js                         # tüm evren (dönem öncesi 24s hacim ≥ ayar), son 30 gün
  *   node src/infoBacktest.js --days 7 --max-coins 50 # hızlı deneme
  *   node src/infoBacktest.js --symbol ETHUSDT,SOLUSDT --days 60 --ornek 5
  *   node src/infoBacktest.js --ayar rsiMin=95,minTFs=3,levelMaxPct=2   # ayar dene
@@ -39,6 +41,7 @@ const eng = require('./infoEngine');
 const { formatCard, toPlain, esc } = require('./infoCard');
 const { createSettings } = require('./infoSettings');
 const { withRetry } = require('./binanceClient');
+const { oiFields, oiChange1h } = require('./marketData');
 const ta = require('./ta');
 const { createTouchTracker } = require('./levelTouch');
 const { createDropLedger, dropText, teyitText, DEFAULTS: DROP_DEFAULTS } = require('./eventLog');
@@ -84,12 +87,15 @@ async function fetchBefore(symbol, tf, start, n) {
 
 /** Backtest'te canlıdan eksik kalan bağlam (konsol + JSON params.limits + README) */
 const LIMITS = [
-  'funding yok (kartlarda "—"; tepe kaydında funding alanları boş)',
+  'OI yalnız son 30 gün (daha eskisi boş; Binance openInterestHist sınırı)',
+  'funding = son ödenmiş oran; canlıdaki premiumIndex lastFundingRate o dönemin tahmini oranı olduğundan backtest funding\'i canlıya göre bir dönem geriden gelir (look-ahead\'i önlemek için bilinçli)',
+  'funding aralığı değişen coinde değişimden sonraki ilk dönemde minToFunding sapabilir',
+  'baz (mark − endeks) yok: funding geçmişinde mark/endeks yok → basisPct boş',
   'likidasyon akışı yok',
   'breadth80 ve pumping yok (evrenin aynı andaki durumu gerekir; backtest sembol sembol koşar → null)',
-  'spot / emir defteri verisi yok',
+  'spot / emir defteri / long-short oranları verisi yok',
   'sessize alma ve takip (cooldown, seri akışı) canlıdaki gibi işlemez',
-  'evren BUGÜNKÜ 24s hacme göre seçilir (hayatta kalma yanlılığı: dönemde listeden çıkan coinler yok)',
+  'evren dönem başından önceki 24s hacme göre seçilir; Binance listeden tamamen çıkmış (DELISTED) coinleri exchangeInfo\'da vermediği için onlar yok (kalan hayatta kalma yanlılığı); dönem başından önceki gün listelenenler dışarıda',
 ];
 
 /**
@@ -121,6 +127,54 @@ function createBtcMarket(btc1m) {
   };
 }
 
+// ── Funding / OI geçmişi (t anında bilinen son değer; look-ahead yok) ───────
+
+/** fundingRate satırlarında (eskiden yeniye) zamanı ≤ t olan son satırın sırası; yoksa −1 */
+function lastAtOrBefore(times, t) {
+  let lo = 0, hi = times.length - 1, i = -1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (times[m] <= t) { i = m; lo = m + 1; } else hi = m - 1; }
+  return i;
+}
+
+/**
+ * t anında bilinen funding — canlı ctx.funding biçimi {rate, next, mark, index}.
+ * rate: fundingTime ≤ t olan son ÖDENMİŞ oran (canlıdaki premiumIndex lastFundingRate'in geçmişteki en yakın karşılığı).
+ * next: son iki ödeme arasındaki aralıkla bir sonraki ödeme zamanı (yalnız t'ye kadarki ödemelerden; tek ödeme varsa null).
+ * mark / index: geçmişi yok → null.
+ */
+function createFundingAt(rows = []) {
+  const ft = rows.map(r => Number(r.fundingTime)), fr = rows.map(r => parseFloat(r.fundingRate));
+  const mn = x => Math.round(x / MIN) * MIN;
+  return t => {
+    const i = lastAtOrBefore(ft, t);
+    if (i < 0 || !Number.isFinite(fr[i])) return null;
+    const step = i > 0 ? mn(ft[i]) - mn(ft[i - 1]) : 0;
+    return { rate: fr[i], next: step > 0 ? mn(ft[i]) + step : null, mark: null, index: null };
+  };
+}
+
+/**
+ * t anında bilinen son 13 OI noktası (timestamp ≤ t; canlıdaki limit 13 / endTime t isteğinin karşılığı).
+ * 60 dk tam kapsanmıyorsa (30 gün sınırı, veri boşluğu) null — eksik veri uydurulmaz.
+ */
+function createOiAt(rows = []) {
+  const ts = rows.map(r => Number(r.timestamp));
+  return t => {
+    const i = lastAtOrBefore(ts, t);
+    if (i < 12 || ts[i - 12] < t - 65 * MIN) return null;
+    return rows.slice(i - 12, i + 1);
+  };
+}
+
+/** Coin başına bir kez: dönemin funding ve OI geçmişi (hata olursa o alan boş kalır, backtest sürer) */
+async function fetchHist(symbol, start, end) {
+  const bc = require('./binanceClient');
+  const out = { funding: [], oi: [], errors: [] };
+  try { out.funding = await bc.fundingRateHistory(symbol, start - 2 * DAY, end - 1, { delayMs: REQ_DELAY_MS }); } catch (err) { out.errors.push(`funding: ${err?.message || err}`); }
+  try { out.oi = await bc.openInterestHistRange(symbol, start - 65 * MIN, end - 1, { delayMs: REQ_DELAY_MS }); } catch (err) { out.errors.push(`OI: ${err?.message || err}`); }
+  return out;
+}
+
 // ── Tek coin ───────────────────────────────────────────────────────────────
 
 function forward(m1, i, price) {
@@ -141,13 +195,20 @@ async function runSymbol(symbol, { start, end, s, btcClose, btcMarket, keepCards
   const first = m1.findIndex(c => c.t >= start);
   if (first < 0) return { symbol, cards: [], minutes: 0, note: 'dönemde veri yok' };
   sr.seed('1m', m1.slice(0, first));
+  sr.seedPartials(m1.slice(0, first), start);                 // start'ta açık üst TF periyotları (canlı tohumdaki kısmi mum gibi); ek istek yok
 
   const tracker = eng.createTracker();
   const touchTr = createTouchTracker();
   const touches = [];
-  const dropTr = createDropLedger(cfg.events);
+  const hist = await fetchHist(symbol, start, end);
+  const fundingAt = createFundingAt(hist.funding), oiAt = createOiAt(hist.oi);
+  hist.funding = hist.oi = null;
+  let now = start;                                            // işlenen 1m'nin kapanış anı (ctx.funding canlıdaki gibi yalnız sembol alır)
+  // Tepe kaydı OI alanları: canlıdaki enrich'in OI kısmı (aynı hesap, tepe anına hizalı); diğer enrich alanları backtest'te yok
+  const dropTr = createDropLedger({ ...cfg.events, enrich: (sym, { t }) => { const r = oiAt(t); return r ? oiFields(r) : null; } });
   const drops = [];
   const ctx = {
+    funding: () => fundingAt(now),
     btc1h: t => {
       const a = btcClose.get(t - MIN), b = btcClose.get(t - 61 * MIN);
       return a && b ? (a / b - 1) * 100 : null;
@@ -169,22 +230,24 @@ async function runSymbol(symbol, { start, end, s, btcClose, btcMarket, keepCards
         moves.push({ symbol, t: m1[i].t + MIN, movePct: +mp.toFixed(3), grade: eng.volGrade(mp, volX, taker, s), price: m1[i].c, fwd: forward(m1, i, m1[i].c) });
       }
     }
+    now = m1[i].t + MIN;
     const closed = sr.apply1m(m1[i]);
     if (sr.ready()) touches.push(...touchTr.observe(sr, closed, s));
     const card = eng.step(sr, closed, s, tracker, ctx);
     if (card) { touchTr.noteCard(symbol, card.t); dropTr.noteCard(symbol, card.t, card.grade); }
     if (sr.ready()) drops.push(...dropTr.observe(sr, s, ctx));
     if (!card) continue;
+    { const r = oiAt(card.t), oi = r ? oiChange1h(r) : null; if (oi != null) card.oi = { changePct: oi }; }   // canlı emitCard ile aynı
     card.fwd = forward(m1, i, card.price);
     if (keepCards) card.text = formatCard(card, s).text;
     cards.push(card);
   }
-  return { symbol, cards, moves, touches, drops, minutes: m1.length - first, gaps };
+  return { symbol, cards, moves, touches, drops, minutes: m1.length - first, gaps, ...(hist.errors.length ? { note: `geçmiş alınamadı (${hist.errors.join('; ')})` } : {}) };
 }
 
 // ── Rapor ──────────────────────────────────────────────────────────────────
 
-const { median, pctS, fmtDate, compact, CLASSES, classTable, excluded60, excludedNote, load, touchText } = require('./infoStats');
+const { median, pctS, fmtDate, compact, CLASSES, classTable, nLabel, excluded60, excludedNote, load, touchText } = require('./infoStats');
 
 function printReport(p, cards, perSym) {
   const days = (p.end - p.start) / DAY;
@@ -201,13 +264,13 @@ function printReport(p, cards, perSym) {
   console.log('\nKart sınıfları ve sonrasında fiyat (medyan, kart anındaki fiyata göre):');
   console.log('  Sınıf                   Kart   15dk en düşük   60dk en düşük   60dk en yüksek   60dk sonra');
   for (const r of classTable(cards)) {
-    console.log(`  ${r.name.padEnd(22)} ${String(r.n).padStart(5)}   ${pctS(r.low15).padStart(13)}   ${pctS(r.low60).padStart(13)}   ${pctS(r.high60).padStart(14)}   ${pctS(r.close60).padStart(10)}`);
+    console.log(`  ${r.name.padEnd(22)} ${nLabel(r).padStart(5)}   ${pctS(r.low15).padStart(13)}   ${pctS(r.low60).padStart(13)}   ${pctS(r.high60).padStart(14)}   ${pctS(r.close60).padStart(10)}`);
   }
   if (excluded60(cards)) console.log(`  60dk sütunları:${excludedNote(excluded60(cards))}`);
   const top = perSym.filter(x => x.n).sort((a, b) => b.n - a.n).slice(0, 12);
   if (top.length) console.log(`\nEn çok kart: ${top.map(x => `${x.symbol} ${x.n}`).join(' · ')}`);
   console.log('\nNot: bu bir kazanç/kayıp testi değildir; "sonrasında fiyat" sütunları yalnızca kart sınıflarını kıyaslamak içindir.');
-  console.log('     Evren BUGÜNKÜ hacme göre seçildi (dönem içinde listeden çıkan coinler yok). Funding/OI geçmişi kullanılmadı.');
+  console.log('     Evren dönem öncesi 24s hacme göre seçildi (listeden tamamen çıkmış coinler yok). Funding geçmişi kullanıldı; OI yalnız son 30 gün.');
 }
 
 function moveRows(moves) {
@@ -229,7 +292,7 @@ function printMoves(p, moves, s) {
 function telegramSummary(p, cards, perSym, s, moves = []) {
   const days = (p.end - p.start) / DAY;
   const L = load(cards);
-  const rows = classTable(cards).map(r => `${esc(r.name.trim())}: <b>${r.n}</b> · 60dk en düşük ${pctS(r.low60)} · en yüksek ${pctS(r.high60)}`);
+  const rows = classTable(cards).map(r => `${esc(r.name.trim())}: <b>${nLabel(r)}</b> · 60dk en düşük ${pctS(r.low60)} · en yüksek ${pctS(r.high60)}`);
   const exclNote = excludedNote(excluded60(cards));
   const top = perSym.filter(x => x.n).sort((a, b) => b.n - a.n).slice(0, 8).map(x => `${esc(x.symbol)} ${x.n}`).join(' · ');
   return `🧪 <b>Bilgi botu backtest</b>
@@ -280,20 +343,23 @@ async function main() {
   }
   const s = { ...settings.get() };
 
+  const end   = Math.floor(Date.now() / MIN) * MIN;
+  const start = Math.floor((end - DAYS * DAY) / DAY) * DAY;
   let symbols, universe;
   if (a.symbol) {
     symbols = String(a.symbol).split(',').map(x => x.trim().toUpperCase()).filter(Boolean).map(x => (x.endsWith('USDT') ? x : x + 'USDT'));
     universe = '--symbol';
   } else {
     const minVol = Number(a['min-volume'] ?? s.minVolumeM * 1e6);
-    const { getLiquidSymbols } = require('./binanceClient');
-    symbols = await getLiquidSymbols({ minVolume24hUSDT: minVol, maxCoins: Number(a['max-coins'] ?? 0), excludeBaseAssets: cfg.autoFilter.excludeBaseAssets, tradfi: Boolean(s.tradfi) });
-    universe = `24s hacim ≥ ${(minVol / 1e6).toLocaleString()}M $${a['max-coins'] ? `, en likit ${a['max-coins']}` : ''}`;
+    const { getPeriodLiquidSymbols } = require('./binanceClient');
+    // dönem başından önceki 24 saatin hacmi (bugünkü değil): aday başına 1 istek (weight 1)
+    const r = await getPeriodLiquidSymbols({ minVolume24hUSDT: minVol, maxCoins: Number(a['max-coins'] ?? 0), excludeBaseAssets: cfg.autoFilter.excludeBaseAssets, tradfi: Boolean(s.tradfi), start });
+    symbols = r.symbols;
+    universe = `dönem öncesi 24s hacim ≥ ${(minVol / 1e6).toLocaleString()}M $${a['max-coins'] ? `, en likit ${a['max-coins']}` : ''}`;
+    console.log(`Evren seçimi: ${r.stats.candidates} aday, ${r.stats.eligible} uygun (dönem başında listeli), ${r.stats.requests} REST isteği${r.stats.failed ? `, ${r.stats.failed} coin hacim alınamadığı için dışarıda` : ''}`);
   }
   if (!symbols.length) throw new Error('Sembol listesi boş');
 
-  const end   = Math.floor(Date.now() / MIN) * MIN;
-  const start = Math.floor((end - DAYS * DAY) / DAY) * DAY;
   const p = { start, end, days: DAYS, symbols, universe, limits: LIMITS };
 
   console.log('\n════════════════════════════════════════════');
@@ -305,7 +371,7 @@ async function main() {
   console.log(`  Hareket   : 1 dk ≥ %${s.moveAlertPct}${s.moveAlertPct > 0 ? '' : ' (kapalı)'}`);
   console.log(`  Patlama   : gövde ≥ %${s.burstPct1}/%${s.burstPct2} · hacim ≥ ${s.volMult}× (${s.volAvgN} mum) · taker >%${s.takerBuyPct} alım / <%${s.takerSellPct} satış`);
   console.log(`  Canlıdan eksik bağlam: ${LIMITS.join(' · ')}`);
-  console.log(`  Süre      : coin başına ~${Math.ceil(DAYS * 1.44 * (REQ_DELAY_MS + 150) / 1000)} sn veri çekme (1m, ${Math.ceil(DAYS * 1440 / PAGE)} istek)`);
+  console.log(`  Süre      : coin başına ~${Math.ceil(DAYS * 1.44 * (REQ_DELAY_MS + 150) / 1000)} sn veri çekme (1m, ${Math.ceil(DAYS * 1440 / PAGE)} istek; funding ${Math.ceil((DAYS + 2) * 3 / 1000)}+ (8 saatlik) + OI ${Math.ceil((Math.min(DAYS, 30) * 288 + 13) / 500)} istek)`);
   console.log('════════════════════════════════════════════\n');
 
   // BTC 1h bağlamı için BTC 1m kapanışları
@@ -386,4 +452,4 @@ if (require.main === module) {
   main().catch(err => { console.error('[BACKTEST]', err?.stack || err); process.exit(1); });
 }
 
-module.exports = { runSymbol, createBtcMarket, LIMITS, fetch1m, setKlineSource: src => { klineSource = src; } };
+module.exports = { runSymbol, createBtcMarket, createFundingAt, createOiAt, LIMITS, fetch1m, setKlineSource: src => { klineSource = src; } };

@@ -192,6 +192,8 @@ Yeniden başlatmada yarım kalan takipler "eksik" işaretlenir.
 - `/gecmis ETH [adet]` — coinin son kartları + sonrasında fiyat
 - `/istatistik [gün]` — kart sınıfları (dip 5/15/30/60 dk · 60 dk tepe · 60. dk) (RSI 2/3–3/3, Dirençte, hacim, seri içi, negatif tepe …) ve ⚡ uyarılar için
   "sonraki 60 dk" medyanları — backtest'teki tablonun canlı hali
+  Sınıf satırındaki sayı kart sayısıdır; 60 dk penceresi tam olan kart daha azsa "3 (60dk: 2)" biçiminde yazılır
+  (60 dk medyanı yalnız o 2 karttan hesaplanır; 60 dk'sı dolmamış ya da backtest dönem sonuna taşan kartlar dışarıdadır).
 
 ### Seviye tepkisi (/seviye)
 İzlenen her coinde fiyat bir dirence **alttan** değdiğinde (önceki 1m kapanış seviyenin %0.3'ten fazla altında, bu
@@ -284,8 +286,11 @@ Haftalık rapor zip'ine kapsamdaki (`t < cutoff`) tüm yollar girer; `/disaaktar
 - `rsi15c`, `rsi1hc`, `rsi4hc` — 15dk / 1s / 4s RSI, yalnız KAPANMIŞ mumlarla (`rsi15`, `rsi1h`, `rsi4h` kısmi mumludur)
 - `rsi3c`, `rsi5c` — 3dk / 5dk RSI, yalnız KAPANMIŞ mumlarla; `sep3c`, `sep5c` — EMA21 ayrışması (%), son KAPANMIŞ 3dk / 5dk mum kapanışı ve kapanmış mumlarla EMA21'e göre (`sep3`, `sep5` canlı fiyatlı ve kısmi mumludur)
 - `cfgPeakWindowMin`, `cfgSampleGapMin`, `cfgVer` — kayıt anındaki tepe penceresi (dk), devam örnekleme aralığı (dk) ve `package.json` sürümü (anlamı değişmedi). Ayrıca `tepeler.csv`'nin en sonunda (`gradeVer`'den sonra) `dataVer`: `eventLog.js` içindeki elle artırılan kayıt/derece sürümü (ör. `2026.11.24-3`; kayıt ya da derece davranışı değişince artırılır; `kartlar.csv`'de yok)
+- `snapOk`, `snapFails`, `filterBypass`, `bypassBy` — yalnız `kartlar.csv` (mevcut kolonlardan sonra, derece alanlarından önce; eski satırlarda boş). Kart, zorunlu filtreleri (`snap.ok`) aşmadan SFP, seri içi patlama ya da ⚡ hareket yüzünden çıkabilir; bu kayıt bunu ölçer, kural değişmedi. `snapOk` (0/1), `snapFails` (sağlanmayan şartlar, `\|` ile), `filterBypass` (1 = kart `snapOk=0` iken çıktı), `bypassBy` (`sfp` / `burst` / `move`; öncelik bu sırayla). Haftalık MD'de "Filtre dışı kart: N (SFP a · patlama b · hareket c); 60 dk sonra aşağı %x (n)" satırı (aşağı = 60 dk kapanış < 0, tam pencereli kartlar)
+- `atr2C15` (`dataVer`'den sonra; ardından v3 kolonları gelir) — 1: `lowC15 <= -2 × atr5Pct` (giriş kapanışından 15 dk içinde 2×ATR(5m)% kadar düştü); 0: değil; boş: `lowC15` ya da `atr5Pct` yok (eski satırlar dahil). `outcome` = düştü / devam / yatay tepe high'ından, ilk eşikle ölçülür; `contPct` 0 olduğundan `devam` = sonraki mumda herhangi bir yeni high, tepenin ayakta kaldığı anlamına gelmez.
+- **v3 kurulum puanı (25.11.2026, GÖLGE kayıt; `dataVer 2026.11.25-2`):** `tepeler.csv`'nin en son 7 kolonu, `atr2C15`'ten sonra: `v3S, v3_rsi1m, v3_bb15, v3_stoch5, v3_vol3, v3_liq, v3B`. Kart, ses ve derece kuralı bunları KULLANMAZ; yalnız kayıt. `src/setupScore.js` `setupScore(feat, s)` saf fonksiyonudur. Bayraklar 1/0: `v3_rsi1m` (`rsi_1m` ≥ 85), `v3_bb15` (`bbB_15m` > 1), `v3_stoch5` (`stochCross` = `down`), `v3_vol3` (`volx_3m` ≥ 3), `v3_liq` (`liqShortPct15` > 0; backtest'te boş). Alan yoksa bayrak boş ve S'ye 0 katar; beşi de boşsa `v3S` boş. `v3S` = bayrakların toplamı. `v3B` = 1: `v3S` ≥ 4 ve `pumpPct` ≥ 5 ve aynı pompada (sembolde kayıtlı adaylar arası < 60 dk) daha önce `v3B` = 1 olmamış ilk aday; aksi 0 (`v3S` boşsa boş). Aynı çağrıda biten örnekler (1m boşluğu) `t` artan sırada işlenir, yani v3B pompanın şartı ilk sağlayan adayına yazılır. Not: pompa takibi bellekte tutulur; bot yeniden başlarsa süren pompada ikinci v3B=1 çıkabilir (gölge kayıt sapması). Eşikler ayar değildir (`setupScore.js` `SETUP_DEFAULTS`: rsi1m 85, vol3 3, pumpMin 5, min 4); sürüm `cfgSetupVer: 1` yalnız `events.data` JSON'unda durur, CSV kolonu değildir. Eski satırlarda 7 kolon da boş. `kartlar.csv`'ye eklenmedi: kart anı fotoğrafında 1dk RSI, 15dk Bollinger %B, 3dk hacim ve likidasyon yok.
 - `dropC15` — 1: tepeden sonraki 15 dk içinde fiyat GİRİŞ KAPANIŞININ (`price` sütunu; `peak` sütunu tepe high'ıdır) `cfgDropPct` altına indi (sıra fark etmez); 0: inmedi; pencere eksikse boş. `lowC15` (15 dk en düşük) ve `closeC60` (60 dk kapanış): giriş kapanışına göre %. `outcome` (düştü/devam/yatay) TEPE high'ından ve ilk eşikle ölçülür; giriş kapanışından ölçü için dropC15/lowC15/closeC60.
-- `incTf`, `inc5`, `inc15` — eksik 1m ile kapanmış mum işareti: `incTf` son 14 KAPANMIŞ mumunda eksik mum bulunan TF'ler (`3m|5m|15m|1h|4h`, yoksa boş); `inc5` / `inc15` 5dk / 15dk'da son 14 mumdaki eksik sayısı. Eksik = veri boşluğunda (bazı 1dk mumlar hiç gelmedi) üst TF mumu beklenenden az 1dk ile kapandı. Göstergeler aynı hesaplanır, yalnız işaretlenir; seed (REST) mumları tam sayılır
+- `incTf`, `inc5`, `inc15` — eksik 1m ile kapanmış mum işareti: `incTf` son 14 KAPANMIŞ mumunda eksik mum bulunan TF'ler (`3m|5m|15m|1h|4h`, yoksa boş); `inc5` / `inc15` 5dk / 15dk'da son 14 mumdaki eksik sayısı. Eksik = veri boşluğunda (bazı 1dk mumlar hiç gelmedi) üst TF mumu beklenenden az 1dk ile kapandı. Dilim sınırına hizalı boşluk da sayılır (bir üst TF dilimi hiç 1dk almadıysa sonraki kapanan mum eksik işaretlenir). Göstergeler aynı hesaplanır, yalnız işaretlenir; seed (REST) mumları tam sayılır
 - `lvZoneHiN`, `lvZoneLoN` — tepe anındaki en yakın seviye (`pkLv`) bölge ise bölgedeki tepe pivotu / dip pivotu sayısı (toplam = bölgedeki pivot sayısı, kartın bölge "N temas" sayısıyla aynı tanım; `pkLvTouches` ise 4s mum temas sayısıdır, farklıdır; kart seviyesinden (`lvName`) farklı seviye olabilir); destek-direnç karışmasını ölçmek için, kural değişmedi; bölge değilse boş
 - `pkLvTouchUp`, `pkLvTouchDn` — `pkLvTouches`'in yönlü dökümü: sayılan her 4s temasta, temastan önceki mumun kapanışı seviyenin (bölgede alt kenarın) altındaysa `Up` (alttan yaklaşma = direnç testi), değilse `Dn` (üstten geri geliş); `Up + Dn = pkLvTouches`. Ölçüm amaçlı, sayım kuralı değişmedi; seviye yoksa boş
 - `cfgMinTFs`, `cfgRsiMin`, `cfgDropPct`, `cfgContPct` — adayın oluştuğu andaki ayarlar (minTFs / rsiMin Telegram'dan değişebilir)
@@ -303,7 +308,7 @@ haftalık rapor veritabanını **parça parça** okur (100 satır, araya olay d�
 
 **Haftalık rapor belgesi:** Pazartesi 03:01'de gruba tek belge gider: `veri-<yıl>-H<hafta>.zip`; içinde `haftalik-<yıl>-H<hafta>.md` (özet + olay listesi) ve CSV'ler (`kartlar`, `temaslar`, `tepeler`, varsa `yollar`). Çok büyük haftada zip parçalara bölünür (Telegram 50 MB sınırı; `veri-…-1.zip`, `-2.zip`…; MD özeti en son hazırlandığı için son parçadadır). Silme akışı aynı: hepsi gittikten sonra.
 
-**Haftalık rapor "Kurulum tablosu"** (`src/setupTable.js`, "Teyit adayları"ndan sonra): tepe adayları aynı sembolde adaylar arası < 60 dk ise tek pompa sayılır; her grupta (tüm pompalar · pompa ≥ %5 · EMA21 ayrışma · 1s RSI bandı · 15dk RSI · bu 3 şarttan ≥ 2 · 3dk hacim ≥ 10 kat · MACD 5m zayıf · Stoch 5m aşağı · 3dk RSI ≥ 90) pompa başına gruba uyan İLK aday alınır. Ölçüler 1dk kapanıştan (giriş): n pompa, "60 dk sonra aşağıda" %, "60 dk sonra ≤ −%1" % (düşüşün büyüklüğü), medyan 60 dk, "15 dk içinde −%1,5" %, kapsamın ilk / ikinci yarısı ayrı "aşağıda" %. Eşikler ayardan (`sepPct2` 3, `gradeRsi1h` 80, `gradeRsi1hMax` 88, `gradeRsi15m` 85). n < 20 satır "(az örnek)"; 60 dk sonucu olmayan (eksik takip) aday ölçüye girmez, sayısı tablonun altında yazılır. Bu tablo "ilk eşleşen aday"dır. İkinci tablo "Pompanın ilk adayı (grup şartı pompanın ilk anında)": her pompada yalnız ilk aday alınır ve grup şartı o adayda sınanır (şart sağlanmıyorsa pompa o gruba girmez); böylece grup ve taban aynı anı ölçer, aynı sütunlar. Alt notta örnek küçükse ± güven aralığı uyarısı vardır (n=100'de ±10 puan, %95; sütun eklenmez). Yalnız ölçümdür; kural önerisi değildir. Bellek: aday başına ~22 bayt (ek ölçü yok, ≤ −%1 mevcut close60'tan hesaplanır) (haftada ~45 bin aday ≈ 1 MB).
+**Haftalık rapor "Kurulum tablosu"** (`src/setupTable.js`, "Teyit adayları"ndan sonra): tepe adayları aynı sembolde adaylar arası < 60 dk ise tek pompa sayılır; her grupta (tüm pompalar · pompa ≥ %5 · EMA21 ayrışma · 1s RSI bandı · 15dk RSI · bu 3 şarttan ≥ 2 · 3dk hacim ≥ 10 kat · MACD 5m zayıf · Stoch 5m aşağı · 3dk RSI ≥ 90 · v3 S≥4 + pompa≥%5 (kayıtlı `v3S` ≥ 4 ve pompa ≥ %5; eski satırlarda `v3S` yok, gruba girmez)) pompa başına gruba uyan İLK aday alınır. Ölçüler 1dk kapanıştan (giriş): n pompa, "60 dk sonra aşağıda" %, "60 dk sonra ≤ −%1" % (düşüşün büyüklüğü), medyan 60 dk, "15 dk içinde −%1,5" %, kapsamın ilk / ikinci yarısı ayrı "aşağıda" %. Eşikler ayardan (`sepPct2` 3, `gradeRsi1h` 80, `gradeRsi1hMax` 88, `gradeRsi15m` 85). n < 20 satır "(az örnek)"; 60 dk sonucu olmayan (eksik takip) aday ölçüye girmez, sayısı tablonun altında yazılır. Bu tablo "ilk eşleşen aday"dır. İkinci tablo "Pompanın ilk adayı (grup şartı pompanın ilk anında)": her pompada yalnız ilk aday alınır ve grup şartı o adayda sınanır (şart sağlanmıyorsa pompa o gruba girmez); böylece grup ve taban aynı anı ölçer, aynı sütunlar. Alt notta örnek küçükse ± güven aralığı uyarısı vardır (n=100'de ±10 puan, %95; sütun eklenmez). Yalnız ölçümdür; kural önerisi değildir. Bellek: aday başına ~24 bayt (maske Uint32) (ek ölçü yok, ≤ −%1 mevcut close60'tan hesaplanır) (haftada ~45 bin aday ≈ 1 MB).
 
 Kartlar, ⚡ uyarılar, bot mesajları ve backtest raporları grubun **ayrı konularına** gönderilebilir.
 1. Grup ayarları → **Konular**'ı aç (grup süpergrup olmalı; ID çoğunlukla değişmez). Yeni bir grup kullanacaksan
@@ -375,7 +380,7 @@ bu semboller `/durum`'daki "geride" uyarısına sayılmaz; `/durum` açıkken ka
 
 ### Bilgi botu backtest'i
 Geçmişte bot çalışsaydı hangi kartlar gelirdi — **canlıyla aynı kod** (series + infoEngine + infoCard),
-her 1m kapanışı sırayla oynatılır, look-ahead yok. Kazanç/kayıp hesabı yoktur; her kart için yalnızca
+her 1m kapanışı sırayla oynatılır, look-ahead yok. Başlangıçta açık olan 3m–4h periyodunun kısmi mumu, başlangıçtan önceki 1m'lerden kurulur (ek istek yok), ilk periyot canlıdaki gibi olur. Kazanç/kayıp hesabı yoktur; her kart için yalnızca
 sonraki 15/60 dk'da fiyatın en düşük / en yüksek / kapanış değeri tutulur (kart sınıflarını kıyaslamak için).
 
 ```bash
@@ -394,13 +399,34 @@ coinlerde 1 dk ≥ %2 hareket sayısı, **seviye tepkisi tablosu** (canlıdaki `
 ile süzülür) ve `backtest-results/info-*.json`. Varsayılan ayarlar canlıyla aynıdır.
 **Kanıt modu:** `--kanit` yalnızca o backtest çalışmasında RSI eşiğini 70'e, sıfırlamayı 60'a indirir (çok kart →
 motorun çalıştığı görülür); canlı bota ve ayar dosyasına dokunmaz. `--canli-ayar` ayar dosyasını yalnızca okur.
-**Canlıdan eksik bağlam** (konsolda tek satır, JSON'da `params.limits`): funding yok; likidasyon yok;
+**Funding ve OI geçmişi:** coin başına bir kez `/fapi/v1/fundingRate` (limit 1000, sayfalı; dönem başından 2 gün
+öncesinden) ve `/futures/data/openInterestHist` (5m, limit 500, sayfalı) çekilir; istekler REST weight bütçesinden
+geçer. Her an yalnız o ana kadar bilinen değer kullanılır (look-ahead yok): funding = o andan önce son ödenen oran
+(canlıdaki `premiumIndex` oranının geçmişteki en yakın karşılığı; "sonraki funding" son iki ödemenin aralığıyla
+hesaplanır), OI = o ana kadar kapanmış son 13 adet 5m nokta. Kart "Açık pozisyon 1s" ve tepe kaydındaki
+`oiChg15` / `oiChg60` / `oiUsd` canlıdakiyle aynı fonksiyonla (`marketData.js`) hesaplanır; 60 dk'yı tam
+kapsamayan OI boş kalır. Binance OI geçmişini yalnız **son 30 gün** verir: daha eski kısım için istek atılmaz,
+o kısımda OI alanları boştur. Ek istek (coin başına): funding `⌈(gün + 2) × günlük ödeme / 1000⌉` (8 saatlik coinde 365 güne kadar 1–2; 1 saatlik coinde 30 gün 1, 365 gün 9), OI `⌈(min(gün, 30) × 288 + 13) / 500⌉`
+(7 gün → 5, 30 gün → 18); her biri weight 1. Örnek: 7 gün × 50 coin → 50 + 250 = 300 ek istek (300 weight).
+**Funding notu:** funding = son ödenmiş oran; canlıdaki `premiumIndex` `lastFundingRate` o dönemin tahmini oranı olduğundan
+backtest funding'i canlıya göre bir dönem geriden gelir (look-ahead'i önlemek için bilinçli). Funding aralığı değişen coinde
+değişimden sonraki ilk dönemde `minToFunding` sapabilir.
+**Evren seçimi** (`--symbol` verilmezse): dönem başından önceki 24 saatin (UTC günü) USDT hacmi, `--min-volume` (varsayılan
+`minVolumeM`) ve `--max-coins` aynı anlamla uygulanır; bugünkü 24s hacim kullanılmaz. Aday: exchangeInfo'daki USDT perpetual'lar
+(`TRADING` ve kapanış sürecindeki `SETTLING`); `deliveryDate` dönem başından önceyse (zaten kapanmış) ve `onboardDate` dönem
+başından 1 günden yakınsa (dönem başında listelenmemiş ya da önceki gün tam 24 saat yok; look-ahead olmasın diye) elenir.
+Hacim, aday başına dönem başından önceki 1d mumun `quoteVolume`'u (1 istek, weight 1); ön süzgeç yok, yanlılık yok.
+Ek REST maliyeti: 1 exchangeInfo + uygun aday sayısı kadar istek (~550 coin ≈ 550 weight ≈ bütçeyle ~20 sn); eski sürümdeki
+tek `ticker/24hr` çağrısı (weight 40) kalktı. Örnek: 7 gün, `--max-coins 50` da dahil ~550 istek (seçim tüm adaylara bakar, sonra keser).
+Sınır: listeden tamamen çıkmış (DELISTED) sembolleri Binance exchangeInfo'da vermez; onlar evrene giremez (kalan hayatta kalma yanlılığı).
+**Canlıdan eksik bağlam** (konsolda tek satır, JSON'da `params.limits`): OI yalnız son 30 gün (daha eskisi boş);
+baz (`basisPct`, mark − endeks) yok; likidasyon yok;
 `breadth80` / `pumping` yok (evrenin aynı andaki durumu gerekir, backtest sembol sembol koşar → null);
-spot / emir defteri yok; sessize alma ve takip canlıdaki gibi işlemez; evren BUGÜNKÜ 24s hacme göre
-(hayatta kalma yanlılığı). Tepe kaydındaki `btc5`, `btc15`, `btcRsi15` ise zaten çekilen BTC 1m'den,
+spot / emir defteri / long-short oranları yok; sessize alma ve takip canlıdaki gibi işlemez; evren dönem başından önceki 24s hacme göre
+(aşağıdaki "Evren seçimi"; Binance listeden tamamen çıkmış coinleri exchangeInfo'da vermediği için kalan hayatta kalma yanlılığı). Tepe kaydındaki `btc5`, `btc15`, `btcRsi15` ise zaten çekilen BTC 1m'den,
 yalnız o andan önce kapanmış mumlarla hesaplanır (canlıyla aynı tanım; BTC verisinde o dakikanın mumu eksikse boş). `btcRsi15` dönem başında BTC 15m
 geçmişi çekilmediği için ilk ~3 saat boş, sonraki ilk saatlerde ısınma farkı olabilir.
-Süre: coin başına ~`gün × 0.7` sn veri çekme (30 gün ≈ 20–25 sn/coin).
+Süre: coin başına ~`gün × 0.7` sn veri çekme (30 gün ≈ 20–25 sn/coin); funding/OI sayfaları arasında da aynı bekleme var (30 gün ≈ +6–7 sn/coin).
 
 ### Duraklatma
 `fly secrets set BOT_PAUSED=1` → makine açık kalır, bot hiçbir bağlantı açmaz (uzun backtest'ler için).

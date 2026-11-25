@@ -37,6 +37,7 @@ function compact(c) {
     sep5: Number.isFinite(sn.sepPct?.['5m']) ? +sn.sepPct['5m'].toFixed(2) : null,
     oiChg60: Number.isFinite(c.oi?.changePct) ? +c.oi.changePct.toFixed(2) : null,
     trend_1h: c.trend1h ?? null,
+    snapOk: c.snapOk ?? null, snapFails: c.snapFails ?? null, filterBypass: c.filterBypass ?? null, bypassBy: c.bypassBy ?? null,
     ...(c.gradeAudit || {}),   // düz sayılar; CSV'de sona taşınır (exportData.cardRow)
     fwd: c.fwd,
   };
@@ -78,13 +79,16 @@ const fullFwd60 = c => !!c.fwd?.[60] && c.fwd[60].full !== false;
 const excluded60 = cards => cards.filter(c => c.fwd?.[60] && c.fwd[60].full === false).length;
 const excludedNote = n => (n > 0 ? ` (${n} eksik pencere dışarıda)` : '');
 
+// Kart sayısı ile 60 dk medyanına giren örnek sayısı farklıysa ikisini de göster.
+const nLabel = r => (r.n60 < r.n ? `${r.n} (60dk: ${r.n60})` : `${r.n}`);
+
 function classTable(cards) {
   const rows = [];
   for (const [name, f] of CLASSES) {
     const sub = cards.filter(f);
     const ok = sub.filter(fullFwd60);
     rows.push({
-      name, n: sub.length,
+      name, n: sub.length, n60: ok.length,
       low60: median(ok.map(c => c.fwd[60].low)), high60: median(ok.map(c => c.fwd[60].high)), close60: median(ok.map(c => c.fwd[60].close)),
       low15: median(sub.filter(c => c.fwd?.[15]).map(c => c.fwd[15].low)),
       low5: median(sub.filter(c => c.fwd?.[5]).map(c => c.fwd[5].low)),
@@ -260,4 +264,4 @@ function touchText(rows, { title = '', filter = '', s = {} } = {}) {
   return out.slice(0, 4096);
 }
 
-module.exports = { excluded60, excludedNote, median, pctS, fmtDate, compact, CLASSES, classTable, load, touchGroups, touchSum, touchText, TOUCH_ORDER };
+module.exports = { excluded60, excludedNote, median, pctS, fmtDate, compact, CLASSES, classTable, nLabel, load, touchGroups, touchSum, touchText, TOUCH_ORDER };

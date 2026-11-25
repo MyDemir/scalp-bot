@@ -17,6 +17,11 @@ function buildMarket(defs) {
   return mk;
 }
 
+// Geçmiş funding / OI (backtest testleri): zamanın deterministik fonksiyonu, art arda gelen değerler farklı
+const FUND_MS = 8 * 3600e3, FUND_OFF = 3, OI_MS = 5 * MIN;
+const fundingRateOf = ft => String(((Math.round((ft - FUND_OFF) / FUND_MS) * 7) % 11 - 5) * 1e-5);
+const oiAt = t => { const k = Math.round(t / OI_MS), oi = 1000 + (k % 240) * 2 + (k % 7); return { timestamp: t, sumOpenInterest: String(oi), sumOpenInterestValue: String(oi * 10) }; };
+
 const row = (c, ms) => [c.t, String(c.o), String(c.h), String(c.l), String(c.c), String(c.v), c.t + ms - 1, String(c.q), 10, String(c.tb), String(c.tq), '0'];
 
 function startRest(port, market, hits = []) {
@@ -25,10 +30,20 @@ function startRest(port, market, hits = []) {
     const key = u.pathname.split('/').pop();
     hits.push(`${key}${q.symbol ? ' ' + q.symbol : ''}${q.interval ? ' ' + q.interval : ''}${q.limit ? ' ' + q.limit : ''}`);
     let body;
-    if (key === 'exchangeInfo') body = { symbols: Object.entries(market).map(([s, m]) => ({ symbol: s, contractType: m.tradfi ? 'TRADIFI_PERPETUAL' : 'PERPETUAL', status: 'TRADING', quoteAsset: 'USDT', baseAsset: m.base || s.replace(/USDT$/, '') })) };
+    if (key === 'exchangeInfo') body = { symbols: Object.entries(market).map(([s, m]) => ({ symbol: s, contractType: m.tradfi ? 'TRADIFI_PERPETUAL' : 'PERPETUAL', status: m.status || 'TRADING', quoteAsset: 'USDT', baseAsset: m.base || s.replace(/USDT$/, ''), ...(m.onboard != null ? { onboardDate: m.onboard } : {}), deliveryDate: m.delivery ?? 4133404800000 })) };
     else if (key === '24hr') body = Object.entries(market).map(([s, m]) => ({ symbol: s, quoteVolume: String(m.vol ?? 1e9) }));
     else if (key === 'premiumIndex') body = Object.keys(market).map(s => ({ symbol: s, lastFundingRate: '-0.00012', nextFundingTime: Date.now() + 2 * 3600e3 }));
-    else if (key === 'openInterestHist') body = Array.from({ length: 13 }, (_, i) => ({ symbol: q.symbol, sumOpenInterest: String(1000 + i * 3) }));
+    else if (key === 'openInterestHist' && !q.startTime) body = Array.from({ length: 13 }, (_, i) => ({ symbol: q.symbol, sumOpenInterest: String(1000 + i * 3) }));
+    else if (key === 'openInterestHist') {          // geçmiş (backtest): 5m noktalar; Binance gibi yalnız son 30 gün
+      const st = Number(q.startTime), en = q.endTime ? Number(q.endTime) : Date.now(), lim = Number(q.limit || 30);
+      if (st < Date.now() - 30 * 1440 * MIN) { res.writeHead(400); return res.end(JSON.stringify({ code: -1130, msg: 'parameter startTime is invalid.' })); }
+      body = [];
+      for (let t = Math.ceil(st / OI_MS) * OI_MS; t <= en && body.length < lim; t += OI_MS) body.push({ symbol: q.symbol, ...oiAt(t) });
+    } else if (key === 'fundingRate') {             // ödenmiş funding geçmişi: 8 saatte bir (00/08/16 UTC, +3 ms kayma)
+      const st = Number(q.startTime || 0), en = q.endTime ? Number(q.endTime) : Date.now(), lim = Number(q.limit || 100);
+      body = [];
+      for (let k = Math.ceil((st - FUND_OFF) / FUND_MS); k * FUND_MS + FUND_OFF <= en && body.length < lim; k++) body.push({ symbol: q.symbol, fundingTime: k * FUND_MS + FUND_OFF, fundingRate: fundingRateOf(k * FUND_MS + FUND_OFF), markPrice: '1' });
+    }
     else if (key === 'klines') {
       const m = market[q.symbol]; if (!m) { res.writeHead(400); return res.end(JSON.stringify({ code: -1121, msg: 'Invalid symbol.' })); }
       const ms = TFMS[q.interval], lim = Number(q.limit || 500), arr = m.tfs[q.interval];
@@ -119,4 +134,4 @@ function startTelegram(port, { admins = [] } = {}) {
   };
 }
 
-module.exports = { buildMarket, startRest, startWs, startTelegram, TFMS };
+module.exports = { buildMarket, startRest, startWs, startTelegram, TFMS, fundingRateOf, oiAt, FUND_MS, FUND_OFF, OI_MS };

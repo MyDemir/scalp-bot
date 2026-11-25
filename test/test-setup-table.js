@@ -97,6 +97,16 @@ assert.deepStrictEqual([all.n1, all.n2, all.h1, all.h2], [1, 1, 100, 0]);
   assert(t4.includes('### Pompanın ilk adayı (grup şartı pompanın ilk anında)') && t4.includes('(ilk eşleşen aday)') && t4.includes('tesadüf olabilir'));
 }
 
+// v3 grubu: kayıtlı v3S ≥ 4 ve pompa ≥ %5 (eski satırda v3S yok → dışarıda); 11 grup, maske Uint32
+{ const a5 = createSetupAcc({ s: {} });
+  a5.add(mk('VUSDT', 0, { ...base, pumpPct: 7, v3S: 4 }, o(-5, -10)));
+  a5.add(mk('WUSDT', 0, { ...base, pumpPct: 7, v3S: 3 }, o(-5, -10)));
+  a5.add(mk('XUSDT', 0, { ...base, pumpPct: 4, v3S: 5 }, o(-5, -10)));
+  a5.add(mk('YUSDT', 0, { ...base, pumpPct: 7 }, o(-5, -10)));
+  const Q = Object.fromEntries(a5.stats().rows.map(r => [r.name, r]));
+  assert.strictEqual(Q['v3 S≥4 + pompa≥%5'].n, 1, 'yalnız S=4 ve pompa 7');
+  assert(a5.text().includes('v3 S≥4 + pompa≥%5')); }
+
 const txt = acc.text();
 assert(txt.includes('Nasıl okunur') && txt.includes('(az örnek)') && txt.includes('Eksik takip') && txt.includes('Tüm pompalar'));
 assert(!/(^|[^\p{L}])(al|sat)(?![\p{L}])/iu.test(txt.replace(/Nasıl okunur.*\n/, '')), 'al/sat ifadesi yok');

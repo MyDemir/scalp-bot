@@ -3,6 +3,7 @@
 require('dotenv').config();
 const { USDMClient } = require('binance');
 const { createStreamClient } = require('./streamClient');
+const { oiChange1h } = require('./marketData');
 
 // REST istemcisi — kullanılan uç noktaların hepsi public (key gerektirmez)
 const restClient = new USDMClient({
@@ -107,12 +108,57 @@ async function fetchPremium() {
   return out;
 }
 
-/** Son 1 saatteki açık pozisyon değişimi (%) — openInterestHist 5m × 13 */
+/** Son 1 saatteki açık pozisyon değişimi (%) — openInterestHist 5m × 13 (hesap: marketData.oiChange1h, backtest ile ortak) */
 async function fetchOIChange1h(symbol) {
   const rows = await call(1, `openInterestHist ${symbol}`, () => restClient.getOpenInterestStatistics({ symbol, period: '5m', limit: 13 }));
-  if (!Array.isArray(rows) || rows.length < 2) return null;
-  const a = parseFloat(rows[0].sumOpenInterest), b = parseFloat(rows[rows.length - 1].sumOpenInterest);
-  return a > 0 && Number.isFinite(b) ? (b - a) / a * 100 : null;
+  return oiChange1h(rows);
+}
+
+// ── Geçmiş (yalnız backtest) ───────────────────────────────────────────────
+
+const DAY_MS = 86_400_000;
+/** Binance openInterestHist yalnız son 30 günü verir; sınırdan 10 dk içeride kalınır (saat farkı payı) */
+const OI_HIST_DAYS = 30;
+const oiHistFloor = (now = Date.now()) => now - OI_HIST_DAYS * DAY_MS + 10 * 60_000;
+
+/**
+ * [startTime, endTime] arası ödenmiş funding oranları (/fapi/v1/fundingRate, limit 1000, sayfalı, eskiden yeniye).
+ * @param {{delayMs?:number}} o  sayfalar arası bekleme (bu uç IP başına 500 istek / 5 dk ile sınırlı)
+ * @returns {Promise<{symbol:string, fundingTime:number, fundingRate:string, markPrice:string}[]>}
+ */
+async function fundingRateHistory(symbol, startTime, endTime, { delayMs = 0 } = {}) {
+  const out = [];
+  let t = startTime;
+  while (t <= endTime) {
+    const rows = await call(1, `fundingRate ${symbol}`, () => restClient.getFundingRateHistory({ symbol, startTime: t, endTime, limit: 1000 }));
+    if (!Array.isArray(rows) || !rows.length) break;
+    for (const r of rows) { const ft = Number(r.fundingTime); if (ft >= t && ft <= endTime && (!out.length || ft > Number(out[out.length - 1].fundingTime))) out.push(r); }
+    const next = Number(rows[rows.length - 1].fundingTime) + 1;
+    if (!(next > t) || rows.length < 1000) break;
+    t = next;
+    if (delayMs) await sleep(delayMs);
+  }
+  return out;
+}
+
+/**
+ * [startTime, endTime] arası 5m açık pozisyon geçmişi (/futures/data/openInterestHist, period 5m, limit 500, sayfalı).
+ * Binance yalnız son 30 günü verir: daha eski kısım için istek atılmaz (o kısım boş kalır).
+ * @returns {Promise<{timestamp:number, sumOpenInterest:string, sumOpenInterestValue:string}[]>}  eskiden yeniye
+ */
+async function openInterestHistRange(symbol, startTime, endTime, { delayMs = 0, now = Date.now() } = {}) {
+  const out = [];
+  let t = Math.max(startTime, oiHistFloor(now));
+  while (t <= endTime) {
+    const rows = await call(1, `openInterestHist ${symbol}`, () => restClient.getOpenInterestStatistics({ symbol, period: '5m', startTime: t, endTime, limit: 500 }));
+    if (!Array.isArray(rows) || !rows.length) break;
+    for (const r of rows) { const ts = Number(r.timestamp); if (ts >= t && ts <= endTime && (!out.length || ts > Number(out[out.length - 1].timestamp))) out.push(r); }
+    const next = Number(rows[rows.length - 1].timestamp) + 1;
+    if (!(next > t) || rows.length < 500) break;
+    t = next;
+    if (delayMs) await sleep(delayMs);
+  }
+  return out;
 }
 
 // ── Sembol listesi ─────────────────────────────────────────────────────────
@@ -147,6 +193,43 @@ async function getTradableSymbols(excludeBaseAssets = [], { tradfi = false } = {
       .filter(s => !exclude.has(String(s.baseAsset).toUpperCase()))
       .map(s => s.symbol),
   );
+}
+
+/**
+ * Backtest evreni: DÖNEM BAŞINDAN ÖNCEKİ 24 saatin (start-1g .. start, UTC günü) USDT hacmine göre en likit perpetual'lar.
+ * Bugünkü 24s hacim kullanılmaz (hayatta kalma yanlılığını azaltır). Canlı evren (getLiquidSymbols) değişmez.
+ *  - Aday: exchangeInfo'daki USDT PERPETUAL, status TRADING ya da SETTLING (kapanış sürecindeki coin dönemde hâlâ vardı).
+ *  - Elenir: onboardDate > start - 1 gün (dönem başında listelenmemiş ya da önceki gün tam 24 saat yok: look-ahead olurdu),
+ *    deliveryDate < start (dönem başında zaten kapanmış). deliveryDate sürekli kontratlarda çok ileri bir tarihtir, etkisizdir.
+ *  - Hacim: start öncesi tam 1 günlük (1d) mumun quoteVolume'u, aday başına 1 istek (weight 1; ~550 aday ≈ 550 weight, bütçe içinde).
+ *  - Binance listeden çıkmış (DELISTED) sembolleri exchangeInfo'da genelde vermez: onlar adaya girmez (bkz. LIMITS).
+ * @returns {Promise<{symbols:string[], stats:{candidates:number, eligible:number, failed:number, requests:number}}>}
+ */
+async function getPeriodLiquidSymbols({ minVolume24hUSDT, maxCoins = 0, excludeBaseAssets = [], tradfi = false, start }) {
+  if (!Number.isFinite(start)) throw new Error('getPeriodLiquidSymbols: start (ms) gerekli');
+  const info = await fetchExchangeInfo();
+  const exclude = new Set(excludeBaseAssets.map(s => String(s).toUpperCase()));
+  const cand = info.symbols.filter(s => s.quoteAsset === 'USDT' && (s.status === 'TRADING' || s.status === 'SETTLING')
+    && (isTradfiInfo(s) ? tradfi : s.contractType === 'PERPETUAL')
+    && !exclude.has(String(s.baseAsset).toUpperCase()));
+  const eligible = cand.filter(s => !(Number(s.onboardDate) > start - DAY_MS) && !(Number(s.deliveryDate) < start));
+  const vols = []; let failed = 0;
+  for (const s of eligible) {
+    try {
+      const rows = await call(klineWeight(1), `periodVolume ${s.symbol}`,
+        () => restClient.getKlines({ symbol: s.symbol, interval: '1d', startTime: start - DAY_MS, endTime: start - 1, limit: 1 }));
+      const r = Array.isArray(rows) ? rows[0] : null;
+      if (!r || Number(r[0]) !== start - DAY_MS) continue;       // o gün mum yok → hacim bilinmiyor, seçilmez
+      const qv = parseFloat(r[7]);
+      if (Number.isFinite(qv) && qv >= minVolume24hUSDT) vols.push([s.symbol, qv]);
+    } catch (err) {
+      failed++;
+      console.warn(`[evren] ${s.symbol}: dönem öncesi hacim alınamadı — ${err?.message || err}`);
+    }
+  }
+  vols.sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+  const list = vols.map(v => v[0]);
+  return { symbols: maxCoins > 0 ? list.slice(0, maxCoins) : list, stats: { candidates: cand.length, eligible: eligible.length, failed, requests: 1 + eligible.length } };
 }
 
 /**
@@ -221,6 +304,7 @@ function takeWsStats() {
 }
 
 module.exports = {
+  getPeriodLiquidSymbols,
   restClient,
   call,
   restBacklogMs,
@@ -230,6 +314,10 @@ module.exports = {
   fetch24hTickers,
   fetchPremium,
   fetchOIChange1h,
+  fundingRateHistory,
+  openInterestHistRange,
+  OI_HIST_DAYS,
+  oiHistFloor,
   getTradableSymbols,
   isTradfi,
   getLiquidSymbols,

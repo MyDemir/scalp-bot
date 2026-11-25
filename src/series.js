@@ -14,6 +14,7 @@
  *
  * Eksik mum işareti (A11): 1m akışında boşluk olursa üst TF mumu eksik 1m ile kapanır (ör. 5m'nin 2 dakikası
  *   gelmedi). Gösterge değerleri DEĞİŞMEZ; yalnız o mum "eksik" işaretlenir → incomplete(tf, k).
+ *   Dilim sınırına hizalı boşlukta (bir dilim hiç 1m almadı) sonraki kapanan mum eksik işaretlenir (sahte mum yok).
  *   Yalnız apply1m'den toplanan mumlar sayılır; seed/REST mumları tam kabul edilir. Takip: 3m/5m/15m/1h/4h,
  *   tf başına Uint8Array(KEEP) (coin başına ≈ 300+300+300+336+600 = 1836 bayt).
  *
@@ -96,6 +97,38 @@ class Series {
   }
 
   /**
+   * Sonraki mumun (nextT) açık üst TF periyotlarının (3m-4h; 1d hariç) kısmi mumunu, nextT'den ÖNCE
+   * kapanmış 1m'lerden kurar (apply1m ile aynı toplama; n = bulunan 1m sayısı, eksikse 'eksik' işaretlenir).
+   * Yalnız t < nextT olan 1m'ler okunur (look-ahead yok); zaten kısmi mumu olan TF'e dokunmaz.
+   * @param {object[]} candles kapanmış 1m, eski → yeni
+   * @param {number} nextT bir sonraki işlenecek 1m'in t'si
+   */
+  seedPartials(candles, nextT) {
+    for (const tf of HTF) {
+      const ms = TF_MS[tf];
+      if (ms > 240 * MIN || this.part[tf]) continue;
+      const ps = Math.floor(nextT / ms) * ms;
+      if (ps === nextT) continue;                              // periyot şimdi açılıyor
+      let p = null;
+      for (const c of candles) {
+        if (c.t < ps || c.t >= nextT) continue;
+        if (!p) p = { t: ps, o: c.o, h: c.h, l: c.l, c: c.c, v: c.v, tb: c.tb || 0, q: c.q || 0, tq: c.tq || 0, n: 1 };
+        else { p.n++; if (c.h > p.h) p.h = c.h; if (c.l < p.l) p.l = c.l; p.c = c.c; p.v += c.v; p.tb += c.tb || 0; p.q += c.q || 0; p.tq += c.tq || 0; }
+      }
+      if (p) this.part[tf] = p;
+    }
+  }
+
+  /** t'den hemen önceki kapanmış mum ile t arasında tamamen atlanmış üst TF dilimi var mı (hizalı boşluk)? */
+  _gapBefore(tf, t) {
+    const a = this.d[tf].t;
+    const n = a.length;
+    if (!n) return false;
+    const prev = a[n - 1] === t ? (n > 1 ? a[n - 2] : null) : a[n - 1];
+    return prev != null && t - prev > TF_MS[tf];
+  }
+
+  /**
    * Kapanmış bir 1m mumu ekler ve üst TF'leri günceller.
    * @returns {Set<string>} bu mumla KAPANAN üst TF'ler (ör. {'3m','15m'})
    */
@@ -112,7 +145,7 @@ class Series {
       const ps = Math.floor(c.t / ms) * ms;
       let p = this.part[tf];
       const tracked = !!this.inc[tf], need = ms / MIN;
-      if (p && p.t < ps) { this._push(tf, p, tracked && p.n < need ? 1 : 0); p = null; }   // önceki periyot bitmiş (boşluk vb.) → eksik işaretli
+      if (p && p.t < ps) { this._push(tf, p, tracked && (p.n < need || this._gapBefore(tf, p.t)) ? 1 : 0); p = null; }   // önceki periyot bitmiş (boşluk vb.) → eksik işaretli
       if (p && p.t > ps) continue;                                  // (olmamalı) daha yeni yarım mum
       if (!p) {
         p = { t: ps, o: c.o, h: c.h, l: c.l, c: c.c, v: c.v, tb: c.tb || 0, q: c.q || 0, tq: c.tq || 0, n: 1 };
@@ -123,7 +156,7 @@ class Series {
         if (c.l < p.l) p.l = c.l;
         p.c = c.c; p.v += c.v; p.tb += c.tb || 0; p.q += c.q || 0; p.tq += c.tq || 0;
       }
-      if (end === ps + ms) { this._push(tf, p, tracked && p.n < need ? 1 : 0); this.part[tf] = null; closed.add(tf); }
+      if (end === ps + ms) { this._push(tf, p, tracked && (p.n < need || this._gapBefore(tf, p.t)) ? 1 : 0); this.part[tf] = null; closed.add(tf); }
       else this.part[tf] = p;
     }
     return closed;
