@@ -256,7 +256,7 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   const AUD = ['sameBar', 'cardWhen', 'contSkipped', 'rsi15c', 'rsi1hc', 'rsi4hc', 'cfgMinTFs', 'cfgRsiMin', 'cfgDropPct', 'cfgContPct',
     'wick_5mc', 'clv_5mc', 'wick_15mc', 'clv_15mc', 'bar5Pct', 'bar15Pct', 'volPeakXc', 'miss60', 'futQ60t', 'spotQ60', 'spotShare60t',
     'rsi3c', 'rsi5c', 'sep3c', 'sep5c', 'cfgPeakWindowMin', 'cfgSampleGapMin', 'cfgVer', 'dropC15', 'lowC15', 'closeC60', 'incTf', 'inc5', 'inc15', 'lvZoneHiN', 'lvZoneLoN', 'pkLvTouchUp', 'pkLvTouchDn',
-    'gradeOld', 'g_sep', 'g_h1', 'g_r15', 'g_atr', 'g_macd', 'g_stoch', 'g_rsi3hi', 'g_runaway', 'cfgGradeRsi15m', 'cfgGradeAtr5Pct', 'cfgGradeMacd5m', 'cfgGradeStoch5m', 'cfgSepPct2', 'cfgGradeRsi3m', 'gradeVer', 'dataVer'];
+    'gradeOld', 'g_sep', 'g_h1', 'g_r15', 'g_atr', 'g_macd', 'g_stoch', 'g_rsi3hi', 'g_runaway', 'cfgGradeRsi15m', 'cfgGradeAtr5Pct', 'cfgGradeMacd5m', 'cfgGradeStoch5m', 'cfgSepPct2', 'cfgGradeRsi3m', 'gradeVer', 'dataVer', 'atr2C15'];
   assert.deepStrictEqual(dropCols().slice(-AUD.length), AUD, 'yeni kolonlar sütun sırasının SONUNDA');
   const old = flatDrop({ id: 'x', out: {}, feat: {} }); assert(AUD.every(k => old[k] == null), 'eski kayıtta boş');
   { const r = flatDrop({ id: 'z', out: {}, feat: { lvZoneHiN: 2, lvZoneLoN: 1 } }); assert.strictEqual(r.lvZoneHiN, 2); assert.strictEqual(r.lvZoneLoN, 1, 'bölge değerleri CSV satırına gelir');
@@ -308,7 +308,7 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   assert(rr.length && rr.every(x => Number.isFinite(x.feat.rsi3c) && Number.isFinite(x.feat.rsi5c) && Number.isFinite(x.feat.sep3c) && Number.isFinite(x.feat.sep5c)), 'rsi3c/5c, sep3c/5c sayı');
   assert(rr.some(x => x.feat.rsi3c !== x.feat.rsi3 || x.feat.rsi5c !== x.feat.rsi5), 'rsi*c kısmi mumlu rsi3/rsi5\'ten farklı olabilir');
   assert(rr.some(x => x.feat.sep3c !== x.feat.sep3), 'sep3c canlı sep3\'ten farklı olabilir');
-  assert(rr.every(x => x.feat.cfgPeakWindowMin === 15 && x.feat.cfgSampleGapMin === 7 && x.feat.cfgVer === require('../package.json').version && x.feat.dataVer === '2026.11.24-3'), 'cfg* ledger ayarları + sürüm');
+  assert(rr.every(x => x.feat.cfgPeakWindowMin === 15 && x.feat.cfgSampleGapMin === 7 && x.feat.cfgVer === require('../package.json').version && x.feat.dataVer === '2026.11.25-1'), 'cfg* ledger ayarları + sürüm');
   // sep3c: kapanmış mumla elle hesap (yeni seri; kısmi mum sep3c'yi değiştirmez)
   {
     const ta = require(`${REPO}/src/ta`); const { sepClosed } = require(`${REPO}/src/eventLog`);
@@ -334,6 +334,15 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   // eksik pencere → null (finish'e doğrudan: 5 dk pencereli ledger, out[15]/out[60] yok)
   const sh = run(path1, { overrides: ov, opts: { windows: [5] } }).ev.find(x => x.outcome === 'düştü');
   assert(sh && sh.feat.lowC15 === null && sh.feat.closeC60 === null && sh.feat.dropC15 === null, 'eksik pencere null');
+  // atr2C15 = lowC15 <= -2 × atr5Pct (ikisi de %). Düşüş satırı lowC15 = -1.645: ATR'yi onCandidate'te sabitleyerek 1 / 0 / boş
+  const atrRun = (atr) => run(path1, { overrides: ov, opts: { onCandidate: (sr, e) => { e.feat.atr5Pct = atr; } } }).ev.find(x => x.outcome === 'düştü');
+  assert.strictEqual(atrRun(0.8).feat.lowC15, -1.645);
+  assert.strictEqual(atrRun(0.8).feat.atr2C15, 1, '-1.645 <= -1.6 → 1');
+  assert.strictEqual(atrRun(0.9).feat.atr2C15, 0, '-1.645 > -1.8 → 0 (1×ATR olsa 1 çıkardı)');
+  assert.strictEqual(atrRun(null).feat.atr2C15, null, 'atr5Pct yok → boş');
+  assert.strictEqual(sh.feat.atr2C15, null, 'lowC15 yok → boş');
+  { const r = flatDrop({ id: 'y', out: {}, feat: {} }); assert(r.atr2C15 == null, 'eski kayıt: boş'); }
+  assert(dropCols()[dropCols().length - 1] === 'atr2C15' && dropCols()[dropCols().length - 2] === 'dataVer');
   ok('Aşama 1: rsi3c/rsi5c, sep3c, cfg*, dropC15/lowC15/closeC60 (peak≠price dönüşüm, eksik pencere null)');
 }
 
@@ -385,7 +394,7 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   for (const k of GC) assert(pk.feat[k] != null, 'tepe feat dolu: ' + k);
   assert.strictEqual(pk.feat.gradeVer, 2); assert.strictEqual(pk.feat.cfgGradeMacd5m, 1); assert.strictEqual(pk.feat.cfgGradeStoch5m, 1);
   assert.strictEqual(pk.feat.cfgVer, require('../package.json').version, 'cfgVer package.json sürümü');
-  assert.strictEqual(pk.feat.dataVer, '2026.11.24-3', 'dataVer elle artırılan sürüm');
+  assert.strictEqual(pk.feat.dataVer, '2026.11.25-1', 'dataVer elle artırılan sürüm');
   assert(pk.feat.gradeOld <= pk.feat.grade || pk.feat.grade === 0, 'gradeOld ≤ grade (macd/stoch yalnız artırır)');
   assert(sc.length > 0, 'gerçek kart üretildi: ' + sc.length);
   const card = sc[0];
@@ -429,11 +438,11 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   assert.strictEqual(newRow[hn.indexOf('gradeVer')], '2');
   // tepeler.csv: yeni kolonlar sonda ve dolu
   const th = parseCsv(cols[true].Z['tepeler.csv']); const tc = th[0], tv = th[1];
-  assert.deepStrictEqual(tc.slice(-GC.length - 1, -1), GC, 'tepeler.csv: derece kolonları dataVer\'den önce, sonda');
-  assert.strictEqual(tc[tc.length - 1], 'dataVer', 'dataVer en sonda');
-  assert(GC.every((k, i) => tv[tc.length - 1 - GC.length + i] !== ''), 'tepe satırı: 16 kolon dolu');
+  assert.deepStrictEqual(tc.slice(-GC.length - 2, -2), GC, 'tepeler.csv: derece kolonları dataVer\'den önce, sonda');
+  assert.strictEqual(tc[tc.length - 1], 'atr2C15', 'atr2C15 en sonda, dataVer\'den sonra'); assert.strictEqual(tc[tc.length - 2], 'dataVer');
+  assert(GC.every((k, i) => tv[tc.length - 2 - GC.length + i] !== ''), 'tepe satırı: 16 kolon dolu');
   assert.strictEqual(tv[tc.indexOf('cfgVer')], require('../package.json').version);
-  assert.strictEqual(tv[tc.indexOf('dataVer')], '2026.11.24-3');
+  assert.strictEqual(tv[tc.indexOf('dataVer')], '2026.11.25-1');
   assert(!hn.includes('dataVer'), 'kartlar.csv: dataVer yok');
   // MD: eski derece satırı + yeni kurulum grupları
   const md = cols[true].w.md;
