@@ -37,7 +37,7 @@ const { evaluate, separationPct, gradeAudit } = require('./infoEngine');
 const ta = require('./ta');
 const { tfIndicators, vwapSet, vwapFeatures, refLevels, nearest, TF_COLS, VWAP_COLS } = require('./marketSnap');
 const { maLadder, stopOf } = require('./levelTouch');
-const { extraFeatures, EXTRA_COLS, EXTRA_AUDIT_COLS } = require('./peakFeatures');
+const { extraFeatures, quoteVol24h, EXTRA_COLS, EXTRA_AUDIT_COLS } = require('./peakFeatures');
 const { setupScore, SETUP_DEFAULTS, SETUP_VER } = require('./setupScore');
 const { basisPct, ENRICH_COLS, LIQ_COLS } = require('./marketData');
 const PKG_VERSION = String(require('../package.json').version ?? '');
@@ -102,7 +102,9 @@ const AUDIT_COLS = ['sameBar', 'cardWhen', 'contSkipped', 'rsi15c', 'rsi1hc', 'r
   'gradeOld', 'g_sep', 'g_h1', 'g_r15', 'g_atr', 'g_macd', 'g_stoch', 'g_rsi3hi', 'g_runaway', 'cfgGradeRsi15m', 'cfgGradeAtr5Pct', 'cfgGradeMacd5m', 'cfgGradeStoch5m', 'cfgSepPct2', 'cfgGradeRsi3m', 'gradeVer',
   'dataVer', 'atr2C15',
   // v3 kurulum puanı (gölge kayıt, 25.11.2026): setupScore.js; v3B = pompada ilk S≥4 + pompa≥%5 adayı
-  'v3S', 'v3_rsi1m', 'v3_bb15', 'v3_stoch5', 'v3_vol3', 'v3_liq', 'v3B'];
+  'v3S', 'v3_rsi1m', 'v3_bb15', 'v3_stoch5', 'v3_vol3', 'v3_liq', 'v3B',
+  // piyasa geneli ve coin büyüklüğü (25.11.2026, en sonda): 15m RSI ≤ 20 coin %, 60 dk'da ≥ %3 düşen coin, son 24 kapanmış 1h quote hacmi
+  'breadth20', 'dumping', 'q24h'];
 const FEATURE_COLS = [...BASE_COLS, ...PEAK_COLS, ...TF_COLS, ...VWAP_COLS, ...EXTRA_COLS, 'basisPct', ...LIQ_COLS, ...ENRICH_COLS, ...TROUGH_COLS, ...OUTCOME_COLS, ...AUDIT_COLS];
 
 /** Tepe anının tam fotoğrafı */
@@ -115,6 +117,7 @@ function peakFeatures(series, s, ctx, high, pump, loT, tc, history = null) {
   const prem = ctx.funding ? ctx.funding(sym) : null;
   const d = series.d['1m'], n = d.q.length;
   let q15 = 0; for (let i = Math.max(0, n - 15); i < n; i++) q15 += d.q[i];
+  const mk = ctx.market ? ctx.market(tc) : null;
   return features(snap, series, {
     pumpPct: num(pump), pumpMin: Math.round((tc - loT) / MIN),
     pkLv: nr.best?.name ?? null, pkLvKind: nr.best?.kind ?? null, pkLvDist: nr.best?.dist ?? null, pkLvTouches: nr.best?.touches ?? null, pkLvTouchUp: nr.best?.touchesUp ?? null, pkLvTouchDn: nr.best?.touchesDn ?? null, lvZoneHiN: nr.best?.zoneHiN ?? null, lvZoneLoN: nr.best?.zoneLoN ?? null, pkNear: nr.near.join('|'),
@@ -134,6 +137,7 @@ function peakFeatures(series, s, ctx, high, pump, loT, tc, history = null) {
     incTf: ['3m', '5m', '15m', '1h', '4h'].filter(tf => series.incomplete(tf, 14) > 0).join('|'),
     inc5: series.incomplete('5m', 14), inc15: series.incomplete('15m', 14),
     ...gradeAudit(snap, s),
+    breadth20: mk?.breadth20 ?? null, dumping: mk?.dumping ?? null, q24h: quoteVol24h(series),
   });
 }
 

@@ -93,6 +93,7 @@ const LIMITS = [
   'baz (mark − endeks) yok: funding geçmişinde mark/endeks yok → basisPct boş',
   'likidasyon akışı yok',
   'breadth80 ve pumping yok (evrenin aynı andaki durumu gerekir; backtest sembol sembol koşar → null)',
+  'breadth20 ve dumping yok (aynı neden → null); q24h hesaplanır',
   'spot / emir defteri / long-short oranları verisi yok',
   'sessize alma ve takip (cooldown, seri akışı) canlıdaki gibi işlemez',
   'evren dönem başından önceki 24s hacme göre seçilir; Binance listeden tamamen çıkmış (DELISTED) coinleri exchangeInfo\'da vermediği için onlar yok (kalan hayatta kalma yanlılığı); dönem başından önceki gün listelenenler dışarıda',
@@ -101,11 +102,11 @@ const LIMITS = [
 /**
  * BTC 1m mumlarından t anındaki {btc5, btc15, btcRsi15} (canlı marketState ile aynı tanım ve yuvarlama).
  * Tek geçişte hesaplanıp zaman indeksli Float64Array'lerde tutulur (365 gün ≈ 13 MB); t için yalnızca
- * t'den ÖNCE kapanmış 1m'ler kullanılmıştır (look-ahead yok). breadth80 / pumping her zaman null.
+ * t'den ÖNCE kapanmış 1m'ler kullanılmıştır (look-ahead yok). breadth80 / pumping / breadth20 / dumping her zaman null.
  * @returns {(t:number)=>{breadth80:null,pumping:null,btc5:?number,btc15:?number,btcRsi15:?number}}
  */
 function createBtcMarket(btc1m) {
-  if (!btc1m || !btc1m.length) return () => ({ breadth80: null, pumping: null, btc5: null, btc15: null, btcRsi15: null });
+  if (!btc1m || !btc1m.length) return () => ({ breadth80: null, pumping: null, breadth20: null, dumping: null, btc5: null, btc15: null, btcRsi15: null });
   const t0 = btc1m[0].t, N = Math.floor((btc1m[btc1m.length - 1].t - t0) / MIN) + 1;
   const b5 = new Float64Array(N).fill(NaN), b15 = new Float64Array(N).fill(NaN), rs = new Float64Array(N).fill(NaN);
   const sr = new Series('BTCUSDT');
@@ -123,7 +124,7 @@ function createBtcMarket(btc1m) {
   const g = (a, i) => (i >= 0 && i < N && !Number.isNaN(a[i]) ? a[i] : null);
   return t => {
     const i = Math.floor((t - MIN - t0) / MIN);       // t'den önce kapanan son 1m
-    return { breadth80: null, pumping: null, btc5: g(b5, i), btc15: g(b15, i), btcRsi15: g(rs, i) };
+    return { breadth80: null, pumping: null, breadth20: null, dumping: null, btc5: g(b5, i), btc15: g(b15, i), btcRsi15: g(rs, i) };
   };
 }
 

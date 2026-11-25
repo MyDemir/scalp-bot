@@ -258,7 +258,8 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
     'wick_5mc', 'clv_5mc', 'wick_15mc', 'clv_15mc', 'bar5Pct', 'bar15Pct', 'volPeakXc', 'miss60', 'futQ60t', 'spotQ60', 'spotShare60t',
     'rsi3c', 'rsi5c', 'sep3c', 'sep5c', 'cfgPeakWindowMin', 'cfgSampleGapMin', 'cfgVer', 'dropC15', 'lowC15', 'closeC60', 'incTf', 'inc5', 'inc15', 'lvZoneHiN', 'lvZoneLoN', 'pkLvTouchUp', 'pkLvTouchDn',
     'gradeOld', 'g_sep', 'g_h1', 'g_r15', 'g_atr', 'g_macd', 'g_stoch', 'g_rsi3hi', 'g_runaway', 'cfgGradeRsi15m', 'cfgGradeAtr5Pct', 'cfgGradeMacd5m', 'cfgGradeStoch5m', 'cfgSepPct2', 'cfgGradeRsi3m', 'gradeVer', 'dataVer', 'atr2C15', 'v3S', 'v3_rsi1m', 'v3_bb15', 'v3_stoch5', 'v3_vol3', 'v3_liq', 'v3B'];
-  assert.deepStrictEqual(dropCols().slice(-AUD.length), AUD, 'yeni kolonlar sütun sırasının SONUNDA');
+  assert.deepStrictEqual(dropCols().slice(-3), ['breadth20', 'dumping', 'q24h'], '25.11.2026: breadth20/dumping/q24h en sonda');
+  assert.deepStrictEqual(dropCols().slice(0, -3).slice(-AUD.length), AUD, 'yeni kolonlar sütun sırasının SONUNDA (son 3 kolondan önce, sıra aynı)');
   const old = flatDrop({ id: 'x', out: {}, feat: {} }); assert(AUD.every(k => old[k] == null), 'eski kayıtta boş');
   { const r = flatDrop({ id: 'z', out: {}, feat: { lvZoneHiN: 2, lvZoneLoN: 1 } }); assert.strictEqual(r.lvZoneHiN, 2); assert.strictEqual(r.lvZoneLoN, 1, 'bölge değerleri CSV satırına gelir');
   { const r = flatDrop({ id: 'u', out: {}, feat: { pkLvTouchUp: 3, pkLvTouchDn: 1 } }); assert(r.pkLvTouchUp === 3 && r.pkLvTouchDn === 1, 'yönlü temas CSV satırına gelir'); }
@@ -382,7 +383,8 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
     }
     const c = flatDrop(ev3[exp.indexOf(1)]); assert.strictEqual(c.v3B, 1); assert.strictEqual(c.v3_liq, null, 'liq yok → boş');
   }
-  assert(dropCols()[dropCols().length - 8] === 'atr2C15' && dropCols()[dropCols().length - 9] === 'dataVer' && dropCols()[dropCols().length - 1] === 'v3B');
+  { const dc = dropCols().slice(0, -3); assert.deepStrictEqual(dropCols().slice(-3), ['breadth20', 'dumping', 'q24h']);
+    assert(dc[dc.length - 8] === 'atr2C15' && dc[dc.length - 9] === 'dataVer' && dc[dc.length - 1] === 'v3B'); }
   ok('Aşama 1: rsi3c/rsi5c, sep3c, cfg*, dropC15/lowC15/closeC60 (peak≠price dönüşüm, eksik pencere null)');
 }
 
@@ -478,8 +480,10 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   assert.strictEqual(newRow[hn.indexOf('gradeVer')], '2');
   // tepeler.csv: yeni kolonlar sonda ve dolu
   const th = parseCsv(cols[true].Z['tepeler.csv']); const tc = th[0], tv = th[1];
-  assert.deepStrictEqual(tc.slice(-GC.length - 9, -9), GC, 'tepeler.csv: derece kolonları dataVer\'den önce, sonda');
-  assert.strictEqual(tc[tc.length - 8], 'atr2C15', 'atr2C15, v3 kolonlarından önce'); assert.strictEqual(tc[tc.length - 9], 'dataVer');
+  assert.deepStrictEqual(tc.slice(-3), ['breadth20', 'dumping', 'q24h'], 'tepeler.csv: breadth20/dumping/q24h en sonda');
+  { const tp = tc.slice(0, -3);
+    assert.deepStrictEqual(tp.slice(-GC.length - 9, -9), GC, 'tepeler.csv: derece kolonları dataVer\'den önce, sonda');
+    assert.strictEqual(tp[tp.length - 8], 'atr2C15', 'atr2C15, v3 kolonlarından önce'); assert.strictEqual(tp[tp.length - 9], 'dataVer'); }
   assert(GC.every((k, i) => tv[tc.length - 9 - GC.length + i] !== ''), 'tepe satırı: 16 kolon dolu');
   assert.strictEqual(tv[tc.indexOf('cfgVer')], require('../package.json').version);
   assert.strictEqual(tv[tc.indexOf('dataVer')], '2026.11.25-2');

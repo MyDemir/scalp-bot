@@ -140,6 +140,17 @@ ok(`Devam: ${dv.length} kayıtlı devam (≥ 5 dk arayla, atlanan sayaçlı); da
   ok(`Ek veri: enrich ${calls.length} kayıtlı adaya (dip anına hizalı), emir defteri birleşti; piyasa breadth20 %${x.feat.breadth20}, dumping ${x.feat.dumping}`);
 }
 
+// ── Tepe fotoğrafında breadth20 / dumping / q24h (tepeler.csv son 3 kolon) ──
+{
+  const { peakFeatures } = require(`${REPO}/src/eventLog`);
+  const tc = r1.S.lastT('1m') + MIN;
+  const f = peakFeatures(r1.S, s, { market: () => ({ breadth20: 12.5, dumping: 9 }) }, 98, 4, tc - 60 * MIN, tc);
+  assert(f.breadth20 === 12.5 && f.dumping === 9 && Number.isFinite(f.q24h) && f.q24h > 0, 'tepe: ' + JSON.stringify([f.breadth20, f.dumping, f.q24h]));
+  const g = peakFeatures(r1.S, s, {}, 98, 4, tc - 60 * MIN, tc);
+  assert(g.breadth20 === null && g.dumping === null, 'piyasa yoksa boş');
+  ok(`Tepe fotoğrafı: breadth20 %${f.breadth20}, dumping ${f.dumping}, q24h ${f.q24h} (piyasa verisi yoksa boş)`);
+}
+
 // ── Yeni ayar bloğu: cfg.dips, eski info-settings.json ile açılışta etkilenmez (Telegram ayarı değil) ──
 {
   assert.deepStrictEqual(cfg.dips, DIP_DEFAULTS, 'config.dips = DIP_DEFAULTS');
@@ -199,8 +210,13 @@ const now = Date.UTC(2026, 9, 5, 0, 2);
   assert.strictEqual(lines.length, 3, 'kapsam: son 5 saat hariç 2 dip');
   assert.deepStrictEqual(w.dips, { n: 2, döndü: 1, devam: 0, yatay: 1 });
   const th = Z['tepeler.csv'].replace('﻿', '').split('\n')[0].split(',');
-  assert.deepStrictEqual(th, dropCols(), 'tepeler.csv kolonları değişmedi');
-  assert.deepStrictEqual(th.slice(-8), ['atr2C15', 'v3S', 'v3_rsi1m', 'v3_bb15', 'v3_stoch5', 'v3_vol3', 'v3_liq', 'v3B']);
+  assert.deepStrictEqual(th, dropCols(), 'tepeler.csv başlığı = dropCols');
+  // main (a1e32ba) tepeler.csv başlığı: 299 kolon, sha1 aşağıda — önceki kolonlar birebir aynı sırada, yalnız sonda 3 yeni kolon
+  const prev = th.slice(0, -3);
+  assert.strictEqual(prev.length, 299);
+  assert.strictEqual(require('crypto').createHash('sha1').update(prev.join(',')).digest('hex'), 'db53bbb18db8351095f547088c9091bc02a1be7e', 'main\'deki tepeler.csv kolon sırası aynı');
+  assert.deepStrictEqual(th.slice(-3), ['breadth20', 'dumping', 'q24h']);
+  assert.deepStrictEqual(prev.slice(-8), ['atr2C15', 'v3S', 'v3_rsi1m', 'v3_bb15', 'v3_stoch5', 'v3_vol3', 'v3_liq', 'v3B']);
   assert(w.md.includes('## Dip defteri (özet)') && w.md.includes('Dip adayı: 2 · döndü 1 (%50)') && w.md.includes('- dipler.csv:'), 'MD dip bölümü');
   assert(!/\b(al|sat)\b/i.test(w.md.split('## Dip defteri (özet)')[1].split('## Seviye')[0]), 'al/sat dili yok');
   // dip kaydı yoksa dosya açılmaz (eski zip içeriği aynı)
@@ -222,7 +238,7 @@ const now = Date.UTC(2026, 9, 5, 0, 2);
   assert.strictEqual(await job.tick(t1 + 11 * MIN), 'sent'); assert.strictEqual(await st.forEachDip({}, () => {}), 0, 'gönderildi → dips silindi');
   st.close();
   console.log(w.md.split('\n').filter(l => /Dip adayı|Destek teması:/.test(l)).join('\n'));
-  ok(`Haftalık: zip'te dipler.csv (${dipCols().length} kolon, başlık = dipCols), tepeler.csv kolonları değişmedi (${dropCols().length}); MD dip özeti; dip yoksa dosya yok; /disaaktar dipler.csv; gönderim başarısızsa silme yok, başarılıysa dips silindi`);
+  ok(`Haftalık: zip'te dipler.csv (${dipCols().length} kolon, başlık = dipCols), tepeler.csv main'deki 299 kolon birebir + sonda breadth20/dumping/q24h (${dropCols().length}); MD dip özeti; dip yoksa dosya yok; /disaaktar dipler.csv; gönderim başarısızsa silme yok, başarılıysa dips silindi`);
 }
 
 console.log('\n' + R.join('\n'));
