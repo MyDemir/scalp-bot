@@ -96,6 +96,29 @@ class Series {
   }
 
   /**
+   * Sonraki mumun (nextT) açık üst TF periyotlarının (3m-4h; 1d hariç) kısmi mumunu, nextT'den ÖNCE
+   * kapanmış 1m'lerden kurar (apply1m ile aynı toplama; n = bulunan 1m sayısı, eksikse 'eksik' işaretlenir).
+   * Yalnız t < nextT olan 1m'ler okunur (look-ahead yok); zaten kısmi mumu olan TF'e dokunmaz.
+   * @param {object[]} candles kapanmış 1m, eski → yeni
+   * @param {number} nextT bir sonraki işlenecek 1m'in t'si
+   */
+  seedPartials(candles, nextT) {
+    for (const tf of HTF) {
+      const ms = TF_MS[tf];
+      if (ms > 240 * MIN || this.part[tf]) continue;
+      const ps = Math.floor(nextT / ms) * ms;
+      if (ps === nextT) continue;                              // periyot şimdi açılıyor
+      let p = null;
+      for (const c of candles) {
+        if (c.t < ps || c.t >= nextT) continue;
+        if (!p) p = { t: ps, o: c.o, h: c.h, l: c.l, c: c.c, v: c.v, tb: c.tb || 0, q: c.q || 0, tq: c.tq || 0, n: 1 };
+        else { p.n++; if (c.h > p.h) p.h = c.h; if (c.l < p.l) p.l = c.l; p.c = c.c; p.v += c.v; p.tb += c.tb || 0; p.q += c.q || 0; p.tq += c.tq || 0; }
+      }
+      if (p) this.part[tf] = p;
+    }
+  }
+
+  /**
    * Kapanmış bir 1m mumu ekler ve üst TF'leri günceller.
    * @returns {Set<string>} bu mumla KAPANAN üst TF'ler (ör. {'3m','15m'})
    */

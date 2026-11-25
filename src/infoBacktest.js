@@ -141,6 +141,7 @@ async function runSymbol(symbol, { start, end, s, btcClose, btcMarket, keepCards
   const first = m1.findIndex(c => c.t >= start);
   if (first < 0) return { symbol, cards: [], minutes: 0, note: 'dönemde veri yok' };
   sr.seed('1m', m1.slice(0, first));
+  sr.seedPartials(m1.slice(0, first), start);                 // start'ta açık üst TF periyotları (canlı tohumdaki kısmi mum gibi); ek istek yok
 
   const tracker = eng.createTracker();
   const touchTr = createTouchTracker();
