@@ -45,6 +45,7 @@ module.exports = {
     sfpAbovePct:   0.5,      // YENİ: SFP kırılım eşiği %0.5
 
     discoveryCards: true,
+    setupCards:    true,    // ⭐ v3 B kurulum kartı (v3 S ≥ 4 + pompa ≥ %5, pompada ilk aday; her zaman sesli) — false: kartlar eskisi gibi
     burstPct1:     1.0,
     burstPct2:     1.5,
     volMult:       2.0,

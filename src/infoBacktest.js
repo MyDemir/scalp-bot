@@ -233,9 +233,13 @@ async function runSymbol(symbol, { start, end, s, btcClose, btcMarket, keepCards
     now = m1[i].t + MIN;
     const closed = sr.apply1m(m1[i]);
     if (sr.ready()) touches.push(...touchTr.observe(sr, closed, s));
-    const card = eng.step(sr, closed, s, tracker, ctx);
+    let card = eng.step(sr, closed, s, tracker, ctx);
     if (card) { touchTr.noteCard(symbol, card.t); dropTr.noteCard(symbol, card.t, card.grade); }
     if (sr.ready()) drops.push(...dropTr.observe(sr, s, ctx));
+    { // ⭐ v3 B kurulum kartı — canlı processCandle0 ile aynı sıra ve aynı fonksiyon (eng.setupCard)
+      const setup = dropTr.takeSetup(symbol);
+      if (setup) { const had = card; card = eng.setupCard(sr, s, tracker, ctx, setup, card); if (card && !had) { touchTr.noteCard(symbol, card.t); dropTr.noteCard(symbol, card.t, card.grade); } }
+    }
     if (!card) continue;
     { const r = oiAt(card.t), oi = r ? oiChange1h(r) : null; if (oi != null) card.oi = { changePct: oi }; }   // canlı emitCard ile aynı
     card.fwd = forward(m1, i, card.price);
@@ -387,7 +391,7 @@ async function main() {
     const eta = i ? Math.round((Date.now() - t0) / i * (symbols.length - i) / 60000) : null;
     try {
       const r = await runSymbol(sym, { start, end, s, btcClose, btcMarket, keepCards: ORNEK > 0 || Boolean(a.telegram) });
-      const cards = r.cards.map(c => ({ ...compact(c), text: c.text }));
+      const cards = r.cards.map(c => ({ ...compact(c), text: c.text, setup: c.trig?.setup ? 1 : 0, setupS: c.setup?.S ?? null, setupPump: c.setup?.pumpPct ?? null }));
       all.push(...cards);
       allMoves.push(...(r.moves || []));
       allTouches.push(...(r.touches || []));
