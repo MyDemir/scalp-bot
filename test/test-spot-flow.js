@@ -6,7 +6,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { createSpotFlow, classify, windowStart, lastClosedStart, flowText, changesText, HISTORY } = require('../src/spotFlow');
-const { buildExports } = require('../src/exportData');
+const { buildExports, GRADE_COLS: GRADE_COLS_LIST } = require('../src/exportData');
 
 const HOUR = 3_600_000, DAY = 86_400_000;
 const R = []; const ok = s => R.push('✅ ' + s);
@@ -154,6 +154,82 @@ const flow = createSpotFlow({ file: path.join(dir, 'flow.db'), fetchFn, futuresK
   assert.strictEqual(plain.counts.akis, undefined);
   ok(`CSV: akis.csv ${counts.akis} satır (toplam/alış/satış/net $, alış %), flow verilmezse eklenmiyor`);
 
+  // Ö-1: akis.csv akıtılarak yazılır; başlık ve satırlar eski colsOf(rowsSince) çıktısıyla birebir aynı
+  const { colsOf } = require('../src/exportData'), { FLOW_EXPORT_COLS } = require('../src/spotFlow');
+  const { csvHeader, csvLine } = require('../src/eventLog');
+  const all = flow.rowsSince(now - 30 * DAY);
+  assert.deepStrictEqual([...flow.iterateSince(now - 30 * DAY)], all, 'iterateSince = rowsSince');
+  assert.deepStrictEqual(Object.keys(all[0]), FLOW_EXPORT_COLS, 'sabit kolon listesi = satır anahtarları');
+  const oldCols = colsOf(all);
+  const zf = require('./unzip')((await buildExports(fakeStore, 30, now, { flow })).files[0].buf)['akis.csv'];
+  const hdr = csvHeader(oldCols);
+  assert.strictEqual(zf, hdr + all.map(r => csvLine(r, oldCols)).join(''), 'akis.csv eski colsOf(rows) çıktısıyla bayt bayt aynı');
+  const hdrCols = hdr.replace(/^\uFEFF/, '').trim().split(',');
+  // (a) akış kolonları literal ve sıralı kilitli (başlığın ilk 17 kolonu)
+  const FLOW_LITERAL = 'symbol,market,tf,time,vol_usd,buy_usd,sell_usd,net_usd,buy_pct,open,close,chg_pct,trades,big_buy_n,big_buy_usd,big_sell_n,big_sell_usd'.split(',');
+  assert.deepStrictEqual(FLOW_EXPORT_COLS, FLOW_LITERAL, 'FLOW_EXPORT_COLS literal liste');
+  assert.deepStrictEqual(hdrCols.slice(0, FLOW_LITERAL.length), FLOW_LITERAL, 'başlığın ilk 17 kolonu akış kolonları');
+  // (b) tam başlık exportData'nın colsOf çıktısıyla aynı; kuyruk boş akış başlığıyla aynı (ek kolonlar PR'larda eklenebilir)
+  assert.strictEqual(hdr, csvHeader(colsOf([Object.fromEntries(FLOW_EXPORT_COLS.map(k => [k, null]))])), 'tam başlık = csvHeader(colsOf(...))');
+  const emptyCols = colsOf([]);
+  assert.deepStrictEqual(hdrCols.slice(FLOW_LITERAL.length), emptyCols, 'başlık kuyruğu = colsOf([]) (derece/ek kolonlar)');
+  ok(`CSV akıtma: başlık/kolon sırası kilitli (${FLOW_EXPORT_COLS.length}+16), ${all.length} satır eski çıktıyla birebir`);
+
+  // Sayfalama: küçük parça (7) sınırlarında da çıktı bayt bayt aynı
+  for (const flowChunk of [1, 7, all.length, 5000]) {
+    const zc = require('./unzip')((await buildExports(fakeStore, 30, now, { flow, flowChunk })).files[0].buf)['akis.csv'];
+    assert.strictEqual(zc, zf, `flowChunk=${flowChunk}: çıktı aynı`);
+  }
+  // Boş akış: eski davranış korunur (akis.csv yazılır, başlık colsOf([]) = yalnız derece kolonları, sayaç 0)
+  {
+    const fe = createSpotFlow({ file: path.join(dir, 'empty.db'), fetchFn: null, futuresKlines, getSymbols: () => [], now: () => now, logger: quiet });
+    const ee = await buildExports(fakeStore, 30, now, { flow: fe });
+    assert.strictEqual(ee.counts.akis, 0);
+    assert.strictEqual(require('./unzip')(ee.files[0].buf)['akis.csv'], csvHeader(colsOf([])));
+    fe.close();
+  }
+  ok('Sayfalama: parça 1/7/tümü/5000 aynı bayt, boş akışta akis.csv eski başlıkla yazılıyor (sayaç 0)');
+
+  // Parçalar arasında bağlantı serbest: iterate sürerken save() (tick) ve recordBig() 'busy' hatası vermez
+  {
+    const rowsBefore = flow.stats.rows, errBefore = flow.stats.errors;
+    let seen = 0, wrote = false;
+    for (const r of flow.iterateSince(now - 30 * DAY, 7)) {
+      seen++;
+      if (seen === 10 && !wrote) {
+        wrote = true;
+        await new Promise(res => setTimeout(res, 5));          // event loop'a dön (zipWriter flush gibi)
+        flow.recordBig([{ symbol: 'ETHUSDT', t: Date.UTC(2026, 9, 22, 8), buyN: 2, buyUsd: 5e5, sellN: 1, sellUsd: 2e5 }]);
+        now += 4 * HOUR; await flow.tick();
+      }
+    }
+    assert(wrote && seen >= 20);
+    assert.strictEqual(flow.stats.errors, errBefore, 'save() hata almadı');
+    assert(flow.stats.rows > rowsBefore, 'tick satır yazdı');
+    assert.strictEqual(flow.bigSum('ETHUSDT', Date.UTC(2026, 9, 22, 8), Date.UTC(2026, 9, 22, 9)).buyN, 2, 'recordBig yazıldı');
+    ok('Dışa aktarma sürerken save() ve recordBig() hata vermiyor, satırlar yazılıyor');
+  }
+
+  // Ö-2: save tek transaction; bozuk mumda grup geri alınır, bot durmaz
+  {
+    const bad = [], warns = [];
+    const f2 = createSpotFlow({
+      file: path.join(dir, 'tx.db'), fetchFn: null, getSymbols: () => ['TXUSDT'], spotGapMs: 0, now: () => now,
+      logger: { log() {}, warn: m => warns.push(m), error() {} },
+      futuresKlines: async (sym, tf, limit) => {
+        const k = klines('futures', tf, limit);
+        if (tf === '4h') { bad.push(1); k[k.length - 3][0] = 'x'; }   // t = NaN → NOT NULL ihlali, satırlar ortasında
+        return k;
+      },
+    });
+    const r2 = await f2.tick();
+    assert(!r2.skipped && bad.length === 1 && f2.stats.errors >= 1 && warns.length >= 1, 'hata loglandı, tur bitti');
+    assert.strictEqual(f2.rowsOf('TXUSDT', 'futures', '4h', 500).length, 0, '4s grubu tümden geri alındı');
+    assert(f2.rowsOf('TXUSDT', 'futures', '1d', 500).length > 0, 'diğer pencereler yazıldı');
+    f2.close();
+    ok('save: tek transaction, bozuk mumda o grup geri alınır, hata loglanır, tur durmaz');
+  }
+
   flow.close();
   console.log(R.join('\n'));
 })().catch(err => { console.error('❌ BAŞARISIZ', err); process.exit(1); });
@@ -255,4 +331,23 @@ const flow = createSpotFlow({ file: path.join(dir, 'flow.db'), fetchFn, futuresK
   assert.deepStrictEqual(log.slice(1), ['UNSUBSCRIBE pepeusdt@aggTrade', 'SUBSCRIBE solusdt@aggTrade']);
   bt.stop(); wss.close();
   console.log('✅ 🐋 WebSocket: aggTrade aboneliği, spot PEPE → 1000PEPEUSDT kaydı (saat başı), evren değişince UNSUBSCRIBE/SUBSCRIBE');
+})().catch(err => { console.error('❌ BAŞARISIZ', err); process.exit(1); });
+
+// ── 🐋 flow_big saklama: 1d turunda 180 günden eski saatlik sayaçlar silinir, 180 gün içindekiler kalır ──
+(async () => {
+  const d4 = path.join(__dirname, '.tmp', 'spot-flow-purge-big');
+  fs.rmSync(d4, { recursive: true, force: true });
+  const t = Date.UTC(2026, 9, 21, 12, 5);
+  const f4 = createSpotFlow({ file: path.join(d4, 'flow.db'), spotGapMs: 0, now: () => t, logger: { log() {}, warn() {}, error() {} }, getSymbols: () => [],
+    getSettings: () => ({ flowBigPct: 0.05, flowBigMinUsd: 5000 }), fetchFn: null, futuresKlines: async () => [] });
+  const h = Math.floor((t - 181 * DAY) / HOUR) * HOUR, k = Math.floor((t - 179 * DAY) / HOUR) * HOUR;   // 181 ve 179 gün önce (saat başı)
+  f4.recordBig([{ symbol: 'PURGEUSDT', t: h, buyN: 1, buyUsd: 10000, sellN: 0, sellUsd: 0 }, { symbol: 'PURGEUSDT', t: k, buyN: 2, buyUsd: 20000, sellN: 0, sellUsd: 0 }]);
+  assert.strictEqual(f4.bigSum('PURGEUSDT', 0, t + 1).hours, 2, 'purge öncesi 2 saat');
+  await f4.tick();                                       // ilk tur 1d'yi de vadeli sayar → purge çalışır
+  const after = f4.bigSum('PURGEUSDT', 0, t + 1);
+  assert.strictEqual(after.hours, 1, 'purge sonrası yalnız 179 günlük saat kalır');
+  assert.strictEqual(after.buyN, 2, '179 günlük satır (buyN 2) korunur');
+  assert.strictEqual(f4.bigSum('PURGEUSDT', h, h + HOUR), null, '181 günlük satır silindi (kayıt yok → null)');
+  f4.close();
+  console.log('✅ 🐋 flow_big saklama: 1d turunda 181 günlük saatlik sayaç silinir, 179 günlük kalır (KEEP_BIG_DAYS = 180)');
 })().catch(err => { console.error('❌ BAŞARISIZ', err); process.exit(1); });

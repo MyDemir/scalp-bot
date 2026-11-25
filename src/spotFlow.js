@@ -30,7 +30,7 @@ const HOUR = 3_600_000, DAY = 86_400_000, WEEK = 7 * DAY, MONDAY0 = 4 * DAY;   /
 const TFS = ['1h', '4h', '1d', '1w', '1M'];
 const HISTORY = { '1h': 168, '4h': 120, '1d': 60, '1w': 30, '1M': 12 };     // ilk yüklemede kaç kapanmış pencere
 const AVG_N = { '1h': 24, '4h': 20, '1d': 30, '1w': 12, '1M': 6 };          // hacim katı için önceki pencere sayısı
-const KEEP_1H_DAYS = 30, KEEP_4H_DAYS = 180;
+const KEEP_1H_DAYS = 30, KEEP_4H_DAYS = 180, KEEP_BIG_DAYS = 180;   // flow_big (büyük işlem sayaçları) saklama
 const SETTLE_MS = 90_000;                                         // kapanıştan sonra bekleme (Binance mumu kesinleşsin)
 const UNIVERSE_MS = HOUR;                                         // evren (eşleşen spot+futures pariteleri) yenileme aralığı
 
@@ -121,6 +121,10 @@ function defaultFile() {
  * @param {Function} [o.getSymbols]   () → sembol listesi (getFuturesSymbols yoksa; testler)
  * @param {Function} [o.getSettings]  () → ayarlar (flow* anahtarları)
  */
+/** akis.csv kolonları (sabit sıra; rowsSince / iterateSince nesne anahtarlarıyla aynı) */
+const FLOW_EXPORT_COLS = ['symbol', 'market', 'tf', 'time', 'vol_usd', 'buy_usd', 'sell_usd', 'net_usd', 'buy_pct', 'open', 'close', 'chg_pct', 'trades',
+  'big_buy_n', 'big_buy_usd', 'big_sell_n', 'big_sell_usd'];
+
 function createSpotFlow({
   file = defaultFile(), futuresKlines, getFuturesSymbols = null, getSymbols = () => [], getSettings = () => ({}),
   spotBase = process.env.BINANCE_SPOT_BASE_URL || 'https://api.binance.com', fetchFn = globalThis.fetch,
@@ -167,6 +171,9 @@ function createSpotFlow({
     changesAll: db.prepare('SELECT symbol, tf, market, t, at, old, new FROM flow_changes WHERE at >= ? ORDER BY at DESC, id DESC LIMIT ?'),
     changesSym: db.prepare('SELECT symbol, tf, market, t, at, old, new FROM flow_changes WHERE symbol = ? AND at >= ? ORDER BY at DESC, id DESC LIMIT ?'),
     since: db.prepare('SELECT symbol, market, tf, t, vol, buy, open, close, trades FROM flow WHERE t >= ? ORDER BY symbol, market, tf, t'),
+    // keyset sayfalama (PK sırası = eski `since` sırası): sayfalar arasında bağlantıda açık sorgu kalmaz
+    sincePage1: db.prepare('SELECT symbol, market, tf, t, vol, buy, open, close, trades FROM flow WHERE t >= ? ORDER BY symbol, market, tf, t LIMIT ?'),
+    sincePageN: db.prepare('SELECT symbol, market, tf, t, vol, buy, open, close, trades FROM flow WHERE t >= ? AND (symbol, market, tf, t) > (?, ?, ?, ?) ORDER BY symbol, market, tf, t LIMIT ?'),
     purge4h: db.prepare("DELETE FROM flow WHERE tf = '4h' AND t < ?"),
     purge1h: db.prepare("DELETE FROM flow WHERE tf = '1h' AND t < ?"),
     purgeBig: db.prepare('DELETE FROM flow_big WHERE t < ?'),
@@ -202,13 +209,11 @@ function createSpotFlow({
   function save(sym, market, tf, klines) {
     if (!klines) return 0;
     const t = now();
-    let n = 0;
-    for (const k of klines) {
-      const r = rowOf(k, t);
-      if (!r) continue;
-      st.upsert.run(sym, market, tf, r.t, r.vol, r.buy, r.open, r.close, r.trades);
-      n++;
-    }
+    const list = [];
+    for (const k of klines) { const r = rowOf(k, t); if (r) list.push(r); }
+    // tek transaction: çağrı başına tek WAL yazımı; hata olursa grup geri alınır (fetchBoth yakalar, sonraki turda upsert yeniden çeker)
+    db.transaction(rs => { for (const r of rs) st.upsert.run(sym, market, tf, r.t, r.vol, r.buy, r.open, r.close, r.trades); })(list);
+    const n = list.length;
     stats.rows += n;
     return n;
   }
@@ -322,7 +327,7 @@ function createSpotFlow({
         if (fresh) seeded.add(sym);
       }
       for (const tf of due) done[tf] = lastClosedStart(tf, t);
-      if (due.includes('1d')) { st.purge4h.run(t - KEEP_4H_DAYS * DAY); st.purge1h.run(t - KEEP_1H_DAYS * DAY); st.purgeBig.run(t - 400 * DAY); }
+      if (due.includes('1d')) { st.purge4h.run(t - KEEP_4H_DAYS * DAY); st.purge1h.run(t - KEEP_1H_DAYS * DAY); st.purgeBig.run(t - KEEP_BIG_DAYS * DAY); }
       return { symbols: syms.length, due, changed };
     } finally {
       stats.running = false;
@@ -390,9 +395,9 @@ function createSpotFlow({
     return { buyN: r.buyN || 0, buyUsd: r.buyUsd || 0, sellN: r.sellN || 0, sellUsd: r.sellUsd || 0, hours: r.hours };
   }
 
-  /** CSV dışa aktarma için: pencere satırları + türetilmiş alanlar (spot satırlarına pencerenin büyük işlem sayıları) */
-  function rowsSince(since) {
-    if (!st) return [];
+  /** CSV dışa aktarma: pencere satırlarını tek tek üretir (dizi biriktirmez; .iterate()). Yalnız büyük işlem Map'i bellekte tutulur */
+  function* iterateSince(since, chunk = 5000) {
+    if (!st) return;
     const big = new Map();
     for (const b of st.bigSince.all(since)) {
       for (const tf of TFS) {
@@ -402,20 +407,30 @@ function createSpotFlow({
         big.set(k, a);
       }
     }
-    return st.since.all(since).map(r => ({
-      symbol: r.symbol, market: r.market, tf: r.tf, time: new Date(r.t).toISOString(),
-      vol_usd: num(r.vol, 0), buy_usd: num(r.buy, 0), sell_usd: num(r.vol - r.buy, 0), net_usd: num(2 * r.buy - r.vol, 0),
-      buy_pct: r.vol > 0 ? num(r.buy / r.vol * 100, 2) : null, open: r.open, close: r.close,
-      chg_pct: r.open > 0 ? num((r.close / r.open - 1) * 100, 2) : null, trades: r.trades,
-      ...(() => {
+    // Canlı iterator yok: her sayfa .all() ile okunur, sayfalar arasında (await'lerde) bağlantı serbest kalır → save()/recordBig() 'busy' almaz
+    let last = null;
+    for (;;) {
+      const page = last ? st.sincePageN.all(since, last.symbol, last.market, last.tf, last.t, chunk) : st.sincePage1.all(since, chunk);
+      for (const r of page) {
         const b = r.market === 'spot' ? big.get(`${r.symbol}|${r.tf}|${r.t}`) : null;
-        return { big_buy_n: b ? b.n1 : null, big_buy_usd: b ? num(b.u1, 0) : null, big_sell_n: b ? b.n2 : null, big_sell_usd: b ? num(b.u2, 0) : null };
-      })(),
-    }));
+        yield {
+          symbol: r.symbol, market: r.market, tf: r.tf, time: new Date(r.t).toISOString(),
+          vol_usd: num(r.vol, 0), buy_usd: num(r.buy, 0), sell_usd: num(r.vol - r.buy, 0), net_usd: num(2 * r.buy - r.vol, 0),
+          buy_pct: r.vol > 0 ? num(r.buy / r.vol * 100, 2) : null, open: r.open, close: r.close,
+          chg_pct: r.open > 0 ? num((r.close / r.open - 1) * 100, 2) : null, trades: r.trades,
+          big_buy_n: b ? b.n1 : null, big_buy_usd: b ? num(b.u1, 0) : null, big_sell_n: b ? b.n2 : null, big_sell_usd: b ? num(b.u2, 0) : null,
+        };
+      }
+      if (page.length < chunk) return;
+      last = page[page.length - 1];
+    }
   }
 
+  /** Dizi biçimi (eski arayüz; testler ve küçük veri için). Büyük dışa aktarma iterateSince kullanır */
+  function rowsSince(since) { return st ? [...iterateSince(since)] : []; }
+
   return {
-    enabled: () => Boolean(st), tick, universe: () => universe.slice(), summary, summaryTf, changes, rowsSince, rowsOf, stats, recordBig, bigSum, bigThreshold, table,
+    enabled: () => Boolean(st), tick, universe: () => universe.slice(), summary, summaryTf, changes, rowsSince, iterateSince, rowsOf, stats, recordBig, bigSum, bigThreshold, table,
     pairs: () => universe.map(f => [spotOf(f).spot, f]),
     hasSpot: sym => !noSpot.has(spotOf(sym).spot),
     close: () => { try { db?.close(); } catch { /* yok */ } },
@@ -475,4 +490,4 @@ function changesText(rows, hours = 24) {
   return `🌊 <b>Akış güncellemeleri</b> — son ${hours} saat (${rows.length})\n${rows.map(c => changeLine(c)).join('\n')}\n\nCoin ayrıntısı: /akis ETH`;
 }
 
-module.exports = { createSpotFlow, matchPairs, classify, windowStart, lastClosedStart, rowOf, flowText, changesText, LABELS, TFS, HISTORY, DEFAULTS };
+module.exports = { createSpotFlow, FLOW_EXPORT_COLS, matchPairs, classify, windowStart, lastClosedStart, rowOf, flowText, changesText, LABELS, TFS, HISTORY, DEFAULTS };

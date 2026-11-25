@@ -19,6 +19,7 @@
 const { rowToStat, rowToTouch, PATH_COLS, pathRow } = require('./cardStore');
 const { flatDrop, dropCols, csvLine, csvHeader } = require('./eventLog');
 const { createZipSet } = require('./zipWriter');
+const { FLOW_EXPORT_COLS } = require('./spotFlow');
 
 /** İç içe nesneyi tek seviyeye indirir: { rsi: { '3m': 90 } } → { rsi_3m: 90 }; diziler "a|b" */
 function flatten(o, prefix = '', out = {}) {
@@ -51,7 +52,7 @@ const colsOf = rows => { const set = new Set(); for (const r of rows) for (const
  * @param {object} store  cardStore
  * @returns {Promise<{files:{name, buf, type}[], counts:{tepeler, kartlar, temaslar}}>}
  */
-async function buildExports(store, days = 30, now = Date.now(), { maxZipBytes = 40e6, base = 'veri', flow = null } = {}) {
+async function buildExports(store, days = 30, now = Date.now(), { maxZipBytes = 40e6, base = 'veri', flow = null, flowChunk = 5000 } = {}) {
   const since = now - days * 86_400_000;
   const zip = createZipSet(base, { maxBytes: maxZipBytes });
   const counts = { tepeler: 0, kartlar: 0, temaslar: 0 };
@@ -82,8 +83,15 @@ async function buildExports(store, days = 30, now = Date.now(), { maxZipBytes = 
   if (store.forEachTouch) await store.forEachTouch({ since }, onTouch);
   else if (store.touchesSince) for (const r of store.touchesSince(since)) await onTouch(r);
   await tz.end();
-  const fl = flow && flow.enabled() ? flow.rowsSince(since) : null;
-  if (fl) await writeRows('akis.csv', fl, 'akis');
+  if (flow && flow.enabled()) {
+    // akış sayfa sayfa akıtılır (dizi biriktirilmez). Kolonlar sabit: eski colsOf(rows) ile aynı sıra; satır yoksa eski gibi yalnız derece kolonları başlığı
+    const c = colsOf([Object.fromEntries(FLOW_EXPORT_COLS.map(k => [k, null]))]);
+    let e = null, n = 0;
+    for (const r of flow.iterateSince(since, flowChunk)) { if (!e) e = zip.entry('akis.csv', csvHeader(c)); await e.write(csvLine(r, c)); n++; }
+    if (!e) e = zip.entry('akis.csv', csvHeader(colsOf([])));
+    await e.end();
+    counts.akis = n;
+  }
   return { files: await zip.finish(), counts };
 }
 

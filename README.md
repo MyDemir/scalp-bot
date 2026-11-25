@@ -343,7 +343,7 @@ CVD'si ters yöndeyse "⚠️ spot/futures ayrışması". Etiket değişince (ö
 **🐋 Büyük alım / satım** (`src/bigTrades.js`): aynı evrendeki spot paritelerin işlem akışı (`<sembol>@aggTrade`, tek WebSocket)
 dinlenir; tek market emri coinin eşiğini geçerse alış ya da satış olarak sayılır. Eşik coine göre:
 `max(flowBigMinUsd, son günlük spot hacmi × flowBigPct %)` — varsayılan %0,05 ve en az 5K $ (10M $ hacim → 5K $, 100M $ → 50K $,
-1B $ → 500K $). Sayaçlar saat başına `flow_big` tablosuna yazılır; `/akis`, panel ve `akis.csv` pencere toplamlarını gösterir.
+1B $ → 500K $). Sayaçlar saat başına `flow_big` tablosuna yazılır (180 gün saklanır); `/akis`, panel ve `akis.csv` pencere toplamlarını gösterir.
 Binance geçmiş büyük işlem listesi vermediği için sayım botun açılışından başlar. Kapatmak için `BIG_TRADES=0`.
 
 **Panel → Alım-Satım Akışı sekmesi:** tüm pariteler tek tabloda (günlük hacim, alış-satış %, değişim %, 1s/4s/günlük/haftalık/aylık
