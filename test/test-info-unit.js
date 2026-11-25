@@ -402,4 +402,30 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   const cn = compact(norm); assert(cn.snapOk === 1 && cn.filterBypass === 0 && cn.bypassBy === '', 'compact normal kart');
   ok('K17: SFP kartı snap.ok=false iken çıkınca filterBypass=1, bypassBy=sfp, snapFails=ayrışma; normal kartta 0 / boş; compact() alanları taşır');
 }
+// ── S1-100: 3m/5m EMA21 ayrışması farklıyken derece (sepOk) ile liste (checklist sep) tutarlı ──
+{ const T0 = Date.UTC(2026, 0, 1);
+  const flat = (tfMin, n, c) => Array.from({ length: n }, (_, i) => ({ t: T0 + i * tfMin * MIN, o: c, h: c + 0.01, l: c - 0.01, c, v: 1000, closed: true }));
+  // 3m EMA21 = 100, 5m EMA21 = e5; fiyat (1m son kapanış) 105 → sep3 = %5, sep5 = (105−e5)/e5
+  const mk = e5 => { const S = new Series('SEPUSDT');
+    S.seed('1m', flat(1, 30, 105)); S.seed('3m', flat(3, 60, 100)); S.seed('5m', flat(5, 60, e5)); S.seed('15m', flat(15, 40, 100)); S.seed('1h', flat(60, 30, 100)); S.seed('4h', flat(240, 30, 100)); S.seed('1d', flat(1440, 30, 100));
+    return S; };
+  const g = { ...cfg.info };
+  const probe = e5 => { const snap = eng.evaluate(mk(e5), g, {}, true); return { snap, sep: snap.sepPct, cond: eng.gradeConds(snap, g).sep, sepItem: eng.checklist(snap, g).items.find(x => x.key === 'sep') }; };
+  // 3m = %5, 5m ≈ %1 → derece sep almaz, liste %3 kademesini (pts ≥ 1) almaz
+  let a = probe(105 / 1.01);
+  assert(Math.abs(a.sep['3m'] - 5) < 1e-6 && Math.abs(a.sep['5m'] - 1) < 1e-6, 'senaryo: 3m=5, 5m=1 → ' + JSON.stringify(a.sep));
+  assert.strictEqual(a.snap.sepOk, false, 'sepOk: 5m < 3 → false'); assert.strictEqual(a.cond, false, 'derece sep şartı yok');
+  assert.strictEqual(a.sepItem.pts, 0, 'liste sep puanı 0 (küçük = 1 < 3)'); assert.strictEqual(a.sepItem.ok, false);
+  // 3m = %5, 5m ≈ %4 → ikisi de %3 kademesini alır (liste küçüğü = 4 → 1 puan, derece sep true)
+  a = probe(105 / 1.04);
+  assert(Math.abs(a.sep['3m'] - 5) < 1e-6 && Math.abs(a.sep['5m'] - 4) < 1e-6, 'senaryo: 3m=5, 5m=4 → ' + JSON.stringify(a.sep));
+  assert.strictEqual(a.snap.sepOk, true); assert.strictEqual(a.cond, true, 'derece sep şartı var');
+  assert.strictEqual(a.sepItem.pts, 1, 'liste %3 kademesi (1 puan; 4 < 5)'); assert.strictEqual(a.sepItem.ok, true);
+  // eşik sınırı: küçük değer tam eşikte (≥ 3) iki taraf da alır
+  a = probe(105 / 1.03); assert.strictEqual(a.snap.sepOk, true); assert.strictEqual(a.sepItem.pts, 1);
+  // tutarlılık: derece sep true ⇔ liste sep puanı > 0 (3m/5m değişik karışımlarında)
+  for (const e5 of [105 / 1.005, 105 / 1.029, 105 / 1.031, 105 / 1.06, 105 / 1.11, 105 / 0.97]) { const r = probe(e5); assert.strictEqual(r.cond, r.sepItem.pts > 0, 'derece ve liste ayrışma kararı aynı: 5m=' + r.sep['5m']); }
+  ok('S1-100: 3m=5/5m=1 → derece sep yok + liste 0 puan; 3m=5/5m=4 → ikisi de %3 kademesini alır; derece ve liste kararı aynı');
+}
+
 console.log(R.join('\n'));
