@@ -7,6 +7,8 @@
  *                  hacim katları, alış %, seviye, kontrol listesi, eksik şartlar …) + 5/15/60/240 dk sonrası
  *   kartlar.csv  : gönderilen kartlar + kart anındaki göstergeler + 15/60/240 dk sonrası
  *   temaslar.csv : seviye tepkisi (src/levelTouch.js) — dirence temas + 60 dk sonrası, dibin indiği EMA21
+ *   dipler.csv   : dip defteri (src/dipLog.js) — düşüşteki dip adayları (döndü / devam / yatay), kayıt varsa
+ *   destekler.csv: destek teması (src/supportTouch.js) — desteğe üstten temas + 60 dk sonrası, kayıt varsa
  *   akis.csv     : spot/futures akış pencereleri (src/spotFlow.js) — 4h/1d/1w/1M toplam, alış, satış, net $, alış %, fiyat
  * Biçim: UTF-8 (BOM'lu), virgülle ayrılmış, ondalık nokta. Zamanlar ISO (UTC).
  *
@@ -20,6 +22,8 @@ const { rowToStat, rowToTouch, PATH_COLS, pathRow } = require('./cardStore');
 const { flatDrop, dropCols, csvLine, csvHeader } = require('./eventLog');
 const { createZipSet } = require('./zipWriter');
 const { FLOW_EXPORT_COLS } = require('./spotFlow');
+const { flatDip, dipCols } = require('./dipLog');
+const { stouchRow, STOUCH_COLS } = require('./supportTouch');
 
 /** İç içe nesneyi tek seviyeye indirir: { rsi: { '3m': 90 } } → { rsi_3m: 90 }; diziler "a|b" */
 function flatten(o, prefix = '', out = {}) {
@@ -56,7 +60,8 @@ const cardColsOf = rows => [...colsOf(rows).filter(k => !SETUP_COLS.includes(k))
  * @param {object} store  cardStore
  * @returns {Promise<{files:{name, buf, type}[], counts:{tepeler, kartlar, temaslar}}>}
  */
-async function buildExports(store, days = 30, now = Date.now(), { maxZipBytes = 40e6, base = 'veri', flow = null, flowChunk = 5000 } = {}) {
+// supports: destekler.csv dahil mi (varsayılan açık; kayıt yoksa dosya açılmaz)
+async function buildExports(store, days = 30, now = Date.now(), { maxZipBytes = 40e6, base = 'veri', flow = null, flowChunk = 5000, supports = true } = {}) {
   const since = now - days * 86_400_000;
   const zip = createZipSet(base, { maxBytes: maxZipBytes });
   const counts = { tepeler: 0, kartlar: 0, temaslar: 0 };
@@ -70,6 +75,23 @@ async function buildExports(store, days = 30, now = Date.now(), { maxZipBytes = 
       counts.yollar++; await pe.write(csvLine(pathRow(r), PATH_COLS));
     });
     if (pe) await pe.end();
+  }
+  // Dip adayları ve destek temasları (kayıt yoksa dosya açılmaz; eski çıktı biçimi aynı kalır)
+  if (store.forEachDip) {
+    let de = null; const dc = dipCols();
+    await store.forEachDip({ since }, async r => {
+      if (!de) { de = zip.entry('dipler.csv', csvHeader(dc)); counts.dipler = 0; }
+      counts.dipler++; await de.write(csvLine(flatDip(r), dc));
+    });
+    if (de) await de.end();
+  }
+  if (supports && store.forEachSTouch) {
+    let se = null;
+    await store.forEachSTouch({ since }, async r => {
+      if (!se) { se = zip.entry('destekler.csv', csvHeader(STOUCH_COLS)); counts.destekler = 0; }
+      counts.destekler++; await se.write(csvLine(stouchRow(r), STOUCH_COLS));
+    });
+    if (se) await se.end();
   }
   const cards = store.since(since).map(rowToStat).filter(r => r.kind === 'card').map(cardRow);
   const writeRows = async (name, rows, key) => {
@@ -114,7 +136,7 @@ if (require.main === module) {
   fs.mkdirSync(dir, { recursive: true });
   buildExports(store, days, Date.now(), { flow }).then(({ files, counts }) => {
     for (const f of files) { fs.writeFileSync(require('path').join(dir, f.name), f.buf); console.log(`${f.name} → ${require('path').join(dir, f.name)}`); }
-    console.log(`tepeler ${counts.tepeler} · kartlar ${counts.kartlar} · temaslar ${counts.temaslar} · akış ${counts.akis ?? 0} satır`);
+    console.log(`tepeler ${counts.tepeler} · dipler ${counts.dipler ?? 0} · destekler ${counts.destekler ?? 0} · kartlar ${counts.kartlar} · temaslar ${counts.temaslar} · akış ${counts.akis ?? 0} satır`);
     store.close(); flow.close();
   }).catch(err => { console.error(err); process.exit(1); });
 }

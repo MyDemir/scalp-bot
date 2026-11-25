@@ -114,6 +114,21 @@ module.exports = {
     windows:        [5, 15, 30, 60, 240],   // sonrası pencereleri (dk) — cards.db sütunları (cardStore EVENT_WINDOWS) ile aynı olmalı
   },
 
+  // Dip defteri (src/dipLog.js) — yalnız kayıt/istatistik, kartı etkilemez; Telegram ayarı yok
+  // (src/dipLog.js DIP_DEFAULTS ile aynı değerler; config dipLog'u require etmez — döngüsel yükleme olmasın)
+  dips: {
+    dumpPct:         3,     // dip, son 4 saatin tepesinden en az bu kadar % aşağıda (düşüş)
+    dumpLookbackMin: 240,
+    localLowMin:     60,    // dip = son 60 dk'nın en düşüğü
+    bounceWindowMin: 15,    // dönüş dipten sonra en geç bu kadar dk içinde
+    bouncePct:       1.5,   // dipten en az bu kadar % yükseliş = döndü
+    contPct:         0,     // dibin bu kadar % altı = devam
+    sampleGapMin:    5,     // "devam" eden adaylar en fazla bu kadar dk'da bir kaydedilir; döndü/yatay hep
+    cardBeforeMin:   15,
+    cardAfterMin:    5,
+    windows:         [5, 15, 30, 60, 240],   // cardStore EVENT_WINDOWS ile aynı olmalı
+  },
+
   autoFilter: {
     excludeBaseAssets: ['USDC', 'FDUSD', 'TUSD', 'USDP', 'BUSD', 'DAI', 'USDE', 'USD1', 'USDS', 'PYUSD', 'RLUSD'],
   },

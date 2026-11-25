@@ -338,7 +338,11 @@ const results = []; const ok = s => results.push('✅ ' + s);
     const names = tg.docs.slice(d0).map(d => d.documentName);
     assert.deepStrictEqual(names, ['veri-son1gun.zip']);
     const Z = require('./unzip')(tg.docs[d0].documentBuf);
-    assert.deepStrictEqual(Object.keys(Z), ['tepeler.csv', 'yollar.csv', 'kartlar.csv', 'temaslar.csv']);
+    // dipler.csv / destekler.csv yalnız kayıt varsa açılır. Bu mock'ta: destek teması kaydı VAR (60 dk'sı dolan temaslar),
+    // biten dip kaydı YOK (dip adayının 240 dk sonrası mock süresinde dolmaz) — ikisi de veritabanıyla birlikte doğrulanır
+    const nDip = db.prepare('SELECT COUNT(*) AS n FROM dips').get().n, nST = db.prepare('SELECT COUNT(*) AS n FROM stouches').get().n;
+    assert.strictEqual(nDip, 0, 'mock: biten dip kaydı yok'); assert(nST > 0, 'mock: destek teması kaydı var');
+    assert.deepStrictEqual(Object.keys(Z), ['tepeler.csv', 'yollar.csv', 'destekler.csv', 'kartlar.csv', 'temaslar.csv']);
     assert(Number(tg.docs[d0].chat_id) === ADMIN && Object.values(Z).every(t => /^\uFEFF?(id|symbol),/.test(t)), 'özelden zip: ' + Object.values(Z).map(t => t.slice(0, 20)).join(' | '));
     const kc = Z['kartlar.csv'].split('\n').filter(Boolean);
     assert(kc.length === cards.length + 1 && kc[0].includes('rsi_3m') && kc[0].includes('fwd_60_low'), 'kartlar.csv: ' + kc[0].slice(0, 200));
