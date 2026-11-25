@@ -96,6 +96,7 @@ Kural `tepeler.csv` `v3B` ile aynıdır (`eventLog.v3Next`), karar aday anında 
 belleğinden, eşzamanlı; REST ek verisi beklenmez). RSI kart şartı ve zorunlu filtreler aranmaz, seri içi "derece yükselmeli"
 kuralına takılmaz (`bypassBy = setup`); derece aynı hesapla. Her zaman **sesli**, `#KURULUM`. Aynı mumda normal bir kart
 zaten çıkıyorsa ikinci mesaj gitmez: o kartın 🔔 satırına `⭐ Kurulum` ve Detay listesine kurulum satırı eklenir.
+RSI kart şartı sağlanmadan, tek başına çıkan kurulum kartının başlığı `⭐ #SYM — Kurulum` olur (`⚪ … — RSI` değil); RSI şartı sağlanan kartlarda başlık aynı kalır.
 Tek başına kurulum kartı kart numarasını ilerletir ama serinin durumunu (son kart, en yüksek derece) değiştirmez, yani
 sonraki normal kartlar eskisi gibi gelir. Bilinen fark: pompa sürerken "devam" adayları en fazla 5 dk'da bir kaydedilir;
 pompanın ilk uygun adayı kaydedilmeyen bir aday ise kart o adayda (birkaç dk erken) çıkar, kayıttaki `v3B` aynı pompanın

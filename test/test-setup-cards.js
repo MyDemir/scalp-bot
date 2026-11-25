@@ -209,6 +209,22 @@ const A = run();
   ok('⭐ Kurulum sonrası: 5 dk → +dk/%; 60 dk dahil, 61 dk yok; kurulum yok → yok; birleşik ⭐ → yok; reset siler; 🔔 + yenilik satırı');
 }
 
+// ── başlık: RSI şartı yok + kurulum → '⭐ #SYM — Kurulum'; RSI'lı kurulum ve normal kart değişmez ──
+{
+  const lo = { ...cfg.info, rsiMin: 55, rsiMin2: 60, minTFs: 1, levelRequired: false, moveAlertPct: 0.1, cardSound: false };
+  const base = run({ s: lo, mode: 'base', inject: () => SC4 }), c0 = base.cards[base.cards.length - 1];
+  const head = c => formatCard(c, lo, { now: c.t }).text.split(/\r?\n/)[0];
+  const mk = (rsiOk, setup, extra = {}) => ({ ...c0, ...extra, snap: { ...c0.snap, rsiOk }, trig: { ...c0.trig, setup: setup ? { s: 4 } : undefined } });
+  assert.strictEqual(head(mk(false, true)), `⭐ <b>#SETUPUSDT — Kurulum</b>`, 'RSI yok + kurulum: ' + head(mk(false, true)));
+  assert.strictEqual(head(mk(undefined, true)), `⭐ <b>#SETUPUSDT — Kurulum</b>`, 'rsiOk yok + kurulum');
+  const withRsi = head(mk(true, true)), normal = head(mk(true, false)), normalNoRsi = head(mk(false, false));
+  assert(/^(🔴|🟢|⚪)+ <b>#SETUPUSDT — RSI<\/b>$/.test(withRsi), 'RSI\'lı kurulum değişmedi: ' + withRsi);
+  assert(/^(🔴|🟢|⚪)+ <b>#SETUPUSDT — RSI<\/b>$/.test(normal), 'normal kart değişmedi: ' + normal);
+  assert(/^(🔴|🟢|⚪)+ <b>#SETUPUSDT — RSI<\/b>$/.test(normalNoRsi), 'kurulumsuz kart değişmedi');
+  assert.strictEqual(head(mk(false, true, { symbol: 'A<B' })), '⭐ <b>#A&lt;B — Kurulum</b>', 'esc korunur');
+  ok('başlık: RSI şartı yok + kurulum → "⭐ #SYM — Kurulum"; RSI\'lı kurulum ve normal kart "— RSI" aynı; esc korunur');
+}
+
 // ── (e2) karar ile kayıt farklılaşabilir mi: seyreltmeyle atlanan aday ──
 // Pompa sürerken "devam" adayı önceki kayıttan < sampleGapMin (5 dk) sonra kapanırsa kaydedilmez (kayıtta satırı yok).
 // İlk S≥4 adayı böyle atlanan aday olursa: canlı kart o adayda çıkar; kayıtta v3B aynı pompadaki sonraki KAYDEDİLEN adaya yazılır.
