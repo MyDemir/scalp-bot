@@ -192,6 +192,8 @@ Yeniden başlatmada yarım kalan takipler "eksik" işaretlenir.
 - `/gecmis ETH [adet]` — coinin son kartları + sonrasında fiyat
 - `/istatistik [gün]` — kart sınıfları (dip 5/15/30/60 dk · 60 dk tepe · 60. dk) (RSI 2/3–3/3, Dirençte, hacim, seri içi, negatif tepe …) ve ⚡ uyarılar için
   "sonraki 60 dk" medyanları — backtest'teki tablonun canlı hali
+  Sınıf satırındaki sayı kart sayısıdır; 60 dk penceresi tam olan kart daha azsa "3 (60dk: 2)" biçiminde yazılır
+  (60 dk medyanı yalnız o 2 karttan hesaplanır; 60 dk'sı dolmamış ya da backtest dönem sonuna taşan kartlar dışarıdadır).
 
 ### Seviye tepkisi (/seviye)
 İzlenen her coinde fiyat bir dirence **alttan** değdiğinde (önceki 1m kapanış seviyenin %0.3'ten fazla altında, bu

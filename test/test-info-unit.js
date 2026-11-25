@@ -292,6 +292,21 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   assert.strictEqual(excludedNote(1), ' (1 eksik pencere dışarıda)'); assert.strictEqual(excludedNote(0), '');
   ok('Medyan: fwd[60].full===false dışarıda (sayısı notta), canlı biçimli kart (full yok) dahil');
 }
+// ── n (kart) ile n60 (60 dk medyanına giren) ayrımı ──
+{ const { classTable, nLabel, CLASSES } = require(`${REPO}/src/infoStats`);
+  const mk = (full, has = true) => ({ t: 1, symbol: 'A', seq: 1, silent: false, fwd: has ? { 60: { low: -1, high: 1, close: 1, full } } : {} });
+  const r3 = classTable([mk(true), mk(true), mk(false)])[0];
+  assert.strictEqual(r3.n, 3); assert.strictEqual(r3.n60, 2, 'n60 yalnız tam pencereli kart: ' + r3.n60);
+  assert.strictEqual(nLabel(r3), '3 (60dk: 2)');
+  const rEq = classTable([mk(true), mk(true)])[0];
+  assert.strictEqual(rEq.n, 2); assert.strictEqual(rEq.n60, 2); assert.strictEqual(nLabel(rEq), '2', 'eşitken eski biçim');
+  const rPend = classTable([mk(true), mk(true, false)])[0];       // 60 dk'sı dolmamış canlı kart
+  assert.strictEqual(nLabel(rPend), '2 (60dk: 1)');
+  // en kötü durum: tüm sınıflar "99999 (60dk: 99998)" ile 4000 karakter içinde mi (esc + pct dahil)?
+  const worst = CLASSES.map(([name]) => `${name.trim()}: <b>${nLabel({ n: 99999, n60: 99998 })}</b> · dip 5/15/30/60 -12.3% / -12.3% / -12.3% / -12.3% · tepe60 +12.3% · son60 -12.3%`).join('\n');
+  console.log('  en kötü /istatistik sınıf bölümü uzunluğu:', worst.length, 'satır:', CLASSES.length);
+  ok('classTable n60 + nLabel: 3 (60dk: 2) / eşitken yalnız n');
+}
 // ── A11: eksik 1m ile kapanan üst TF mumu işaretlenir ──
 { const T = Date.UTC(2026, 0, 1), mk = (i, c) => ({ t: T + i * MIN, o: c, h: c + 1, l: c - 1, c, v: 1, tb: 0.5, q: c, tq: c / 2, closed: true });
   const feed = (S, idx) => { for (const i of idx) S.apply1m(mk(i, 100 + i)); };
