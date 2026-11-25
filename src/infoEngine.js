@@ -909,7 +909,7 @@ const SETUP_RSI_REQUIRED = false;
  * @returns {{v3S, v3_rsi1m, v3_bb15, v3_stoch5, v3_vol3, v3_liq}}
  */
 function v3Of(series, s, ctx, snap) {
-  try { return require('./setupScore').setupScore(require('./peakFeatures').v3Features(series, s, ctx, { snap, t: snap.t }), s); }
+  try { return require('./setupScore').setupScore(require('./peakFeatures').v3Features(series, s, ctx, { snap, t: snap.t })); }   // s'siz: tepe kaydıyla (eventLog) birebir
   catch { return null; }   // bilgi satırı kartı ya da kaydı durdurmaz
 }
 

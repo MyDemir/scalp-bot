@@ -25,7 +25,7 @@ const SC4 = { rsi_1m: 90, bbB_15m: 1.4, stochCross: 'down', volx_3m: 4, liqShort
  */
 function run({ s = cfg.info, mode = 'setup', inject = () => SC4, skip = [], tailMut = null } = {}) {
   const all = [...hist, ...pathV];
-  if (tailMut != null) for (let i = hist.length + tailMut + 1; i < all.length; i++) all[i] = all[i] * 1.5 + 7;   // kart mumundan SONRAKİ mumlar değişir
+  if (tailMut != null) for (let i = tailMut; i < all.length; i++) all[i] = all[i] * 1.5 + 7;   // kart mumundan SONRAKİ mumlar değişir
   const m1 = all.map((c, i) => candle(i, c, i ? all[i - 1] : c));
   const S = new Series('SETUPUSDT');
   const agg = (ms, upto) => { const m = new Map(); for (const c of m1) { if (c.t >= upto) break; const ps = Math.floor(c.t / ms) * ms; const a = m.get(ps);
@@ -215,13 +215,18 @@ const A = run();
   const lo = { ...cfg.info, rsiMin: 55, rsiMin2: 60, minTFs: 1, levelRequired: false, moveAlertPct: 0.1, cardSound: false };
   const base = run({ s: lo, mode: 'base', inject: () => SC4 }), c0 = base.cards[base.cards.length - 1];
   const head = c => formatCard(c, lo, { now: c.t }).text.split(/\r?\n/)[0];
-  const mk = (rsiOk, setup, extra = {}) => ({ ...c0, ...extra, snap: { ...c0.snap, rsiOk }, trig: { ...c0.trig, setup: setup ? { s: 4 } : undefined } });
+  const mk = (rsiOk, setup, extra = {}) => ({ ...c0, ...extra, snap: { ...c0.snap, rsiOk }, trig: { ...c0.trig, ...(setup ? { tfs: [], burst: null, move: null } : {}), setup: setup ? { s: 4 } : undefined } });   // tek başına kurulum: tetik yok
   assert.strictEqual(head(mk(false, true)), `⭐ <b>#SETUPUSDT — Kurulum</b>`, 'RSI yok + kurulum: ' + head(mk(false, true)));
   assert.strictEqual(head(mk(undefined, true)), `⭐ <b>#SETUPUSDT — Kurulum</b>`, 'rsiOk yok + kurulum');
   const withRsi = head(mk(true, true)), normal = head(mk(true, false)), normalNoRsi = head(mk(false, false));
   assert(/^(🔴|🟢|⚪)+ <b>#SETUPUSDT — RSI<\/b>$/.test(withRsi), 'RSI\'lı kurulum değişmedi: ' + withRsi);
   assert(/^(🔴|🟢|⚪)+ <b>#SETUPUSDT — RSI<\/b>$/.test(normal), 'normal kart değişmedi: ' + normal);
   assert(/^(🔴|🟢|⚪)+ <b>#SETUPUSDT — RSI<\/b>$/.test(normalNoRsi), 'kurulumsuz kart değişmedi');
+  // birleşik kart (kurulum + patlama / RSI tf'si / hareket): başlık eskisi gibi kalır
+  for (const trig of [{ burst: { dir: 'up' } }, { move: { pct: 3 } }, { tfs: ['5m'] }]) {
+    const comb = { ...c0, snap: { ...c0.snap, rsiOk: false }, trig: { ...c0.trig, tfs: [], burst: null, move: null, ...trig, setup: { s: 4 } } };
+    assert(/^(🔴|🟢|⚪)+ <b>#SETUPUSDT — RSI<\/b>$/.test(head(comb)), 'birleşik kart başlığı değişmedi: ' + head(comb));
+  }
   assert.strictEqual(head(mk(false, true, { symbol: 'A<B' })), '⭐ <b>#A&lt;B — Kurulum</b>', 'esc korunur');
   ok('başlık: RSI şartı yok + kurulum → "⭐ #SYM — Kurulum"; RSI\'lı kurulum ve normal kart "— RSI" aynı; esc korunur');
 }
@@ -257,12 +262,15 @@ const A = run();
   assert(/short likidasyon —$/m.test(formatCard(B.cards[0], lo, { now: B.cards[0].t }).details), '— gösterilir');
   ok(`v3 bilgi satırı: ${A.cards.length} kartta var, ck.score/metin aynı; ${same.length} kartta tepe kaydıyla v3 aynı; liq yoksa —`);
   // (c) look-ahead yok: kartın v3'ü, kart mumundan SONRAKİ mumlar değişince aynı kalır
-  const cut = A.cards[2], idx = Math.round((cut.t - t0) / MIN);
+  const cut = A.cards[2], idx = Math.round((cut.t - t0) / MIN);   // kart t = son kapanmış mumun açılışı + 1 dk → indeks idx'ten itibaren mumlar kesimden SONRA
   const alt = run({ s: lo, inject: () => SC4 });
   const base = A.cards.map(x => x.v3);
   const C = run({ s: lo, inject: () => SC4, tailMut: idx });
   const cc = C.cards.find(x => x.t === cut.t);
   assert(cc && JSON.stringify(cc.v3) === JSON.stringify(cut.v3), 'sonraki mumlar değişince v3 aynı');
+  assert(idx < hist.length + pathV.length, 'kesim dizi içinde');
+  const later = A.cards.filter(x => x.t > cut.t);
+  assert(later.length > 0 && later.some(x => { const y = C.cards.find(z => z.t === x.t); return !y || y.price !== x.price || JSON.stringify(y.v3) !== JSON.stringify(x.v3); }), 'değişiklik etkili: kesimden sonraki kartlardan biri farklı');
   assert.deepStrictEqual(alt.cards.map(x => x.v3), base, 'deterministik');
   ok('v3 look-ahead yok: kart mumundan sonrası değişince kartın v3\'ü aynı');
 }

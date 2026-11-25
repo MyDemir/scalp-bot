@@ -93,7 +93,7 @@ function formatCard(card, s, opt = {}) {
   if (opt.header) L.push(opt.header);
   L.push(card.seq === '–'
     ? `📋 <b>#${esc(sym)} — Anlık durum</b>`
-    : T.setup && !T.sfp && snap.rsiOk !== true
+    : T.setup && !T.sfp && !T.burst && !T.move && !(T.tfs && T.tfs.length) && snap.rsiOk !== true
       ? `⭐ <b>#${esc(sym)} — Kurulum</b>`   // tek başına ⭐ kurulum kartı, RSI şartı yok → "— RSI" başlığı yanıltır
       : `${circles(snap.grade ?? 0, T.sfp || (s.gradeBy ?? 'sart3') !== 'liste' ? 'red' : dirColor(snap.chg))} <b>#${esc(sym)} — RSI</b>`);
 
