@@ -153,7 +153,8 @@ function checklist(snap, s) {
       if (gapPct <= s.confluencePct && (!conf || gapPct < conf.gapPct)) conf = { ...L, gapPct };
     }
     // levels.js aynı fiyata (±%0.3) düşen ikinci seviyeyi ayrı satır yapmaz, ref.also'a adını ekler (kart "Çakışma" yazar).
-    if (!conf) {
+    // Birleştirme toleransı levels.js'te ±%0.3: confluencePct daha dar ayarlıysa aynı fiyatlı sayılmaz (yalnız ≥ 0.3'te yedek).
+    if (!conf && s.confluencePct >= 0.3) {
       const nm = (ref.also || []).find(n => n !== ref.name && !String(n).startsWith('Fib') && n !== '1h tepe');
       if (nm) conf = { name: nm, value: ref.value, gapPct: 0 };
     }

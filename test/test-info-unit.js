@@ -232,7 +232,9 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
     assert(ck.items[1].ok && ck.confluence && ck.confluence.name === '7 günlük en yüksek' && ck.confluence.gapPct === 0, 'ref.also çakışma sayılır');
     const r1 = { ...r0, also: ['Fib 0.618', '1h tepe'] };
     ck = eng.checklist({ ...base, rsi: rsi(90, 90, 90), levels: [r1], level: r1 }, g);
-    assert(!ck.items[1].ok && ck.confluence === null, 'also içinde Fib / 1h tepe çakışma değil'); }
+    assert(!ck.items[1].ok && ck.confluence === null, 'also içinde Fib / 1h tepe çakışma değil');
+    ck = eng.checklist({ ...base, rsi: rsi(90, 90, 90), levels: [r0], level: r0 }, { ...g, confluencePct: 0.2 });
+    assert(!ck.items[1].ok && ck.confluence === null, 'confluencePct 0.2 < 0.3: also yedeği çakışma saymaz'); }
   ck = eng.checklist({ ...base, rsi: rsi(90, 90, 90), levels: [{ name: '4h EMA200', value: 101, dist: -1 }], level: { name: '4h EMA200', value: 101, dist: -1, zone: 'near' } }, g);
   assert(!ck.items[0].ok && ck.items[0].text.includes('içinde yok'));   // yalnız 4h seviye → günlük madde yok
   ok('Derece (sart3: 1 + ayrışma + 1s RSI ≥ 80 + 15dk RSI ≥ 85; liste: kontrol skoru) · hacim 🔴/🔴🔴(≥3×)/🔴🔴🔴(+yön ≥%65) · kart derecesi puanla (9 madde; EMA21 üstü ayrışma %2/%5/%10 → 1/2/3 puan, altı 0; MACD 3m/5m sat kesişimi +1): 10 puan → 4 daire, 5 → 3, 3 → 2; RSI bandı 95–100; EMA21 yakın uyarısı; yalnız 4h seviyede günlük madde yok');
