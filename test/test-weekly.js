@@ -22,6 +22,9 @@ const old = now - 2 * 24 * H, recent = now - 2 * H;           // biri kapsamda, 
 for (const [id, t] of [['C1', old], ['C2', recent]]) {
   st.add({ id, kind: 'card', symbol: 'AUSDT', t, seq: 1, price: 1, data: { grade: 3, hits: 2, rsi: { '3m': 91, '5m': 92, '15m': 88 }, level: { name: 'Fib 0.786', value: 1.01, dist: -0.3, zone: 'dip' } } });
 }
+// K17: filtre dışı kart (kapsamda, 60 dk sonra aşağı)
+st.add({ id: 'C3', kind: 'card', symbol: 'CUSDT', t: old + MIN, seq: 1, price: 1, data: { grade: 2, hits: 2, snapOk: 0, snapFails: 'ayrışma|seviye', filterBypass: 1, bypassBy: 'sfp', rsi: { '3m': 91, '5m': 92, '15m': 88 }, } });
+for (let k = 0; k < 61; k++) st.onCandle('CUSDT', { t: old + MIN + k * MIN, o: 1, h: 1.005, l: 0.98, c: 0.99 });   // 60 dk kapanış −%1
 const feat = { rsi3: 90, rsi5: 91, rsi15: 85, rsi_1m: 93, rsi_3m: 90, rsi_5m: 91, rsi_15m: 85, rsi_1h: 80, rsi_4h: 70, pumpPct: 8, pumpMin: 70, pkLv: 'Günlük VWAP +2σ', pkLvDist: -0.12, vwD_sig: 2.1, vwW_sig: 1.3, vw90_pct: 2.4, trPct: -3.1, trMin: 18, trLv: '15dk EMA21', trEma: '15dk EMA21', fails: 'seviye', rsiOk: true, hits: 2 };
 st.addEvent({ id: 'E1', symbol: 'BUSDT', t: old, price: 2, dropT: old + 5 * MIN, dropMin: 5, card: false, cardGrade: null, feat, out: { 60: { low: -3.1, high: 0.2, close: -2 }, 240: { low: -5, high: 0.2, close: -4 } } });
 st.addEvent({ id: 'E2', symbol: 'BUSDT', t: recent, price: 2, dropT: recent + 5 * MIN, dropMin: 5, card: true, cardGrade: 2, feat, out: {} });
@@ -30,7 +33,7 @@ st.addTouch({ id: 'T1', symbol: 'AUSDT', t: old, name: 'Fib 0.786', kind: 'fib',
 const unzip = require('./unzip');
 (async () => {
 const w = await W.buildWeekly(st, { now, s: cfg.info, E: cfg.events });
-assert.deepStrictEqual(w.counts, { cards: 1, touches: 1, drops: 1, peaks: 1 }, 'son 5 saat kapsam dışı');
+assert.deepStrictEqual(w.counts, { cards: 2, touches: 1, drops: 1, peaks: 1 }, 'son 5 saat kapsam dışı');
 assert.deepStrictEqual(w.files.map(f => f.name), ['veri-2026-H40.zip'], 'tek belge: yalnız zip');
 const Z = unzip(w.files[0].buf);
 assert.deepStrictEqual(Object.keys(Z).sort(), ['haftalik-2026-H40.md', 'kartlar.csv', 'temaslar.csv', 'tepeler.csv']);
@@ -38,12 +41,38 @@ assert.strictEqual(Z['haftalik-2026-H40.md'], w.md, 'zip içindeki MD = md alan�
 assert(w.md.includes('## Teyit adayları'), 'MD teyit bölümü');
 assert(w.md.indexOf('## Kurulum tablosu (pompa başına ilk aday, giriş 1dk kapanış)') > w.md.indexOf('## Teyit adayları') && w.md.includes('Nasıl okunur'), 'MD kurulum tablosu teyitten sonra');
 assert(w.md.includes('# Haftalık istatistik — 2026-H40') && w.md.includes('## Düşüşler (1)') && w.md.includes('**BUSDT**') && w.md.includes('tepki: Günlük VWAP +2σ') && w.md.includes('dip −%3.1 (18 dk) 15dk EMA21') && w.md.includes('kart ❌ eksik: seviye'));
-assert(w.md.includes('## Kartlar (1)') && w.md.includes('**AUSDT** #1 derece 3'));
+assert(w.md.includes('## Kartlar (2)') && w.md.includes('**AUSDT** #1 derece 3'));
 assert(!w.md.includes('Eski derece'), 'gradeOld olmayan eski kartlarda eski derece satırı yok');
+{ // alanı olmayan eski kartlardan oluşan hafta: filtre dışı satırı çıkmaz
+  const stO = createCardStore({ file: dir + '/oldcards.db', logger: { log() {}, error: x => { throw new Error(x); } } });
+  stO.add({ id: 'O1', kind: 'card', symbol: 'AUSDT', t: old, seq: 1, price: 1, data: { grade: 3, hits: 2, rsi: { '3m': 91, '5m': 92, '15m': 88 } } });
+  const wo = await W.buildWeekly(stO, { now, s: cfg.info, E: cfg.events });
+  assert(wo.counts.cards === 1 && !wo.md.includes('Filtre dışı kart:'), 'snapOk alanı olmayan haftada filtre dışı satırı yok'); stO.close();
+}
 const dcsv = Z['tepeler.csv'];
+{
+  const hd = dcsv.replace('\uFEFF', '').split('\n'); const hc = hd[0].trim().split(',');
+  assert.deepStrictEqual(hc.slice(-8), ['atr2C15', 'v3S', 'v3_rsi1m', 'v3_bb15', 'v3_stoch5', 'v3_vol3', 'v3_liq', 'v3B'], 'tepeler.csv: atr2C15, sonra v3 kolonları sırayla'); assert.strictEqual(hc[hc.length - 9], 'dataVer');
+  assert(hd[1].replace(/\r?\n$/, '').endsWith(',,,,,,,'), 'eski satırda atr2C15 ve 7 v3 kolonu boş');
+  assert(w.md.includes('v3 kurulum puanı (tepeler.csv, atr2C15') && w.md.includes('v3B = 1: v3S ≥ 4'), 'MD v3 sütun açıklaması');
+  assert(w.md.includes("tepe high'ından ölçülür, ilk eşik; contPct 0 olduğundan 'devam' = sonraki mumda herhangi bir yeni high, tepenin ayakta kaldığı anlamına gelmez"), 'MD outcome notu');
+  assert(w.md.includes('atr2C15 (en sonda; 1: giriş kapanışından 15 dk içinde 2×ATR(5m)% kadar düştü'), 'MD atr2C15 açıklaması');
+}
 assert(dcsv.startsWith('\uFEFF') && dcsv.split('\n')[0].includes('rsi_4h') && dcsv.split('\n')[0].includes('pkLv') && dcsv.trim().split('\n').length === 2);
 assert(Z['temaslar.csv'].split('\n')[0].trim().split(',').slice(-2).join() === 'pb0,belowMin', 'temaslar.csv başlığı: pb0,belowMin sonda');
-assert(Z['kartlar.csv'].trim().split('\n').length === 2 && Z['temaslar.csv'].includes('3dk EMA21'));
+{
+  const L = Z['kartlar.csv'].trim().split('\n'), H = L[0].replace('\uFEFF', '').split(',');
+  const { GRADE_COLS, BYPASS_COLS } = require('../src/exportData');
+  assert.deepStrictEqual(H.slice(-20, -16), BYPASS_COLS, 'kartlar.csv: yeni 4 kolon GRADE_COLS\'tan önce'); assert.deepStrictEqual(H.slice(-16), GRADE_COLS);
+  assert(L.length === 3, 'iki kart satırı');
+  const pick = (line, k) => line.split(',')[H.indexOf(k)];
+  const rowOf = sym => L.slice(1).find(l => l.includes(sym));
+  assert.strictEqual(pick(rowOf('AUSDT'), 'filterBypass'), '', 'eski kartta boş'); assert.strictEqual(pick(rowOf('AUSDT'), 'bypassBy'), '');
+  assert.strictEqual(pick(rowOf('CUSDT'), 'filterBypass'), '1'); assert.strictEqual(pick(rowOf('CUSDT'), 'bypassBy'), 'sfp'); assert.strictEqual(pick(rowOf('CUSDT'), 'snapOk'), '0');
+  assert(w.md.includes('Filtre dışı kart: 1 (SFP 1 · patlama 0 · hareket 0); 60 dk sonra aşağı %100 (1); kayıtlı 1 kart'), 'MD filtre dışı satırı');
+  assert(w.md.includes('- Filtre dışı kart (kartlar.csv'), 'Sütunlar açıklaması');
+}
+assert(Z['kartlar.csv'].trim().split('\n').length === 3 && Z['temaslar.csv'].includes('3dk EMA21'));
 fs.writeFileSync(dir + '/' + w.files[0].name, w.files[0].buf);
 assert(w.files.every(f => !f.name.endsWith('.md')));
 console.log(w.md.split('\n').slice(0, 40).join('\n'));
@@ -57,11 +86,11 @@ ok(`Dosyalar: ${w.files.map(f => f.name).join(', ')} (zip: ${Object.keys(Z).join
     purge: c => st.purgeBefore(c) });
   // durum dosyası yok → ilk kurulum: bu haftanın Pazartesi'si "yapıldı" sayılır, hiçbir şey gönderilmez/silinmez
   assert.strictEqual(await job.tick(Date.UTC(2026, 9, 6, 10)), null);
-  assert(job.state.lastSlot >= Date.UTC(2026, 9, 5, 0, 1) - 1 && sent.length === 0 && st.since(0).length === 2);
+  assert(job.state.lastSlot >= Date.UTC(2026, 9, 5, 0, 1) - 1 && sent.length === 0 && st.since(0).length === 3);
   // Bir sonraki Pazartesi 03:01 → gönderim başarısız → silme yok, 10 dk bekle
   const t1 = Date.UTC(2026, 9, 12, 0, 1, 30);
   assert.strictEqual(await job.tick(t1), 'fail');
-  assert.strictEqual(st.since(0).length, 2, 'gönderilemedi → silinmedi');
+  assert.strictEqual(st.since(0).length, 3, 'gönderilemedi → silinmedi');
   assert.strictEqual(await job.tick(t1 + 5 * MIN), null, '10 dk dolmadan tekrar denenmez');
   fail = false;
   assert.strictEqual(await job.tick(t1 + 11 * MIN), 'sent');

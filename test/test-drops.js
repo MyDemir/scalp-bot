@@ -58,7 +58,8 @@ assert(e.out[15].low <= -1.5 && e.out[240].close < -1.5);
 assert(Math.abs(e.feat.pumpPct - 6.3) < 0.4 && e.feat.pumpMin >= 40, 'pompa: ' + e.feat.pumpPct + ' / ' + e.feat.pumpMin + ' dk');
 assert(e.feat.rsi3 > 80 && e.feat.rsi5 > 80 && e.feat.rsi15 > 70, 'tepe RSI: ' + [e.feat.rsi3, e.feat.rsi5, e.feat.rsi15]);
 assert(e.feat.sep3 > 1 && e.feat.sep15 > e.feat.sep3 * 0.5 && typeof e.feat.fails === 'string' && Number.isFinite(e.feat.atr5Pct));
-assert.deepStrictEqual(Object.keys(e.feat).sort(), [...FEATURE_COLS].sort(), 'özellik sütunları: ' + FEATURE_COLS.filter(k => !(k in e.feat)).join(','));
+assert.strictEqual(e.feat.cfgSetupVer, 1, 'cfgSetupVer yalnız JSON kaydında (CSV kolonu değil)');
+assert.deepStrictEqual(Object.keys(e.feat).filter(k => k !== 'cfgSetupVer').sort(), [...FEATURE_COLS].sort(), 'özellik sütunları: ' + FEATURE_COLS.filter(k => !(k in e.feat)).join(','));
 for (const tf of ['1m', '3m', '5m', '15m', '1h']) assert(Number.isFinite(e.feat[`rsi_${tf}`]) && Number.isFinite(e.feat[`ema21_${tf}`]) && Number.isFinite(e.feat[`atr_${tf}`]), 'tf göstergeleri ' + tf);
 assert(e.feat.rsi_1m > 80 && e.feat.ema21_1m > 0, '1m RSI/EMA tepede');
 assert(Number.isFinite(e.feat.vwD_sig) && e.feat.vwD_pct > 0 && Number.isFinite(e.feat.vw90_pct) && Number.isFinite(e.feat.avwLow_pct) && e.feat.avwLow_pct > 2, 'VWAP seti: ' + JSON.stringify({ D: e.feat.vwD_pct, W: e.feat.vwW_pct, M: e.feat.vwM_pct, a: e.feat.avwLow_pct }));
@@ -256,7 +257,7 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   const AUD = ['sameBar', 'cardWhen', 'contSkipped', 'rsi15c', 'rsi1hc', 'rsi4hc', 'cfgMinTFs', 'cfgRsiMin', 'cfgDropPct', 'cfgContPct',
     'wick_5mc', 'clv_5mc', 'wick_15mc', 'clv_15mc', 'bar5Pct', 'bar15Pct', 'volPeakXc', 'miss60', 'futQ60t', 'spotQ60', 'spotShare60t',
     'rsi3c', 'rsi5c', 'sep3c', 'sep5c', 'cfgPeakWindowMin', 'cfgSampleGapMin', 'cfgVer', 'dropC15', 'lowC15', 'closeC60', 'incTf', 'inc5', 'inc15', 'lvZoneHiN', 'lvZoneLoN', 'pkLvTouchUp', 'pkLvTouchDn',
-    'gradeOld', 'g_sep', 'g_h1', 'g_r15', 'g_atr', 'g_macd', 'g_stoch', 'g_rsi3hi', 'g_runaway', 'cfgGradeRsi15m', 'cfgGradeAtr5Pct', 'cfgGradeMacd5m', 'cfgGradeStoch5m', 'cfgSepPct2', 'cfgGradeRsi3m', 'gradeVer', 'dataVer'];
+    'gradeOld', 'g_sep', 'g_h1', 'g_r15', 'g_atr', 'g_macd', 'g_stoch', 'g_rsi3hi', 'g_runaway', 'cfgGradeRsi15m', 'cfgGradeAtr5Pct', 'cfgGradeMacd5m', 'cfgGradeStoch5m', 'cfgSepPct2', 'cfgGradeRsi3m', 'gradeVer', 'dataVer', 'atr2C15', 'v3S', 'v3_rsi1m', 'v3_bb15', 'v3_stoch5', 'v3_vol3', 'v3_liq', 'v3B'];
   assert.deepStrictEqual(dropCols().slice(-AUD.length), AUD, 'yeni kolonlar sütun sırasının SONUNDA');
   const old = flatDrop({ id: 'x', out: {}, feat: {} }); assert(AUD.every(k => old[k] == null), 'eski kayıtta boş');
   { const r = flatDrop({ id: 'z', out: {}, feat: { lvZoneHiN: 2, lvZoneLoN: 1 } }); assert.strictEqual(r.lvZoneHiN, 2); assert.strictEqual(r.lvZoneLoN, 1, 'bölge değerleri CSV satırına gelir');
@@ -308,7 +309,7 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   assert(rr.length && rr.every(x => Number.isFinite(x.feat.rsi3c) && Number.isFinite(x.feat.rsi5c) && Number.isFinite(x.feat.sep3c) && Number.isFinite(x.feat.sep5c)), 'rsi3c/5c, sep3c/5c sayı');
   assert(rr.some(x => x.feat.rsi3c !== x.feat.rsi3 || x.feat.rsi5c !== x.feat.rsi5), 'rsi*c kısmi mumlu rsi3/rsi5\'ten farklı olabilir');
   assert(rr.some(x => x.feat.sep3c !== x.feat.sep3), 'sep3c canlı sep3\'ten farklı olabilir');
-  assert(rr.every(x => x.feat.cfgPeakWindowMin === 15 && x.feat.cfgSampleGapMin === 7 && x.feat.cfgVer === require('../package.json').version && x.feat.dataVer === '2026.11.24-3'), 'cfg* ledger ayarları + sürüm');
+  assert(rr.every(x => x.feat.cfgPeakWindowMin === 15 && x.feat.cfgSampleGapMin === 7 && x.feat.cfgVer === require('../package.json').version && x.feat.dataVer === '2026.11.25-2'), 'cfg* ledger ayarları + sürüm');
   // sep3c: kapanmış mumla elle hesap (yeni seri; kısmi mum sep3c'yi değiştirmez)
   {
     const ta = require(`${REPO}/src/ta`); const { sepClosed } = require(`${REPO}/src/eventLog`);
@@ -334,6 +335,54 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   // eksik pencere → null (finish'e doğrudan: 5 dk pencereli ledger, out[15]/out[60] yok)
   const sh = run(path1, { overrides: ov, opts: { windows: [5] } }).ev.find(x => x.outcome === 'düştü');
   assert(sh && sh.feat.lowC15 === null && sh.feat.closeC60 === null && sh.feat.dropC15 === null, 'eksik pencere null');
+  // atr2C15 = lowC15 <= -2 × atr5Pct (ikisi de %). Düşüş satırı lowC15 = -1.645: ATR'yi onCandidate'te sabitleyerek 1 / 0 / boş
+  const atrRun = (atr) => run(path1, { overrides: ov, opts: { onCandidate: (sr, e) => { e.feat.atr5Pct = atr; } } }).ev.find(x => x.outcome === 'düştü');
+  assert.strictEqual(atrRun(0.8).feat.lowC15, -1.645);
+  assert.strictEqual(atrRun(0.8).feat.atr2C15, 1, '-1.645 <= -1.6 → 1');
+  assert.strictEqual(atrRun(0.9).feat.atr2C15, 0, '-1.645 > -1.8 → 0 (1×ATR olsa 1 çıkardı)');
+  assert.strictEqual(atrRun(null).feat.atr2C15, null, 'atr5Pct yok → boş');
+  assert.strictEqual(sh.feat.atr2C15, null, 'lowC15 yok → boş');
+  { const r = flatDrop({ id: 'y', out: {}, feat: {} }); assert(r.atr2C15 == null, 'eski kayıt: boş'); }
+  // v3B pompa tekilliği: aynı pompada ikinci/üçüncü aday 0; > 60 dk sonra yeni pompada tekrar 1
+  {
+    const pathV = [...pump, ...seg(106.3, 109, 20), ...seg(109, 107, 80), ...seg(107, 113, 25), ...seg(113, 112, 300)];
+    const sc = { rsi_1m: 90, bbB_15m: 1.4, stochCross: 'down', volx_3m: 4, liqShortPct15: null };   // S = 4
+    const mkRun = (add) => run(pathV, { opts: { onCandidate: (sr, e) => { Object.assign(e.feat, sc, add || {}); } } }).ev.slice().sort((a, b) => a.t - b.t);
+    const ev3 = mkRun();
+    assert(ev3.length >= 4, 'birden çok aday: ' + ev3.length);
+    const gaps = ev3.map((x, i) => i ? (x.t - ev3[i - 1].t) / MIN : 0);
+    const starts = ev3.map((x, i) => (i === 0 || gaps[i] >= 60) ? i : -1).filter(i => i >= 0);
+    assert.strictEqual(starts.length, 2, 'iki pompa: ' + gaps.join(','));
+    assert(ev3.every(x => x.feat.v3S === 4), 'S=4');
+    // beklenen: her pompada pompa≥%5 olan İLK aday (erken adaylar <%5 olabilir)
+    const exp = ev3.map(() => 0); let seen = false;
+    ev3.forEach((x, i) => { if (starts.includes(i)) seen = false; if (!seen && x.feat.pumpPct >= 5) { exp[i] = 1; seen = true; } });
+    assert.strictEqual(exp.reduce((a, b) => a + b, 0), 2, 'her pompada tam bir v3B beklenir');
+    assert(ev3.some(x => x.feat.pumpPct < 5), 'pompa<5 aday v3B almaz (test geçerli)');
+    ev3.forEach((x, i) => assert.strictEqual(x.feat.v3B, exp[i], `v3B[${i}] (aralık ${gaps[i]} dk, pompa ${x.feat.pumpPct})`));
+    const evLow = mkRun({ volx_3m: 1 });                                    // S = 3 → hiçbiri
+    assert(evLow.every(x => x.feat.v3S === 3 && x.feat.v3B === 0), 'S<4 → v3B 0');
+    // S<4 aday pompanın ilk adayı olsa da v3B'yi tüketmez: ilk aday S=3, sonrakiler S=4 → ilk S≥4 aday v3B=1
+    let nth = 0;
+    const evMix = run(pathV, { opts: { onCandidate: (sr, e) => { Object.assign(e.feat, sc, nth++ === 0 ? { volx_3m: 1 } : {}); } } }).ev.slice().sort((a, b) => a.t - b.t);
+    assert.strictEqual(evMix[0].feat.v3S, 3); assert.strictEqual(evMix.slice(0, 5).reduce((a, x) => a + x.feat.v3B, 0), 1, 'S<4 ilk aday v3B tüketmez; pompada yine tek v3B');
+    // 1m boşluğu: aynı pompada iki aday (ikisi de S≥4, pompa≥5), 240 dk kapanışları tek mumda tetiklenir → v3B finish sırasına değil t'ye bağlı (erken adayda 1, geç adayda 0)
+    {
+      const T0 = t0 + 3000 * MIN, rel = x => (x.t - T0) / MIN;
+      const gap = Array.from({ length: 11 }, (_, i) => 330 + i);          // 94+240=334 ve 99+240=339 boşluğa düşer; ilk gelen mumda ikisi birden biter
+      const evG = run(pathV, { skip: gap, opts: { onCandidate: (sr, e) => { Object.assign(e.feat, sc); } } }).ev;
+      const early = evG.find(x => rel(x) === 94), late = evG.find(x => rel(x) === 99);
+      assert(early && late && early.feat.pumpPct >= 5 && late.feat.pumpPct >= 5, 'iki aday var ve ikisi de pompa≥5');
+      const iE = evG.indexOf(early), iL = evG.indexOf(late);
+      assert(iE >= 0 && iL >= 0 && Math.abs(iE - iL) <= 3, 'aynı çağrıda bitti (done yakın)');
+      assert.strictEqual(early.feat.v3B, 1, 'erken aday v3B=1');
+      assert.strictEqual(late.feat.v3B, 0, 'geç aday v3B=0');
+      assert(iE < iL, 'aynı çağrıda t artan sırada işlenir');
+      assert.strictEqual(evG.filter(x => rel(x) >= 94 && rel(x) <= 120).reduce((a, x) => a + x.feat.v3B, 0), 1, 'pompada tek v3B');
+    }
+    const c = flatDrop(ev3[exp.indexOf(1)]); assert.strictEqual(c.v3B, 1); assert.strictEqual(c.v3_liq, null, 'liq yok → boş');
+  }
+  assert(dropCols()[dropCols().length - 8] === 'atr2C15' && dropCols()[dropCols().length - 9] === 'dataVer' && dropCols()[dropCols().length - 1] === 'v3B');
   ok('Aşama 1: rsi3c/rsi5c, sep3c, cfg*, dropC15/lowC15/closeC60 (peak≠price dönüşüm, eksik pencere null)');
 }
 
@@ -385,7 +434,7 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   for (const k of GC) assert(pk.feat[k] != null, 'tepe feat dolu: ' + k);
   assert.strictEqual(pk.feat.gradeVer, 2); assert.strictEqual(pk.feat.cfgGradeMacd5m, 1); assert.strictEqual(pk.feat.cfgGradeStoch5m, 1);
   assert.strictEqual(pk.feat.cfgVer, require('../package.json').version, 'cfgVer package.json sürümü');
-  assert.strictEqual(pk.feat.dataVer, '2026.11.24-3', 'dataVer elle artırılan sürüm');
+  assert.strictEqual(pk.feat.dataVer, '2026.11.25-2', 'dataVer elle artırılan sürüm');
   assert(pk.feat.gradeOld <= pk.feat.grade || pk.feat.grade === 0, 'gradeOld ≤ grade (macd/stoch yalnız artırır)');
   assert(sc.length > 0, 'gerçek kart üretildi: ' + sc.length);
   const card = sc[0];
@@ -429,11 +478,11 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   assert.strictEqual(newRow[hn.indexOf('gradeVer')], '2');
   // tepeler.csv: yeni kolonlar sonda ve dolu
   const th = parseCsv(cols[true].Z['tepeler.csv']); const tc = th[0], tv = th[1];
-  assert.deepStrictEqual(tc.slice(-GC.length - 1, -1), GC, 'tepeler.csv: derece kolonları dataVer\'den önce, sonda');
-  assert.strictEqual(tc[tc.length - 1], 'dataVer', 'dataVer en sonda');
-  assert(GC.every((k, i) => tv[tc.length - 1 - GC.length + i] !== ''), 'tepe satırı: 16 kolon dolu');
+  assert.deepStrictEqual(tc.slice(-GC.length - 9, -9), GC, 'tepeler.csv: derece kolonları dataVer\'den önce, sonda');
+  assert.strictEqual(tc[tc.length - 8], 'atr2C15', 'atr2C15, v3 kolonlarından önce'); assert.strictEqual(tc[tc.length - 9], 'dataVer');
+  assert(GC.every((k, i) => tv[tc.length - 9 - GC.length + i] !== ''), 'tepe satırı: 16 kolon dolu');
   assert.strictEqual(tv[tc.indexOf('cfgVer')], require('../package.json').version);
-  assert.strictEqual(tv[tc.indexOf('dataVer')], '2026.11.24-3');
+  assert.strictEqual(tv[tc.indexOf('dataVer')], '2026.11.25-2');
   assert(!hn.includes('dataVer'), 'kartlar.csv: dataVer yok');
   // MD: eski derece satırı + yeni kurulum grupları
   const md = cols[true].w.md;
@@ -459,14 +508,16 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   ok(`Derece 2: tepe ve kart kaydı dolu, kartlar.csv/tepeler.csv 16 kolon sonda (karışık hafta, başlık aynı), /disaaktar sırası aynı, MD gradeOld + kurulum grupları, /teyit en kötü ${worst.length} karakter`);
 }
 
-// ── kolon sırası: ilk satırda olmayan anahtar sonra çıksa da derece kolonları son 16 ──
+// ── kolon sırası: ilk satırda olmayan anahtar sonra çıksa da filtre dışı 4 + derece 16 kolon son 20 ──
 {
-  const { colsOf, GRADE_COLS: GCs } = require('../src/exportData');
-  const rows = [{ symbol: 'A', gradeOld: 1, gradeVer: 2, g_sep: 1 }, { symbol: 'B', level: 5, gradeOld: 1, burst: 2 }];
+  const { colsOf, GRADE_COLS: GCs, BYPASS_COLS: BCs } = require('../src/exportData');
+  assert.deepStrictEqual(BCs, ['snapOk', 'snapFails', 'filterBypass', 'bypassBy']);
+  const rows = [{ symbol: 'A', gradeOld: 1, gradeVer: 2, g_sep: 1 }, { symbol: 'B', level: 5, gradeOld: 1, burst: 2, filterBypass: 1 }];
   const c = colsOf(rows);
   assert.deepStrictEqual(c.slice(-16), GCs, 'derece kolonları son 16');
-  assert.deepStrictEqual(c.slice(0, -16), ['symbol', 'level', 'burst'], 'diğer kolonlar ilk görülme sırasıyla');
-  ok('kolon sırası: derece kolonları hep sonda');
+  assert.deepStrictEqual(c.slice(-20, -16), BCs, 'filtre dışı 4 kolon GRADE_COLS\'tan önce');
+  assert.deepStrictEqual(c.slice(0, -20), ['symbol', 'level', 'burst'], 'diğer kolonlar ilk görülme sırasıyla');
+  ok('kolon sırası: filtre dışı 4 kolon + derece kolonları hep sonda');
 }
 
 console.log('\n' + R.join('\n'));

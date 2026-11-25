@@ -853,6 +853,11 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
     snap, news, trig, tags, followed, inSeries,
     moveStats: tracker.moveStats(sym, snap.t),
     grade: snap.grade,
+    // K17 yalnız kayıt: zorunlu filtreleri (snap.ok) aşan kart (SFP / seri patlaması / hareket); karar mantığı değişmedi
+    snapOk: snap.ok ? 1 : 0,
+    snapFails: (snap.fails || []).join('|'),
+    filterBypass: snap.ok ? 0 : 1,
+    bypassBy: snap.ok ? '' : sfp ? 'sfp' : inSeries ? 'burst' : move ? 'move' : '',
     gradeAudit: gradeAudit(snap, s),
     silent: !(s.cardSound !== false || snap.grade >= 3 || followed),
   };

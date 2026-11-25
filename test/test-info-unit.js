@@ -292,6 +292,21 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   assert.strictEqual(excludedNote(1), ' (1 eksik pencere dışarıda)'); assert.strictEqual(excludedNote(0), '');
   ok('Medyan: fwd[60].full===false dışarıda (sayısı notta), canlı biçimli kart (full yok) dahil');
 }
+// ── n (kart) ile n60 (60 dk medyanına giren) ayrımı ──
+{ const { classTable, nLabel, CLASSES } = require(`${REPO}/src/infoStats`);
+  const mk = (full, has = true) => ({ t: 1, symbol: 'A', seq: 1, silent: false, fwd: has ? { 60: { low: -1, high: 1, close: 1, full } } : {} });
+  const r3 = classTable([mk(true), mk(true), mk(false)])[0];
+  assert.strictEqual(r3.n, 3); assert.strictEqual(r3.n60, 2, 'n60 yalnız tam pencereli kart: ' + r3.n60);
+  assert.strictEqual(nLabel(r3), '3 (60dk: 2)');
+  const rEq = classTable([mk(true), mk(true)])[0];
+  assert.strictEqual(rEq.n, 2); assert.strictEqual(rEq.n60, 2); assert.strictEqual(nLabel(rEq), '2', 'eşitken eski biçim');
+  const rPend = classTable([mk(true), mk(true, false)])[0];       // 60 dk'sı dolmamış canlı kart
+  assert.strictEqual(nLabel(rPend), '2 (60dk: 1)');
+  // en kötü durum: tüm sınıflar "99999 (60dk: 99998)" ile 4000 karakter içinde mi (esc + pct dahil)?
+  const worst = CLASSES.map(([name]) => `${name.trim()}: <b>${nLabel({ n: 99999, n60: 99998 })}</b> · dip 5/15/30/60 -12.3% / -12.3% / -12.3% / -12.3% · tepe60 +12.3% · son60 -12.3%`).join('\n');
+  console.log('  en kötü /istatistik sınıf bölümü uzunluğu:', worst.length, 'satır:', CLASSES.length);
+  ok('classTable n60 + nLabel: 3 (60dk: 2) / eşitken yalnız n');
+}
 // ── A11: eksik 1m ile kapanan üst TF mumu işaretlenir ──
 { const T = Date.UTC(2026, 0, 1), mk = (i, c) => ({ t: T + i * MIN, o: c, h: c + 1, l: c - 1, c, v: 1, tb: 0.5, q: c, tq: c / 2, closed: true });
   const feed = (S, idx) => { for (const i of idx) S.apply1m(mk(i, 100 + i)); };
@@ -335,15 +350,15 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
     for (const tf of ['1d', '4h', '1h', '15m', '5m', '3m']) { const ms = TF_MS[tf], out = [];
       for (let ps = Math.floor((st - 1) / ms) * ms; out.length < KEEP[tf] && ps >= arr[0].t - ms; ps -= ms) { if (ps + ms > st) continue; const a = oracle(0, bstart - 1, ps, ms); if (a && a.t === ps && arr[0].t <= ps) out.unshift({ ...a, tb: a.v * 0.5, tq: a.q * 0.5, closed: true }); }
       S.seed(tf, out); }
-    S.seed('1m', arr.slice(Math.max(0, bstart - KEEP['1m']), bstart)); return S; };
+    const b1 = arr.slice(Math.max(0, bstart - KEEP['1m']), bstart); S.seed('1m', b1); S.seedPartials(b1, st); return S; };
   oracle.bt = false; const BT = btSeries(), LIVE = new Series('LIVE'); for (let i = 0; i < bstart; i++) LIVE.apply1m(arr[i]);
-  oracle.bt = true;   // döngüde başlangıçtan önce açılmış periyodun yalnız start sonrası 1m'leri BT'de var (start'ta açık mum tohumlanmaz; 'eksik' işaretlenir); gelecek veri değil, eksik veri
+  // start'ta açık periyotların kısmi mumu start öncesi 1m'lerden kurulur (seedPartials); oracle tüm 1m'lerle karşılaştırır
   let nClosed = 0, nPart = 0, cmp = 0;
   for (let i = bstart; i < N; i++) {
     const t = arr[i].t + MIN;                                  // karar anı: bu 1m kapandı
     const closed = BT.apply1m(arr[i]); LIVE.apply1m(arr[i]);
     for (const tf of HT) { const ms = TF_MS[tf];
-      if (closed.has(tf)) { const g = lastOf(BT, tf); assert(g.t + ms <= t, `${tf}: kapanmış mum t'den sonra bitiyor`); same(g, oracle(0, i, g.t, ms), `${tf}@${i} kapanmış`); assert.strictEqual(g.t + ms, t, 'closed kümesi yalnız tam bu anda biten mum'); nClosed++; }
+      if (closed.has(tf)) { const g = lastOf(BT, tf); assert(g.t + ms <= t, `${tf}: kapanmış mum t'den sonra bitiyor`); same(g, oracle(0, i, g.t, ms), `${tf}@${i} kapanmış`); assert.strictEqual(g.t + ms, t, 'closed kümesi yalnız tam bu anda biten mum'); nClosed++; assert.strictEqual(BT.incomplete(tf, 1), 0, `${tf}@${i}: ilk periyot dahil 'eksik' işaretsiz`); }
       else assert.strictEqual(BT.lastT(tf) + ms <= t, true);
       // kısmi mum: yalnız t'ye kadarki 1m'ler
       const pt = BT.part[tf]; if (pt) { const ps = Math.floor(arr[i].t / ms) * ms; assert.strictEqual(pt.t, ps); assert(pt.t + ms > t, 'kısmi mum aslında kapanmış olmalıydı');
@@ -352,7 +367,6 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
     }
     // canlı yol = backtest yolu: anlık rsi/ema/macd (kısmi mum dahil ve hariç), 3m/5m/15m (tampon dolu); 1m
     for (const tf of ['1m', '3m', '5m', '15m']) for (const wp of [true, false]) {
-      if (i < bstart + 15) continue;                           // start'ta açık olan ilk 15 dk'lık periyotlar tohumda yok (yukarıdaki not)
       const a = BT.col(tf, 'c', wp), b = LIVE.col(tf, 'c', wp), ka = a.slice(-KEEP[tf]), kb = b.slice(-KEEP[tf]);
       assert.deepStrictEqual(ka.slice(-60), kb.slice(-60), `${tf} kapanışlar t=${t}`);
       if (tf === '1m' || i % 7 === 0) { assert.strictEqual(ta.rsiLast(ka, 14), ta.rsiLast(kb, 14), `rsi ${tf} t=${t}`); assert.strictEqual(ta.emaLast(ka, 20), ta.emaLast(kb, 20), `ema ${tf} t=${t}`);
@@ -371,4 +385,87 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   for (const tf of ['3m', '5m', '15m']) { const g = BT.d[tf], l = LIVE.d[tf], n = g.t.length; assert.deepStrictEqual(g.t.slice(-100), l.t.slice(-100)); assert(near(g.c[n - 5], oracle(0, N - 1, g.t[n - 5], TF_MS[tf]).c)); }
   ok(`K33 look-ahead: ${nClosed} üst TF kapanışı ve ${nPart} kısmi mum, t'ye kadarki 1m'lerden toplananla birebir (sonraki 1m'ler katılmıyor); canlı ve backtest yolu ${cmp} ölçümde rsi/ema/macd aynı; gelecek mum bozulunca t anı değişmiyor`);
 }
+
+// ── K17: filtre dışı kart kaydı (SFP kartı snap.ok=false iken de çıkar; kural değişmedi, yalnız kayıt) ──
+{
+  const { gen, agg } = require('./gen'); const { compact } = require(`${REPO}/src/infoStats`);
+  const D = 1440, start = Date.UTC(2026, 0, 1), pumpAt = 41 * D;
+  const m1 = gen({ seed: 21, days: 42, start, p0: 100, pumps: [{ at: pumpAt, len: 400, rate: 0.0011, vol: 3, dumpLen: 0 }] });
+  const T0 = start + (pumpAt - 60) * MIN;
+  const run = sx => {
+    const S = new Series('SFPUSDT');
+    for (const [tf, m] of Object.entries({ '1d': 1440, '4h': 240, '1h': 60, '15m': 15, '5m': 5, '3m': 3 })) S.seed(tf, agg(m1, m * MIN, T0));
+    S.seed('1m', m1.filter(c => c.t < T0).slice(-240));
+    const tr = eng.createTracker(); const cards = []; let armed = false;
+    for (const c of m1.filter(c => c.t >= T0)) {
+      const closed = S.apply1m({ ...c, closed: true });
+      // izlenen seviye elle kurulur: 5m kapanışta fiyatın %1 üstündeki seviyenin altında kapanış → SFP
+      if (closed.has('5m') && c.t - T0 > 200 * MIN && !armed) { tr.sfpWatch('SFPUSDT').set('x', { name: '30 günlük tepe', value: S.price() * 1.01, kind: 'major', t: c.t, left: 5 }); armed = true; }
+      const card = eng.step(S, closed, sx, tr, {}); if (card) cards.push(card);
+    }
+    return cards;
+  };
+  // normal: tüm filtreler sağlanıyor → bypass 0
+  const norm = run({ ...cfg.info }).find(c => c.trig.sfp);
+  assert(norm && norm.snap.ok === true, 'normal SFP kartı snap.ok=true');
+  assert.strictEqual(norm.snapOk, 1); assert.strictEqual(norm.filterBypass, 0); assert.strictEqual(norm.bypassBy, ''); assert.strictEqual(norm.snapFails, '');
+  // ayrışma zorunlu ve imkansız → snap.ok=false, yine de SFP kartı çıkar → bypass 1
+  const byp = run({ ...cfg.info, sepRequired: true, sepPct2: 99 }).find(c => c.trig.sfp);
+  assert(byp && byp.snap.ok === false, 'SFP kartı snap.ok=false iken çıkmalı');
+  assert.strictEqual(byp.snapOk, 0); assert.strictEqual(byp.filterBypass, 1); assert.strictEqual(byp.bypassBy, 'sfp'); assert.strictEqual(byp.snapFails, 'ayrışma');
+  const cp = compact(byp); assert(cp.snapOk === 0 && cp.filterBypass === 1 && cp.bypassBy === 'sfp' && cp.snapFails === 'ayrışma', 'compact alanları taşır');
+  const cn = compact(norm); assert(cn.snapOk === 1 && cn.filterBypass === 0 && cn.bypassBy === '', 'compact normal kart');
+  ok('K17: SFP kartı snap.ok=false iken çıkınca filterBypass=1, bypassBy=sfp, snapFails=ayrışma; normal kartta 0 / boş; compact() alanları taşır');
+}
+// ── S1-100: 3m/5m EMA21 ayrışması farklıyken derece (sepOk) ile liste (checklist sep) tutarlı ──
+{ const T0 = Date.UTC(2026, 0, 1);
+  const flat = (tfMin, n, c) => Array.from({ length: n }, (_, i) => ({ t: T0 + i * tfMin * MIN, o: c, h: c + 0.01, l: c - 0.01, c, v: 1000, closed: true }));
+  // 3m EMA21 = 100, 5m EMA21 = e5; fiyat (1m son kapanış) 105 → sep3 = %5, sep5 = (105−e5)/e5
+  const mk = e5 => { const S = new Series('SEPUSDT');
+    S.seed('1m', flat(1, 30, 105)); S.seed('3m', flat(3, 60, 100)); S.seed('5m', flat(5, 60, e5)); S.seed('15m', flat(15, 40, 100)); S.seed('1h', flat(60, 30, 100)); S.seed('4h', flat(240, 30, 100)); S.seed('1d', flat(1440, 30, 100));
+    return S; };
+  const g = { ...cfg.info };
+  const probe = e5 => { const snap = eng.evaluate(mk(e5), g, {}, true); return { snap, sep: snap.sepPct, cond: eng.gradeConds(snap, g).sep, sepItem: eng.checklist(snap, g).items.find(x => x.key === 'sep') }; };
+  // 3m = %5, 5m ≈ %1 → derece sep almaz, liste %3 kademesini (pts ≥ 1) almaz
+  let a = probe(105 / 1.01);
+  assert(Math.abs(a.sep['3m'] - 5) < 1e-6 && Math.abs(a.sep['5m'] - 1) < 1e-6, 'senaryo: 3m=5, 5m=1 → ' + JSON.stringify(a.sep));
+  assert.strictEqual(a.snap.sepOk, false, 'sepOk: 5m < 3 → false'); assert.strictEqual(a.cond, false, 'derece sep şartı yok');
+  assert.strictEqual(a.sepItem.pts, 0, 'liste sep puanı 0 (küçük = 1 < 3)'); assert.strictEqual(a.sepItem.ok, false);
+  // 3m = %5, 5m ≈ %4 → ikisi de %3 kademesini alır (liste küçüğü = 4 → 1 puan, derece sep true)
+  a = probe(105 / 1.04);
+  assert(Math.abs(a.sep['3m'] - 5) < 1e-6 && Math.abs(a.sep['5m'] - 4) < 1e-6, 'senaryo: 3m=5, 5m=4 → ' + JSON.stringify(a.sep));
+  assert.strictEqual(a.snap.sepOk, true); assert.strictEqual(a.cond, true, 'derece sep şartı var');
+  assert.strictEqual(a.sepItem.pts, 1, 'liste %3 kademesi (1 puan; 4 < 5)'); assert.strictEqual(a.sepItem.ok, true);
+  // eşik sınırı: küçük değer tam eşikte (≥ 3) iki taraf da alır
+  a = probe(105 / 1.03); assert.strictEqual(a.snap.sepOk, true); assert.strictEqual(a.sepItem.pts, 1);
+  // tutarlılık: derece sep true ⇔ liste sep puanı > 0 (3m/5m değişik karışımlarında)
+  for (const e5 of [105 / 1.005, 105 / 1.029, 105 / 1.031, 105 / 1.06, 105 / 1.11, 105 / 0.97]) { const r = probe(e5); assert.strictEqual(r.cond, r.sepItem.pts > 0, 'derece ve liste ayrışma kararı aynı: 5m=' + r.sep['5m']); }
+  ok('S1-100: 3m=5/5m=1 → derece sep yok + liste 0 puan; 3m=5/5m=4 → ikisi de %3 kademesini alır; derece ve liste kararı aynı');
+}
+
+// ── v3 kurulum puanı (gölge): her şart tek tek, sınır, null ──
+{
+  const { setupScore, SETUP_DEFAULTS, SETUP_VER } = require('../src/setupScore');
+  const { CANDS } = require('../src/eventLog');
+  assert.deepStrictEqual(SETUP_DEFAULTS, { rsi1m: 85, vol3: 3, pumpMin: 5, min: 4 }); assert.strictEqual(SETUP_VER, 1);
+  const none = { rsi_1m: 10, bbB_15m: 0.5, stochCross: 'up', volx_3m: 1, liqShortPct15: 0 };
+  const z = setupScore(none); assert.deepStrictEqual(z, { v3S: 0, v3_rsi1m: 0, v3_bb15: 0, v3_stoch5: 0, v3_vol3: 0, v3_liq: 0 }, 'hiçbiri yok → S=0');
+  const one = (k, v, flag) => { const r = setupScore({ ...none, [k]: v }); assert.strictEqual(r[flag], 1, k + ' → ' + flag); assert.strictEqual(r.v3S, 1, k + ' tek başına S=1'); return r; };
+  one('rsi_1m', 85, 'v3_rsi1m'); assert.strictEqual(setupScore({ ...none, rsi_1m: 84.9 }).v3_rsi1m, 0, 'rsi 84.9 → 0');
+  one('bbB_15m', 1.01, 'v3_bb15'); assert.strictEqual(setupScore({ ...none, bbB_15m: 1 }).v3_bb15, 0, 'bbB tam 1 → 0 (> 1)');
+  one('stochCross', 'down', 'v3_stoch5');
+  one('volx_3m', 3, 'v3_vol3'); assert.strictEqual(setupScore({ ...none, volx_3m: 2.99 }).v3_vol3, 0);
+  one('liqShortPct15', 0.001, 'v3_liq'); assert.strictEqual(setupScore({ ...none, liqShortPct15: 0 }).v3_liq, 0, 'liq 0 → 0');
+  assert.strictEqual(setupScore({ rsi_1m: 90, bbB_15m: 2, stochCross: 'down', volx_3m: 5, liqShortPct15: 1 }).v3S, 5, 'hepsi → 5');
+  // null: alan yok → bayrak null, S'ye 0 katar
+  const p = setupScore({ rsi_1m: 90, bbB_15m: 2 });
+  assert.deepStrictEqual(p, { v3S: 2, v3_rsi1m: 1, v3_bb15: 1, v3_stoch5: null, v3_vol3: null, v3_liq: null });
+  assert.deepStrictEqual(setupScore({}), { v3S: null, v3_rsi1m: null, v3_bb15: null, v3_stoch5: null, v3_vol3: null, v3_liq: null }, 'hepsi null → S null');
+  assert.strictEqual(setupScore(null).v3S, null); assert.strictEqual(setupScore({ rsi_1m: NaN, volx_3m: 'x' }).v3S, null, 'sayı olmayan → null');
+  assert.strictEqual(setupScore({ rsi_1m: 80 }, { setupRsi1m: 80 }).v3_rsi1m, 1, 'eşik s.setupRsi1m ile değişir'); assert.strictEqual(setupScore({ volx_3m: 4 }, { setupVol3: 5 }).v3_vol3, 0);
+  const f = { rsi_1m: 90, volx_3m: 4 }, c = JSON.stringify(f); assert.deepStrictEqual(setupScore(f), setupScore(f)); assert.strictEqual(JSON.stringify(f), c, 'girdiyi değiştirmez');
+  assert(CANDS.some(x => x[0] === 'v3 S≥4' && x[2]({ v3S: 4 }) && !x[2]({ v3S: 3 }) && !x[2]({})), '/teyit adayı v3 S≥4');
+  ok('v3 kurulum puanı: 5 şart tek tek + sınır + null + deterministik; CANDS "v3 S≥4"');
+}
+
 console.log(R.join('\n'));

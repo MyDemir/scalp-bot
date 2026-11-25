@@ -38,10 +38,11 @@ const ta = require('./ta');
 const { tfIndicators, vwapSet, vwapFeatures, refLevels, nearest, TF_COLS, VWAP_COLS } = require('./marketSnap');
 const { maLadder, stopOf } = require('./levelTouch');
 const { extraFeatures, EXTRA_COLS, EXTRA_AUDIT_COLS } = require('./peakFeatures');
+const { setupScore, SETUP_DEFAULTS, SETUP_VER } = require('./setupScore');
 const { basisPct, ENRICH_COLS, LIQ_COLS } = require('./marketData');
 const PKG_VERSION = String(require('../package.json').version ?? '');
 // Kayıt / derece davranışı değişince elle artır (tepeler.csv dataVer; cfgVer package.json sürümü kalır). 24.11.2026-2: derece = 1 + sep+h1+r15+atr+macd+stoch+rsi3hi; sepPct2 3.
-const DATA_VER = '2026.11.24-3';
+const DATA_VER = '2026.11.25-2';
 
 const MIN = 60_000;
 const TROUGH_MIN = 60;      // dip: tepeden sonraki 60 dk'nın en düşüğü
@@ -99,7 +100,9 @@ const AUDIT_COLS = ['sameBar', 'cardWhen', 'contSkipped', 'rsi15c', 'rsi1hc', 'r
   'incTf', 'inc5', 'inc15', 'lvZoneHiN', 'lvZoneLoN', 'pkLvTouchUp', 'pkLvTouchDn',
   // derece denetimi (24.11.2026): grade = yeni derece (gradeVer 2); gradeOld = macd/stoch şartsız eski formül
   'gradeOld', 'g_sep', 'g_h1', 'g_r15', 'g_atr', 'g_macd', 'g_stoch', 'g_rsi3hi', 'g_runaway', 'cfgGradeRsi15m', 'cfgGradeAtr5Pct', 'cfgGradeMacd5m', 'cfgGradeStoch5m', 'cfgSepPct2', 'cfgGradeRsi3m', 'gradeVer',
-  'dataVer'];
+  'dataVer', 'atr2C15',
+  // v3 kurulum puanı (gölge kayıt, 25.11.2026): setupScore.js; v3B = pompada ilk S≥4 + pompa≥%5 adayı
+  'v3S', 'v3_rsi1m', 'v3_bb15', 'v3_stoch5', 'v3_vol3', 'v3_liq', 'v3B'];
 const FEATURE_COLS = [...BASE_COLS, ...PEAK_COLS, ...TF_COLS, ...VWAP_COLS, ...EXTRA_COLS, 'basisPct', ...LIQ_COLS, ...ENRICH_COLS, ...TROUGH_COLS, ...OUTCOME_COLS, ...AUDIT_COLS];
 
 /** Tepe anının tam fotoğrafı */
@@ -165,6 +168,8 @@ function createDropLedger(opts = {}) {
   const state = new Map();     // sym → { cand, lastCommit, open: [], hist: [{t, outcome}], obAt, ob }
   const cards = new Map();     // sym → [{t, grade}]
   let openN = 0;
+  // v3B pompa tekilliği: coin başına iki sayı (son aday zamanı, son v3B zamanı); finish sırasıyla (t sırası) güncellenir
+  const v3p = new Map();      // sym → { last, b }
   const PATH_MIN = 15;         // tepeden sonraki 1m yolu: dakika sayısı (onPath verilmezse toplanmaz)
   const st = sym => { let x = state.get(sym); if (!x) { x = { cand: null, lastCommit: 0, skipped: 0, open: [], hist: [], obAt: 0, ob: null }; state.set(sym, x); } return x; };
 
@@ -174,6 +179,18 @@ function createDropLedger(opts = {}) {
     const cs = (cards.get(sym) || []).filter(c => c.t >= t - 1440 * MIN && c.t <= t);
     return { samples24h: h.length, drops24h: drops.length, cards24h: cs.length, lastOutcome: h.length ? h[h.length - 1].outcome : null,
       minsSinceDrop: drops.length ? Math.round((t - drops[drops.length - 1].t) / MIN) : null };
+  }
+
+  /** v3 gölge puanı + v3B (aynı pompada yalnız ilk S≥4 ve pompa≥%5 aday; pompa = sembolde adaylar arası < 60 dk) */
+  function v3Fields(e) {
+    const f = e.feat, sc = setupScore(f);
+    let p = v3p.get(e.symbol);
+    if (!p || e.t - p.last >= 60 * MIN) p = { last: e.t, b: -Infinity };   // yeni pompa
+    let b = 0;
+    if (sc.v3S != null && sc.v3S >= SETUP_DEFAULTS.min && f.pumpPct >= SETUP_DEFAULTS.pumpMin && p.b === -Infinity) { b = 1; p.b = e.t; }
+    if (e.t > p.last) p.last = e.t;
+    v3p.set(e.symbol, p);
+    return { ...sc, v3B: sc.v3S == null ? null : b, cfgSetupVer: SETUP_VER };
   }
 
   function finish(e) {
@@ -186,6 +203,8 @@ function createDropLedger(opts = {}) {
     const lowC15 = num(fromEntry(e.out[15]?.low, e.price, entry), 3), closeC60 = num(fromEntry(e.out[60]?.close, e.price, entry), 3);
     const tail = {
       lowC15, closeC60, dropC15: lowC15 == null ? null : lowC15 <= -E.dropPct ? 1 : 0,
+      // ATR'ye göre hedef: ikisi de % (lowC15 girişe göre, atr5Pct = ATR(5m)/fiyat*100); biri yoksa boş
+      atr2C15: lowC15 == null || !Number.isFinite(e.feat.atr5Pct) ? null : lowC15 <= -2 * e.feat.atr5Pct ? 1 : 0,
       sameBar: e.sameBar ? 1 : 0,
       cardWhen: cardT == null ? null : cardT <= e.t ? 'önce' : cardT <= endT ? 'arada' : 'sonra',
       trPct: e.trLow < Infinity ? num((e.trLow - e.price) / e.price * 100, 3) : null, trMin,
@@ -194,6 +213,7 @@ function createDropLedger(opts = {}) {
       c5Red: e.c5 ? e.c5.red : null, c5Engulf: e.c5 ? e.c5.engulf : null, c5BelowPrev: e.c5 ? e.c5.belowPrev : null,
       c5ClosePct: e.c5 ? e.c5.closePct : null, c5Next60Low: e.c5 && e.c5.low < Infinity ? num((e.c5.low - e.c5.close) / e.c5.close * 100, 3) : null,
     };
+    Object.assign(tail, v3Fields(e));
     return {
       id: e.id, symbol: e.symbol, t: e.t, price: e.price, outcome: e.status, dropT: e.dropT ?? null, dropMin: e.dropT ? Math.round((e.dropT - e.t) / MIN) : null,
       card: cs.length > 0, cardGrade: cs.length ? Math.max(...cs.map(c => c.grade || 0)) : null,
@@ -314,6 +334,7 @@ function createDropLedger(opts = {}) {
       const c = { t: d.t[i], o: d.o[i], h: d.h[i], l: d.l[i], c: d.c[i] }, tc = c.t + MIN;
       const x = st(sym);
       const done = [];
+      const fin = [];   // bu mumda biten kayıtlı örnekler: finish t'ye göre ARTAN sırada çalışır (v3B ilk adaya yazılsın; 1m boşluğunda birden çok örnek aynı mumda biter)
       // 1) kaydedilmiş örnekler
       for (let k = x.open.length - 1; k >= 0; k--) {
         const e = x.open[k];
@@ -321,8 +342,10 @@ function createDropLedger(opts = {}) {
         confirm5(e, series);
         if (e.trPending) { e.trSnap = troughFeatures(series, s, e.trLow, e.anchorT); e.trPending = false; }
         emitPath(e);
-        if (e.out[WMAX]) { emitPath(e, true); done.push(finish(e)); x.open.splice(k, 1); openN--; }
+        if (e.out[WMAX]) { emitPath(e, true); fin.push(e); x.open.splice(k, 1); openN--; }
       }
+      fin.sort((a, b) => a.t - b.t);
+      for (const e of fin) done.push(finish(e));
       // 2) açık aday: sonuç belli olduysa kaydet ya da bırak
       const cd = x.cand;
       if (cd && tc > cd.t) {
@@ -365,6 +388,7 @@ function createDropLedger(opts = {}) {
         while (x.hist.length && x.hist[0].t < now - 1440 * MIN) x.hist.shift();
         if (!x.open.length && !x.cand && !x.hist.length) state.delete(sym);
       }
+      for (const [sym, p] of v3p) if (p.last < now - (60 + WMAX + 15) * MIN) v3p.delete(sym);
       for (const [sym, a] of cards) if (!a.length || a[a.length - 1].t < now - 1500 * MIN) cards.delete(sym);
     },
     openCount: () => openN,
@@ -524,6 +548,7 @@ const CANDS = [
   ['1s Ichimoku üstünde', 'ichiPos', f => f.ichiPos === 'üst'],
   ['ABD seansı', 'session', f => f.session === 'ABD'],
   ['Funding\'e ≤ 30 dk', 'minToFunding', f => f.minToFunding <= 30],
+  ['v3 S≥4', 'v3S', f => f.v3S >= 4],
   ['Kart çıktı', 'rsiOk', (f, r) => r.card === true],
 ];
 const outcomeOf = r => r.outcome || r.feat?.outcome || 'düştü';
