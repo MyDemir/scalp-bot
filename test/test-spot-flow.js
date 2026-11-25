@@ -167,6 +167,41 @@ const flow = createSpotFlow({ file: path.join(dir, 'flow.db'), fetchFn, futuresK
   assert.strictEqual(hdr.replace(/^\uFEFF/, '').trim(), 'symbol,market,tf,time,vol_usd,buy_usd,sell_usd,net_usd,buy_pct,open,close,chg_pct,trades,big_buy_n,big_buy_usd,big_sell_n,big_sell_usd,' + GRADE_COLS_LIST.join(','));
   ok(`CSV akıtma: başlık/kolon sırası kilitli (${FLOW_EXPORT_COLS.length}+16), ${all.length} satır eski çıktıyla birebir`);
 
+  // Sayfalama: küçük parça (7) sınırlarında da çıktı bayt bayt aynı
+  for (const flowChunk of [1, 7, all.length, 5000]) {
+    const zc = require('./unzip')((await buildExports(fakeStore, 30, now, { flow, flowChunk })).files[0].buf)['akis.csv'];
+    assert.strictEqual(zc, zf, `flowChunk=${flowChunk}: çıktı aynı`);
+  }
+  // Boş akış: eski davranış korunur (akis.csv yazılır, başlık colsOf([]) = yalnız derece kolonları, sayaç 0)
+  {
+    const fe = createSpotFlow({ file: path.join(dir, 'empty.db'), fetchFn: null, futuresKlines, getSymbols: () => [], now: () => now, logger: quiet });
+    const ee = await buildExports(fakeStore, 30, now, { flow: fe });
+    assert.strictEqual(ee.counts.akis, 0);
+    assert.strictEqual(require('./unzip')(ee.files[0].buf)['akis.csv'], csvHeader(colsOf([])));
+    fe.close();
+  }
+  ok('Sayfalama: parça 1/7/tümü/5000 aynı bayt, boş akışta akis.csv eski başlıkla yazılıyor (sayaç 0)');
+
+  // Parçalar arasında bağlantı serbest: iterate sürerken save() (tick) ve recordBig() 'busy' hatası vermez
+  {
+    const rowsBefore = flow.stats.rows, errBefore = flow.stats.errors;
+    let seen = 0, wrote = false;
+    for (const r of flow.iterateSince(now - 30 * DAY, 7)) {
+      seen++;
+      if (seen === 10 && !wrote) {
+        wrote = true;
+        await new Promise(res => setTimeout(res, 5));          // event loop'a dön (zipWriter flush gibi)
+        flow.recordBig([{ symbol: 'ETHUSDT', t: Date.UTC(2026, 9, 22, 8), buyN: 2, buyUsd: 5e5, sellN: 1, sellUsd: 2e5 }]);
+        now += 4 * HOUR; await flow.tick();
+      }
+    }
+    assert(wrote && seen >= 20);
+    assert.strictEqual(flow.stats.errors, errBefore, 'save() hata almadı');
+    assert(flow.stats.rows > rowsBefore, 'tick satır yazdı');
+    assert.strictEqual(flow.bigSum('ETHUSDT', Date.UTC(2026, 9, 22, 8), Date.UTC(2026, 9, 22, 9)).buyN, 2, 'recordBig yazıldı');
+    ok('Dışa aktarma sürerken save() ve recordBig() hata vermiyor, satırlar yazılıyor');
+  }
+
   // Ö-2: save tek transaction; bozuk mumda grup geri alınır, bot durmaz
   {
     const bad = [], warns = [];
