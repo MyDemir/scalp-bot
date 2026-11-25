@@ -889,6 +889,7 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
     snap, news, trig, tags, followed, inSeries,
     moveStats: tracker.moveStats(sym, snap.t),
     grade: snap.grade,
+    v3: v3Of(series, s, ctx, snap),
     // K17 yalnız kayıt: zorunlu filtreleri (snap.ok) aşan kart (SFP / seri patlaması / hareket); karar mantığı değişmedi
     snapOk: snap.ok ? 1 : 0,
     snapFails: (snap.fails || []).join('|'),
@@ -902,6 +903,16 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
 // RSI şartı kolu (ayar değil, tek nokta): true → kurulum kartı da kartın RSI şartını (snap.rsiOk = 3m/5m/15m'den minTFs tanesinde RSI ≥ rsiMin) ister.
 // 25.11.2026 kullanıcı kararı: RSI şartı YOK (veri: şart 516 → 154 kart, 4 dönemde tutmuyor). Kol yalnız kod içi; ayar değil.
 const SETUP_RSI_REQUIRED = false;
+/**
+ * Kart anı v3 puanı (yalnız bilgi; derece / kontrol listesi puanı / kart üretimi değişmez): tepe kaydıyla aynı girdi tanımı
+ * (peakFeatures.v3Features) ve aynı setupScore. Alan yoksa o bayrak null, S mevcut bayraklarla (setupScore kuralı).
+ * @returns {{v3S, v3_rsi1m, v3_bb15, v3_stoch5, v3_vol3, v3_liq}}
+ */
+function v3Of(series, s, ctx, snap) {
+  try { return require('./setupScore').setupScore(require('./peakFeatures').v3Features(series, s, ctx, { snap, t: snap.t }), s); }
+  catch { return null; }   // bilgi satırı kartı ya da kaydı durdurmaz
+}
+
 const SETUP_TXT = { v3_rsi1m: '1dk RSI ≥85', v3_bb15: '15dk BB %B>1', v3_stoch5: '5dk Stoch aşağı', v3_vol3: '3dk hacim ≥3 kat', v3_liq: 'short likidasyon' };
 /** "⭐ v3 kurulumu: S 4/5 (…) · pompa %6.3" — sağlanan bayraklar adlarıyla */
 function setupText(su) {
@@ -954,6 +965,7 @@ function setupCard(series, s, tracker, ctx = {}, setup = null, card = null) {
     snap, news, trig, tags, followed, inSeries: false,
     moveStats: tracker.moveStats(sym, snap.t),
     grade: snap.grade,
+    v3: v3Of(series, s, ctx, snap),
     setup: info,
     snapOk: snap.ok ? 1 : 0,
     snapFails: (snap.fails || []).join('|'),
@@ -969,4 +981,4 @@ function movePct(prevClose, prevT, c) {
   return base > 0 ? (c.c - base) / base * 100 : null;
 }
 
-module.exports = { SETUP_RSI_REQUIRED, setupCard, setupText, macdState, stochState, rsiOf, findHiddenPU, findGoldenCross, volStats, emaRide, moveText, evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, detectSfp, discoveryOf, negPeaks, movePct, volGrade, rsiGrade, gradeOf, gradeOldOf, gradeAudit, gradeConds, checklist, circles, dirColor, RSI_TFS, separationPct };
+module.exports = { v3Of, SETUP_RSI_REQUIRED, setupCard, setupText, macdState, stochState, rsiOf, findHiddenPU, findGoldenCross, volStats, emaRide, moveText, evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, detectSfp, discoveryOf, negPeaks, movePct, volGrade, rsiGrade, gradeOf, gradeOldOf, gradeAudit, gradeConds, checklist, circles, dirColor, RSI_TFS, separationPct };

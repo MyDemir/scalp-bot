@@ -132,4 +132,4 @@ function nearest(levels, price, tol = 0.3, near = 0.5) {
   return { best, near: [...new Set(names)] };
 }
 
-module.exports = { TFS, TF_COLS, VWAP_COLS, tfIndicators, vwapSet, vwapFeatures, refLevels, nearest };
+module.exports = { TFS, TF_COLS, VWAP_COLS, lastClosedVol, tfIndicators, vwapSet, vwapFeatures, refLevels, nearest };

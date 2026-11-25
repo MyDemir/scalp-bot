@@ -209,10 +209,18 @@ function formatCard(card, s, opt = {}) {
       ...ck.items.filter(it => it.ok).map(it => `✅ ${esc(it.text)}`),
       miss.length ? `▫️ Eksik: ${esc(miss.join(' · '))}` : null,
       ck.warn ? esc(ck.warn) : null,
+      v3Line(card.v3),
     ]);
   }
 
   return { text: L.join('\n'), keyboard: cardKeyboard(card.id, sym, card.followed), details: D.join('\n') };
+}
+
+// v3 bilgi satırı (puana girmez): "v3 S 3/5: 1dk RSI ≥85 ✅ · 15dk BB %B>1 ▫️ · … · short likidasyon —" (✅ sağlandı, ▫️ değil, — veri yok)
+const V3_LINE = [['v3_rsi1m', '1dk RSI ≥85'], ['v3_bb15', '15dk BB %B>1'], ['v3_stoch5', '5dk Stoch aşağı'], ['v3_vol3', '3dk hacim ≥3 kat'], ['v3_liq', 'short likidasyon']];
+function v3Line(v3) {
+  if (!v3 || v3.v3S == null) return null;
+  return `v3 S ${v3.v3S}/5: ${V3_LINE.map(([k, n]) => `${esc(n)} ${v3[k] === 1 ? '✅' : v3[k] === 0 ? '▫️' : '—'}`).join(' · ')}`;
 }
 
 const CHECK_SHORT = s => ({

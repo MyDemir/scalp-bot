@@ -23,8 +23,9 @@ const SC4 = { rsi_1m: 90, bbB_15m: 1.4, stochCross: 'down', volx_3m: 4, liqShort
  * Canlı processCandle0 / infoBacktest.runSymbol sırası: step → noteCard → observe → takeSetup → setupCard (mode 'setup')
  * mode 'base': kurulum hattı hiç yok (bu değişiklikten önceki davranış)
  */
-function run({ s = cfg.info, mode = 'setup', inject = () => SC4, skip = [] } = {}) {
+function run({ s = cfg.info, mode = 'setup', inject = () => SC4, skip = [], tailMut = null } = {}) {
   const all = [...hist, ...pathV];
+  if (tailMut != null) for (let i = hist.length + tailMut + 1; i < all.length; i++) all[i] = all[i] * 1.5 + 7;   // kart mumundan SONRAKİ mumlar değişir
   const m1 = all.map((c, i) => candle(i, c, i ? all[i - 1] : c));
   const S = new Series('SETUPUSDT');
   const agg = (ms, upto) => { const m = new Map(); for (const c of m1) { if (c.t >= upto) break; const ps = Math.floor(c.t / ms) * ms; const a = m.get(ps);
@@ -225,6 +226,47 @@ const A = run();
   ok('başlık: RSI şartı yok + kurulum → "⭐ #SYM — Kurulum"; RSI\'lı kurulum ve normal kart "— RSI" aynı; esc korunur');
 }
 
+// ── kart anı v3 bilgi satırı + v3S: (a) satır var, ck.score aynı (b) tepe kaydıyla aynı mumda eşit (c) look-ahead yok ──
+{
+  const lo = { ...cfg.info, rsiMin: 55, rsiMin2: 60, minTFs: 1, levelRequired: false, moveAlertPct: 0.1, cardSound: false };
+  const { v3Features } = require(`${REPO}/src/peakFeatures`); const { setupScore } = require(`${REPO}/src/setupScore`);
+  const A = run({ s: lo, inject: () => SC4 });
+  const withV3 = A.cards.filter(c => c.v3 && c.v3.v3S != null);
+  assert(withV3.length > 0 && withV3.length === A.cards.length, 'her kartta v3: ' + withV3.length + '/' + A.cards.length);
+  // (a) satır var; kontrol listesi puanı, derece ve metnin geri kalanı v3 satırı olmadan aynı
+  const c = A.cards.find(x => x.snap.check) || assert.fail('kontrol listeli kart yok');
+  const txt = formatCard(c, lo, { now: c.t }).details, none = formatCard({ ...c, v3: null }, lo, { now: c.t }).details;   // Kontrol listesi Detay'da
+  const m = txt.match(/^v3 S (\d)\/5: .*$/m); assert(m, 'v3 satırı yok: ' + txt.slice(-300));
+  assert(/1dk RSI ≥85 (✅|▫️|—) · 15dk BB %B&gt;1 (✅|▫️|—) · 5dk Stoch aşağı (✅|▫️|—) · 3dk hacim ≥3 kat (✅|▫️|—) · short likidasyon (✅|▫️|—)$/.test(m[0]), m[0]);
+  assert.strictEqual(Number(m[1]), c.v3.v3S); assert(!/^v3 S/m.test(none), 'v3 yokken satır yok');
+  assert.strictEqual(txt.replace('\n' + m[0], ''), none, 'v3 satırı dışında metin birebir aynı');
+  assert(new RegExp(`Kontrol listesi ${c.snap.check.score}/${c.snap.check.total}`).test(txt), 'ck.score metinde aynı');
+  assert.strictEqual(c.snap.check.total, 9);
+  // (b) aynı mumda tepe kaydı (inject yok: gerçek alanlar) ile kart v3'ü eşit: kart anı hesabı = tepe kaydı hesabı
+  const B = run({ s: lo, inject: () => ({}) });
+  const evBy = new Map(B.ev.map(e => [e.t, e]));
+  const same = B.cards.filter(x => evBy.has(x.t));
+  assert(same.length > 0, 'tepe kaydı ile aynı mumda kart var');
+  for (const x of same) {
+    const e = evBy.get(x.t); const ref = setupScore({ rsi_1m: e.feat.rsi_1m, bbB_15m: e.feat.bbB_15m, stochCross: e.feat.stochCross, volx_3m: e.feat.volx_3m, liqShortPct15: e.feat.liqShortPct15 });
+    assert.deepStrictEqual(x.v3, ref, 'kart v3 = tepe kaydı v3 (' + x.t + ')');
+    assert.strictEqual(x.v3.v3S, e.feat.v3S, 'tepeler.csv v3S ile eşit');
+  }
+  // liq yok → v3_liq null, S mevcut bayraklarla
+  assert(B.cards.every(x => x.v3.v3_liq === null), 'ctx.liq yok → likidasyon bayrağı null');
+  assert(/short likidasyon —$/m.test(formatCard(B.cards[0], lo, { now: B.cards[0].t }).details), '— gösterilir');
+  ok(`v3 bilgi satırı: ${A.cards.length} kartta var, ck.score/metin aynı; ${same.length} kartta tepe kaydıyla v3 aynı; liq yoksa —`);
+  // (c) look-ahead yok: kartın v3'ü, kart mumundan SONRAKİ mumlar değişince aynı kalır
+  const cut = A.cards[2], idx = Math.round((cut.t - t0) / MIN);
+  const alt = run({ s: lo, inject: () => SC4 });
+  const base = A.cards.map(x => x.v3);
+  const C = run({ s: lo, inject: () => SC4, tailMut: idx });
+  const cc = C.cards.find(x => x.t === cut.t);
+  assert(cc && JSON.stringify(cc.v3) === JSON.stringify(cut.v3), 'sonraki mumlar değişince v3 aynı');
+  assert.deepStrictEqual(alt.cards.map(x => x.v3), base, 'deterministik');
+  ok('v3 look-ahead yok: kart mumundan sonrası değişince kartın v3\'ü aynı');
+}
+
 // ── (e2) karar ile kayıt farklılaşabilir mi: seyreltmeyle atlanan aday ──
 // Pompa sürerken "devam" adayı önceki kayıttan < sampleGapMin (5 dk) sonra kapanırsa kaydedilmez (kayıtta satırı yok).
 // İlk S≥4 adayı böyle atlanan aday olursa: canlı kart o adayda çıkar; kayıtta v3B aynı pompadaki sonraki KAYDEDİLEN adaya yazılır.
@@ -278,17 +320,17 @@ const A = run();
   const { createCardStore } = require(`${REPO}/src/cardStore`);
   const st = createCardStore({ file: f, logger: { log() {}, error: x => { throw new Error(x); } } });
   const db = new Database(f, { readonly: true }); const names = db.prepare('PRAGMA table_info(cards)').all().map(c => c.name); db.close();
-  assert.deepStrictEqual(names.slice(-3), ['setup', 'setupS', 'setupPump'], 'ADD COLUMN sonda: ' + names.join(','));
+  assert.deepStrictEqual(names.slice(-4), ['setup', 'setupS', 'setupPump', 'v3S'], 'ADD COLUMN sonda: ' + names.join(','));
   assert.deepStrictEqual(names.slice(0, 7), ['id', 'kind', 'symbol', 't', 'seq', 'price', 'data'], 'mevcut kolon sırası aynı');
   st.add({ id: 'NEW', kind: 'card', symbol: 'NUSDT', t: 2, seq: 1, price: 1, data: { grade: 2 }, setup: 1, setupS: 4, setupPump: 6.31 });
-  st.add({ id: 'N0', kind: 'card', symbol: 'NUSDT', t: 3, seq: 2, price: 1, data: { grade: 1 }, setup: 0, setupS: null, setupPump: null });
+  st.add({ id: 'N0', kind: 'card', symbol: 'NUSDT', t: 3, seq: 2, price: 1, data: { grade: 1 }, setup: 0, setupS: null, setupPump: null, v3S: 3 });
   const rows = st.since(0).map(require(`${REPO}/src/cardStore`).rowToStat);
   const by = id => rows.find(r => r.symbol === id.sym && r.t === id.t);
   assert.deepStrictEqual([by({ sym: 'NUSDT', t: 2 }).setup, by({ sym: 'NUSDT', t: 2 }).setupS, by({ sym: 'NUSDT', t: 2 }).setupPump], [1, 4, 6.31]);
-  assert.strictEqual(by({ sym: 'NUSDT', t: 3 }).setup, 0); assert.strictEqual(by({ sym: 'OUSDT', t: 1 }).setup, null, 'eski satır boş');
-  const { cardRow, cardColsOf, SETUP_COLS, colsOf } = require(`${REPO}/src/exportData`);
+  assert.strictEqual(by({ sym: 'NUSDT', t: 3 }).setup, 0); assert.strictEqual(by({ sym: 'NUSDT', t: 3 }).v3S, 3); assert.strictEqual(by({ sym: 'OUSDT', t: 1 }).v3S, null, 'eski satır v3S boş'); assert.strictEqual(by({ sym: 'OUSDT', t: 1 }).setup, null, 'eski satır boş');
+  const { cardRow, cardColsOf, SETUP_COLS, V3_COLS, colsOf } = require(`${REPO}/src/exportData`);
   const cr = rows.map(r => cardRow(r)); const cols = cardColsOf(cr);
-  assert.deepStrictEqual(cols.slice(-3), SETUP_COLS); assert.strictEqual(cols.indexOf('gradeVer'), cols.length - 4, 'derece kolonları hemen önce');
+  assert.deepStrictEqual(cols.slice(-4, -1), SETUP_COLS); assert.deepStrictEqual(cols.slice(-1), V3_COLS); assert.strictEqual(cols.indexOf('gradeVer'), cols.length - 5, 'derece kolonları hemen önce');
   assert(!colsOf([{ a: 1 }]).includes('setup'), 'akis.csv (colsOf) kurulum kolonu almaz');
   st.close();
   const { createSettings } = require(`${REPO}/src/infoSettings`);
