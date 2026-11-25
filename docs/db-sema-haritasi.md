@@ -68,8 +68,8 @@ CLAUDE.md ile kod aynı şeye farklı yazım kullanır; karışmasın diye:
 
 | Yazım | Nerede | Anlamı |
 |---|---|---|
-| `1s`, `4s` | CLAUDE.md "İstatistik kaydı" → `flow.db` satırı ("1s 30 gün, 4s 180 gün, büyük işlem 400 gün") | Türkçe **s = saat**. Kodda aynı pencereler `tf = '1h'` ve `'4h'` olarak yazılır [kanıt: spotFlow.js:30 `TFS = ['1h','4h','1d','1w','1M']`; saklama spotFlow.js:33, 325]. Yani "1s 30 gün" = `flow` tablosunda `tf='1h'` satırları 30 gün, "4s 180 gün" = `tf='4h'` 180 gün. Ayrıntı: [§3.5](#t-flow), [§6.4-14](#tuh-14). |
-| "büyük işlem 400 gün" | CLAUDE.md | [`flow_big`](#t-flow-big) saatlik sayaç satırları (`t` = saat başı), `1d` kapanışında `t < now − 400 gün` silinir [kanıt: spotFlow.js:172, 325]. `flow.tf` değeri değildir. |
+| `1s`, `4s` | CLAUDE.md "İstatistik kaydı" → `flow.db` satırı ("1s 30 gün, 4s 180 gün, büyük işlem 180 gün") | Türkçe **s = saat**. Kodda aynı pencereler `tf = '1h'` ve `'4h'` olarak yazılır [kanıt: spotFlow.js:30 `TFS = ['1h','4h','1d','1w','1M']`; saklama spotFlow.js:33, 325]. Yani "1s 30 gün" = `flow` tablosunda `tf='1h'` satırları 30 gün, "4s 180 gün" = `tf='4h'` 180 gün. Ayrıntı: [§3.5](#t-flow), [§6.4-14](#tuh-14). |
+| "büyük işlem 180 gün" | CLAUDE.md | [`flow_big`](#t-flow-big) saatlik sayaç satırları (`t` = saat başı), `1d` kapanışında `t < now − 180 gün (`KEEP_BIG_DAYS`; PR #25 öncesi 400)` silinir [kanıt: spotFlow.js:172, 325]. `flow.tf` değeri değildir. |
 | `1d`, `1w`, `1M` | `flow.tf` | 1 gün, 1 hafta, 1 **ay** (büyük `M` = ay). Bunlar için silme yok ([§6.4-14](#tuh-14)). |
 | `1m`, `3m`, `5m`, `15m`, `1dk` | kart/tepe JSON alanları, belge metni | **Dakikalık** mum (küçük `m` = dakika); `1dk` = `1m`. `1M` (ay) ile karıştırma. `events.price` "1dk high", `paths.entry` "1dk kapanış" bu dakikalık mumdur. |
 | `rsi1h`, `rsi4h`, `trend_1h`, `btc1h` | `cards.data` / `events.data` JSON | 1 saatlik / 4 saatlik mum göstergeleri ([§3.1](#t-cards), [§3.3](#t-events)); `flow` tablosundaki `tf` ile ilgisi yok. |
@@ -487,7 +487,7 @@ Pompa tepesi adayları (`src/eventLog.js` defteri; `cards.kind = 'tepe'` bildiri
 <a id="t-flow-big"></a>
 ### 3.8 `flow_big` (flow.db) — 🐋 büyük işlem saatlik sayaçları
 
-**İlişkili:** tablolar: [`flow`](#t-flow) (symbol+saat; `rowsSince` büyük işlemleri pencereye toplar) · ER: [§2.1](#er), akış: [§2.2](#akis-diyagrami) · CSV: [akis.csv](#csv-akis) (spot satırlarında `big_*` kolonları) · PR #24: yok · Tuhaflık: [6](#tuh-6) (`t` indeksi yok), [14](#tuh-14) ("büyük işlem 400 gün" adlandırması) · Not: [bellek](#n-bellek) (`bigSince` tümünü okur).
+**İlişkili:** tablolar: [`flow`](#t-flow) (symbol+saat; `rowsSince` büyük işlemleri pencereye toplar) · ER: [§2.1](#er), akış: [§2.2](#akis-diyagrami) · CSV: [akis.csv](#csv-akis) (spot satırlarında `big_*` kolonları) · PR #24: yok · Tuhaflık: [6](#tuh-6) (`t` indeksi yok), [14](#tuh-14) ("büyük işlem 180 gün" adlandırması) · Not: [bellek](#n-bellek) (`bigSince` tümünü okur).
 
 | Kolon | Tip | Anlam | Ekleme |
 |---|---|---|---|
@@ -498,7 +498,7 @@ Pompa tepesi adayları (`src/eventLog.js` defteri; `cards.kind = 'tepe'` bildiri
 | `sell_n` | INTEGER NOT NULL DEFAULT 0 | | CREATE |
 | `sell_usd` | REAL NOT NULL DEFAULT 0 | | CREATE |
 
-[kanıt: spotFlow.js:150-153]. `PRIMARY KEY (symbol, t)`. Yazan: `recordBig` → `addBig` (`ON CONFLICT … DO UPDATE` ile **toplar**), `bigTrades.flush` dakikada bir (`flushMs = 60_000`) çağırır [kanıt: spotFlow.js:173-175, 380-383; bigTrades.js:28, 51-55; infoBot.js:817]. Okuyan: `bigSum` (panel `/api/flow`, `/api/flow/table`, Telegram `/akis`), `bigSince` → `rowsSince` (spotFlow.js:176-177, 386-391, 396-397). Saklama: `1d` kapanışında `t < now − 400 gün` [kanıt: spotFlow.js:172, 325]. CSV: ayrı dosya yok; [`akis.csv`](#csv-akis)'de spot satırlarına `big_*` kolonları olarak girer.
+[kanıt: spotFlow.js:150-153]. `PRIMARY KEY (symbol, t)`. Yazan: `recordBig` → `addBig` (`ON CONFLICT … DO UPDATE` ile **toplar**), `bigTrades.flush` dakikada bir (`flushMs = 60_000`) çağırır [kanıt: spotFlow.js:173-175, 380-383; bigTrades.js:28, 51-55; infoBot.js:817]. Okuyan: `bigSum` (panel `/api/flow`, `/api/flow/table`, Telegram `/akis`), `bigSince` → `rowsSince` (spotFlow.js:176-177, 386-391, 396-397). Saklama: `1d` kapanışında `t < now − 180 gün (`KEEP_BIG_DAYS`; PR #25 öncesi 400)` [kanıt: spotFlow.js:172, 325]. CSV: ayrı dosya yok; [`akis.csv`](#csv-akis)'de spot satırlarına `big_*` kolonları olarak girer.
 
 <a id="t-diger"></a>
 ### 3.9 SQLite dışı dosyalar
@@ -650,7 +650,7 @@ Her maddenin sonundaki "→ Tablo" bağlantısı ilgili tablo bölümüne döner
 13. ⏳ **`cfgSetupVer` yalnız JSON'da** (CSV kolonu yok; README "Kayıtta cfgSetupVer = 1" der ama `dropCols` onu üretmez) [kanıt: pr24:eventLog.js:193 ve AUDIT_COLS'ta yokluğu; komut → pr24 `dropCols()` sonu `…v3_liq,v3B`]. → PR: [§5 madde 3](#pr-3), Tablo: [`events`](#t-events).
 
 <a id="tuh-14"></a>
-14. **CLAUDE.md "1s 30 gün" = kodda `1h` pencere satırları** (`KEEP_1H_DAYS = 30`; "4s 180 gün" = `4h`, `KEEP_4H_DAYS = 180`); `1d/1w/1M` hiç silinmez (CLAUDE.md saklama listesinde belirtilmemiş); "büyük işlem 400 gün" = [`flow_big`](#t-flow-big) (spotFlow.js:325 `400 * DAY`) [kanıt: spotFlow.js:33, 325]. Adlandırma tablosu: [§1.1](#adlandirma). → Tablolar: [`flow`](#t-flow), [`flow_big`](#t-flow-big).
+14. **CLAUDE.md "1s 30 gün" = kodda `1h` pencere satırları** (`KEEP_1H_DAYS = 30`; "4s 180 gün" = `4h`, `KEEP_4H_DAYS = 180`); `1d/1w/1M` hiç silinmez (CLAUDE.md saklama listesinde belirtilmemiş); "büyük işlem 180 gün" = [`flow_big`](#t-flow-big) (spotFlow.js:330 `KEEP_BIG_DAYS * DAY`, önceden `400 * DAY`) [kanıt: spotFlow.js:33, 325]. Adlandırma tablosu: [§1.1](#adlandirma). → Tablolar: [`flow`](#t-flow), [`flow_big`](#t-flow-big).
 
 <a id="dogrulanamayan"></a>
 ### 6.5 Doğrulanamayanlar
