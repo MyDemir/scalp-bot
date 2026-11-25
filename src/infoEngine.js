@@ -877,7 +877,7 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
 }
 
 // RSI şartı kolu (ayar değil, tek nokta): true → kurulum kartı da kartın RSI şartını (snap.rsiOk = 3m/5m/15m'den minTFs tanesinde RSI ≥ rsiMin) ister.
-// 25.11.2026: şimdilik KAPALI (veri: şart 516 → 154 kart, 4 dönemde tutmuyor; kullanıcı kararı bekleniyor).
+// 25.11.2026 kullanıcı kararı: RSI şartı YOK (veri: şart 516 → 154 kart, 4 dönemde tutmuyor). Kol yalnız kod içi; ayar değil.
 const SETUP_RSI_REQUIRED = false;
 const SETUP_TXT = { v3_rsi1m: '1dk RSI ≥85', v3_bb15: '15dk BB %B>1', v3_stoch5: '5dk Stoch aşağı', v3_vol3: '3dk hacim ≥3 kat', v3_liq: 'short likidasyon' };
 /** "⭐ v3 kurulumu: S 4/5 (…) · pompa %6.3" — sağlanan bayraklar adlarıyla */
