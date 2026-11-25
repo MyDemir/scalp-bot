@@ -117,6 +117,20 @@ console.log('--- Gap Tamamlama, Tekrar Mum ve Telegram Kuyruk Testleri ---');
   assert.strictEqual(srA.incomplete('1h', 1), 0, 'boşluk 1h dilimine değmeden bitti ve 1h henüz kapanmadı');
   clear(A);
 
+  // (a2) Dilim sınırına HİZALI boşluk: seed'den sonra tam bir 5m dilimi (ve 3m dilimleri) hiç 1m gelmez → sonraki mum eksik işaretli.
+  const A2 = 'GAPA2USDT'; clear(A2);
+  const base2 = Math.floor(now / (60 * MIN)) * 60 * MIN - 2 * 60 * MIN;
+  I.series.set(A2, mkReady(A2, base2 - MIN));
+  const srA2 = I.series.get(A2);
+  const n5 = srA2.count('5m'), n15 = srA2.count('15m');
+  for (let i = 0; i < 4; i++) quiet(() => I.processCandle(srA2, candle(base2 + 5 * MIN + i * MIN), true));   // base2..+4 hiç gelmedi (tam 5m dilimi)
+  quiet(() => I.processCandle(srA2, candle(base2 + 9 * MIN), true));   // 5m dilimi base2+5 kapanır, öncesinde boş dilim var
+  assert.strictEqual(srA2.count('5m'), n5 + 1, 'sahte mum eklenmez (yalnız gelen dilim)');
+  assert.strictEqual(srA2.incomplete('5m', 14), 1, 'hizalı 5m boşluğu inc5 > 0');
+  assert.strictEqual(srA2.incomplete('15m', 14), 0, '15m dilimi henüz kapanmadı');
+  assert.strictEqual(srA2.count('15m'), n15);
+  clear(A2);
+
   // (b) Bayat akış (son mum 10 dk önce): kilitlenir + kurtarma kuyruğuna girer; kilitliyken canlı mum seriye işlenir
   //     ama değerlendirme (kart) atlanır ve sayılır.
   const B = 'GAPBUSDT'; clear(B);
