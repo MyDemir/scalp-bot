@@ -170,7 +170,7 @@ function createDipLedger(opts = {}) {
     let resolved = false;
     if (e.status == null) {
       const bounce = c.h >= p * (1 + E.bouncePct / 100), cont = c.l < p * (1 - E.contPct / 100);
-      if (!bounce) e.downMin = Math.min(e.downMin, (c.l - p) / p);
+      if (!bounce || cont) e.downMin = Math.min(e.downMin, (c.l - p) / p);   // aynı mumda dönüş + yeni dip (sameBar): o mumun dibi de sayılır
       if (bounce && cont) { e.status = c.c > c.o ? 'döndü' : 'devam'; e.sameBar = 1; }
       else if (bounce) e.status = 'döndü';
       else if (cont) e.status = 'devam';
