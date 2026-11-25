@@ -335,15 +335,15 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
     for (const tf of ['1d', '4h', '1h', '15m', '5m', '3m']) { const ms = TF_MS[tf], out = [];
       for (let ps = Math.floor((st - 1) / ms) * ms; out.length < KEEP[tf] && ps >= arr[0].t - ms; ps -= ms) { if (ps + ms > st) continue; const a = oracle(0, bstart - 1, ps, ms); if (a && a.t === ps && arr[0].t <= ps) out.unshift({ ...a, tb: a.v * 0.5, tq: a.q * 0.5, closed: true }); }
       S.seed(tf, out); }
-    S.seed('1m', arr.slice(Math.max(0, bstart - KEEP['1m']), bstart)); return S; };
+    const b1 = arr.slice(Math.max(0, bstart - KEEP['1m']), bstart); S.seed('1m', b1); S.seedPartials(b1, st); return S; };
   oracle.bt = false; const BT = btSeries(), LIVE = new Series('LIVE'); for (let i = 0; i < bstart; i++) LIVE.apply1m(arr[i]);
-  oracle.bt = true;   // döngüde başlangıçtan önce açılmış periyodun yalnız start sonrası 1m'leri BT'de var (start'ta açık mum tohumlanmaz; 'eksik' işaretlenir); gelecek veri değil, eksik veri
+  // start'ta açık periyotların kısmi mumu start öncesi 1m'lerden kurulur (seedPartials); oracle tüm 1m'lerle karşılaştırır
   let nClosed = 0, nPart = 0, cmp = 0;
   for (let i = bstart; i < N; i++) {
     const t = arr[i].t + MIN;                                  // karar anı: bu 1m kapandı
     const closed = BT.apply1m(arr[i]); LIVE.apply1m(arr[i]);
     for (const tf of HT) { const ms = TF_MS[tf];
-      if (closed.has(tf)) { const g = lastOf(BT, tf); assert(g.t + ms <= t, `${tf}: kapanmış mum t'den sonra bitiyor`); same(g, oracle(0, i, g.t, ms), `${tf}@${i} kapanmış`); assert.strictEqual(g.t + ms, t, 'closed kümesi yalnız tam bu anda biten mum'); nClosed++; }
+      if (closed.has(tf)) { const g = lastOf(BT, tf); assert(g.t + ms <= t, `${tf}: kapanmış mum t'den sonra bitiyor`); same(g, oracle(0, i, g.t, ms), `${tf}@${i} kapanmış`); assert.strictEqual(g.t + ms, t, 'closed kümesi yalnız tam bu anda biten mum'); nClosed++; assert.strictEqual(BT.incomplete(tf, 1), 0, `${tf}@${i}: ilk periyot dahil 'eksik' işaretsiz`); }
       else assert.strictEqual(BT.lastT(tf) + ms <= t, true);
       // kısmi mum: yalnız t'ye kadarki 1m'ler
       const pt = BT.part[tf]; if (pt) { const ps = Math.floor(arr[i].t / ms) * ms; assert.strictEqual(pt.t, ps); assert(pt.t + ms > t, 'kısmi mum aslında kapanmış olmalıydı');
@@ -352,7 +352,6 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
     }
     // canlı yol = backtest yolu: anlık rsi/ema/macd (kısmi mum dahil ve hariç), 3m/5m/15m (tampon dolu); 1m
     for (const tf of ['1m', '3m', '5m', '15m']) for (const wp of [true, false]) {
-      if (i < bstart + 15) continue;                           // start'ta açık olan ilk 15 dk'lık periyotlar tohumda yok (yukarıdaki not)
       const a = BT.col(tf, 'c', wp), b = LIVE.col(tf, 'c', wp), ka = a.slice(-KEEP[tf]), kb = b.slice(-KEEP[tf]);
       assert.deepStrictEqual(ka.slice(-60), kb.slice(-60), `${tf} kapanışlar t=${t}`);
       if (tf === '1m' || i % 7 === 0) { assert.strictEqual(ta.rsiLast(ka, 14), ta.rsiLast(kb, 14), `rsi ${tf} t=${t}`); assert.strictEqual(ta.emaLast(ka, 20), ta.emaLast(kb, 20), `ema ${tf} t=${t}`);

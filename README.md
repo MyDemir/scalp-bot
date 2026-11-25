@@ -376,7 +376,7 @@ bu semboller `/durum`'daki "geride" uyarısına sayılmaz; `/durum` açıkken ka
 
 ### Bilgi botu backtest'i
 Geçmişte bot çalışsaydı hangi kartlar gelirdi — **canlıyla aynı kod** (series + infoEngine + infoCard),
-her 1m kapanışı sırayla oynatılır, look-ahead yok. Kazanç/kayıp hesabı yoktur; her kart için yalnızca
+her 1m kapanışı sırayla oynatılır, look-ahead yok. Başlangıçta açık olan 3m–4h periyodunun kısmi mumu, başlangıçtan önceki 1m'lerden kurulur (ek istek yok), ilk periyot canlıdaki gibi olur. Kazanç/kayıp hesabı yoktur; her kart için yalnızca
 sonraki 15/60 dk'da fiyatın en düşük / en yüksek / kapanış değeri tutulur (kart sınıflarını kıyaslamak için).
 
 ```bash
