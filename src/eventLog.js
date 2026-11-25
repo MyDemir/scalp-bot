@@ -41,7 +41,7 @@ const { extraFeatures, EXTRA_COLS, EXTRA_AUDIT_COLS } = require('./peakFeatures'
 const { basisPct, ENRICH_COLS, LIQ_COLS } = require('./marketData');
 const PKG_VERSION = String(require('../package.json').version ?? '');
 // Kayıt / derece davranışı değişince elle artır (tepeler.csv dataVer; cfgVer package.json sürümü kalır). 24.11.2026-2: derece = 1 + sep+h1+r15+atr+macd+stoch+rsi3hi; sepPct2 3.
-const DATA_VER = '2026.11.24-3';
+const DATA_VER = '2026.11.25-1';
 
 const MIN = 60_000;
 const TROUGH_MIN = 60;      // dip: tepeden sonraki 60 dk'nın en düşüğü
@@ -99,7 +99,7 @@ const AUDIT_COLS = ['sameBar', 'cardWhen', 'contSkipped', 'rsi15c', 'rsi1hc', 'r
   'incTf', 'inc5', 'inc15', 'lvZoneHiN', 'lvZoneLoN', 'pkLvTouchUp', 'pkLvTouchDn',
   // derece denetimi (24.11.2026): grade = yeni derece (gradeVer 2); gradeOld = macd/stoch şartsız eski formül
   'gradeOld', 'g_sep', 'g_h1', 'g_r15', 'g_atr', 'g_macd', 'g_stoch', 'g_rsi3hi', 'g_runaway', 'cfgGradeRsi15m', 'cfgGradeAtr5Pct', 'cfgGradeMacd5m', 'cfgGradeStoch5m', 'cfgSepPct2', 'cfgGradeRsi3m', 'gradeVer',
-  'dataVer'];
+  'dataVer', 'atr2C15'];
 const FEATURE_COLS = [...BASE_COLS, ...PEAK_COLS, ...TF_COLS, ...VWAP_COLS, ...EXTRA_COLS, 'basisPct', ...LIQ_COLS, ...ENRICH_COLS, ...TROUGH_COLS, ...OUTCOME_COLS, ...AUDIT_COLS];
 
 /** Tepe anının tam fotoğrafı */
@@ -186,6 +186,8 @@ function createDropLedger(opts = {}) {
     const lowC15 = num(fromEntry(e.out[15]?.low, e.price, entry), 3), closeC60 = num(fromEntry(e.out[60]?.close, e.price, entry), 3);
     const tail = {
       lowC15, closeC60, dropC15: lowC15 == null ? null : lowC15 <= -E.dropPct ? 1 : 0,
+      // ATR'ye göre hedef: ikisi de % (lowC15 girişe göre, atr5Pct = ATR(5m)/fiyat*100); biri yoksa boş
+      atr2C15: lowC15 == null || !Number.isFinite(e.feat.atr5Pct) ? null : lowC15 <= -2 * e.feat.atr5Pct ? 1 : 0,
       sameBar: e.sameBar ? 1 : 0,
       cardWhen: cardT == null ? null : cardT <= e.t ? 'önce' : cardT <= endT ? 'arada' : 'sonra',
       trPct: e.trLow < Infinity ? num((e.trLow - e.price) / e.price * 100, 3) : null, trMin,

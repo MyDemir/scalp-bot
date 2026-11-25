@@ -50,6 +50,13 @@ assert(!w.md.includes('Eski derece'), 'gradeOld olmayan eski kartlarda eski dere
   assert(wo.counts.cards === 1 && !wo.md.includes('Filtre dışı kart:'), 'snapOk alanı olmayan haftada filtre dışı satırı yok'); stO.close();
 }
 const dcsv = Z['tepeler.csv'];
+{
+  const hd = dcsv.replace('\uFEFF', '').split('\n'); const hc = hd[0].trim().split(',');
+  assert.strictEqual(hc[hc.length - 1], 'atr2C15', 'tepeler.csv son kolon atr2C15'); assert.strictEqual(hc[hc.length - 2], 'dataVer');
+  assert(hd[1].replace(/\r?\n$/, '').endsWith(','), 'eski satırda atr2C15 boş');
+  assert(w.md.includes("tepe high'ından ölçülür, ilk eşik; contPct 0 olduğundan 'devam' = sonraki mumda herhangi bir yeni high, tepenin ayakta kaldığı anlamına gelmez"), 'MD outcome notu');
+  assert(w.md.includes('atr2C15 (en sonda; 1: giriş kapanışından 15 dk içinde 2×ATR(5m)% kadar düştü'), 'MD atr2C15 açıklaması');
+}
 assert(dcsv.startsWith('\uFEFF') && dcsv.split('\n')[0].includes('rsi_4h') && dcsv.split('\n')[0].includes('pkLv') && dcsv.trim().split('\n').length === 2);
 assert(Z['temaslar.csv'].split('\n')[0].trim().split(',').slice(-2).join() === 'pb0,belowMin', 'temaslar.csv başlığı: pb0,belowMin sonda');
 {
