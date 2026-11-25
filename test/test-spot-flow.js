@@ -6,7 +6,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { createSpotFlow, classify, windowStart, lastClosedStart, flowText, changesText, HISTORY } = require('../src/spotFlow');
-const { buildExports } = require('../src/exportData');
+const { buildExports, GRADE_COLS: GRADE_COLS_LIST } = require('../src/exportData');
 
 const HOUR = 3_600_000, DAY = 86_400_000;
 const R = []; const ok = s => R.push('✅ ' + s);
@@ -153,6 +153,39 @@ const flow = createSpotFlow({ file: path.join(dir, 'flow.db'), fetchFn, futuresK
   const plain = await buildExports(fakeStore, 30, now);
   assert.strictEqual(plain.counts.akis, undefined);
   ok(`CSV: akis.csv ${counts.akis} satır (toplam/alış/satış/net $, alış %), flow verilmezse eklenmiyor`);
+
+  // Ö-1: akis.csv akıtılarak yazılır; başlık ve satırlar eski colsOf(rowsSince) çıktısıyla birebir aynı
+  const { colsOf } = require('../src/exportData'), { FLOW_EXPORT_COLS } = require('../src/spotFlow');
+  const { csvHeader, csvLine } = require('../src/eventLog');
+  const all = flow.rowsSince(now - 30 * DAY);
+  assert.deepStrictEqual([...flow.iterateSince(now - 30 * DAY)], all, 'iterateSince = rowsSince');
+  assert.deepStrictEqual(Object.keys(all[0]), FLOW_EXPORT_COLS, 'sabit kolon listesi = satır anahtarları');
+  const oldCols = colsOf(all);
+  const zf = require('./unzip')((await buildExports(fakeStore, 30, now, { flow })).files[0].buf)['akis.csv'];
+  const hdr = csvHeader(oldCols);
+  assert.strictEqual(zf, hdr + all.map(r => csvLine(r, oldCols)).join(''), 'akis.csv eski colsOf(rows) çıktısıyla bayt bayt aynı');
+  assert.strictEqual(hdr.replace(/^\uFEFF/, '').trim(), 'symbol,market,tf,time,vol_usd,buy_usd,sell_usd,net_usd,buy_pct,open,close,chg_pct,trades,big_buy_n,big_buy_usd,big_sell_n,big_sell_usd,' + GRADE_COLS_LIST.join(','));
+  ok(`CSV akıtma: başlık/kolon sırası kilitli (${FLOW_EXPORT_COLS.length}+16), ${all.length} satır eski çıktıyla birebir`);
+
+  // Ö-2: save tek transaction; bozuk mumda grup geri alınır, bot durmaz
+  {
+    const bad = [], warns = [];
+    const f2 = createSpotFlow({
+      file: path.join(dir, 'tx.db'), fetchFn: null, getSymbols: () => ['TXUSDT'], spotGapMs: 0, now: () => now,
+      logger: { log() {}, warn: m => warns.push(m), error() {} },
+      futuresKlines: async (sym, tf, limit) => {
+        const k = klines('futures', tf, limit);
+        if (tf === '4h') { bad.push(1); k[k.length - 3][0] = 'x'; }   // t = NaN → NOT NULL ihlali, satırlar ortasında
+        return k;
+      },
+    });
+    const r2 = await f2.tick();
+    assert(!r2.skipped && bad.length === 1 && f2.stats.errors >= 1 && warns.length >= 1, 'hata loglandı, tur bitti');
+    assert.strictEqual(f2.rowsOf('TXUSDT', 'futures', '4h', 500).length, 0, '4s grubu tümden geri alındı');
+    assert(f2.rowsOf('TXUSDT', 'futures', '1d', 500).length > 0, 'diğer pencereler yazıldı');
+    f2.close();
+    ok('save: tek transaction, bozuk mumda o grup geri alınır, hata loglanır, tur durmaz');
+  }
 
   flow.close();
   console.log(R.join('\n'));

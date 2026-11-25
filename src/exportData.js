@@ -19,6 +19,7 @@
 const { rowToStat, rowToTouch, PATH_COLS, pathRow } = require('./cardStore');
 const { flatDrop, dropCols, csvLine, csvHeader } = require('./eventLog');
 const { createZipSet } = require('./zipWriter');
+const { FLOW_EXPORT_COLS } = require('./spotFlow');
 
 /** İç içe nesneyi tek seviyeye indirir: { rsi: { '3m': 90 } } → { rsi_3m: 90 }; diziler "a|b" */
 function flatten(o, prefix = '', out = {}) {
@@ -80,8 +81,14 @@ async function buildExports(store, days = 30, now = Date.now(), { maxZipBytes = 
   if (store.forEachTouch) await store.forEachTouch({ since }, onTouch);
   else if (store.touchesSince) for (const r of store.touchesSince(since)) await onTouch(r);
   await tz.end();
-  const fl = flow && flow.enabled() ? flow.rowsSince(since) : null;
-  if (fl) await writeRows('akis.csv', fl, 'akis');
+  if (flow && flow.enabled()) {
+    // akış satır satır akıtılır (30 günde yüzbinlerce satır; dizi biriktirilmez). Kolonlar sabit: eski colsOf(rows) ile aynı sıra
+    const c = colsOf([Object.fromEntries(FLOW_EXPORT_COLS.map(k => [k, null]))]), e = zip.entry('akis.csv', csvHeader(c));
+    let n = 0;
+    for (const r of flow.iterateSince ? flow.iterateSince(since) : flow.rowsSince(since)) { await e.write(csvLine(r, c)); n++; }
+    await e.end();
+    counts.akis = n;
+  }
   return { files: await zip.finish(), counts };
 }
 

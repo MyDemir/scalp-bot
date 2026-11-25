@@ -121,6 +121,10 @@ function defaultFile() {
  * @param {Function} [o.getSymbols]   () → sembol listesi (getFuturesSymbols yoksa; testler)
  * @param {Function} [o.getSettings]  () → ayarlar (flow* anahtarları)
  */
+/** akis.csv kolonları (sabit sıra; rowsSince / iterateSince nesne anahtarlarıyla aynı) */
+const FLOW_EXPORT_COLS = ['symbol', 'market', 'tf', 'time', 'vol_usd', 'buy_usd', 'sell_usd', 'net_usd', 'buy_pct', 'open', 'close', 'chg_pct', 'trades',
+  'big_buy_n', 'big_buy_usd', 'big_sell_n', 'big_sell_usd'];
+
 function createSpotFlow({
   file = defaultFile(), futuresKlines, getFuturesSymbols = null, getSymbols = () => [], getSettings = () => ({}),
   spotBase = process.env.BINANCE_SPOT_BASE_URL || 'https://api.binance.com', fetchFn = globalThis.fetch,
@@ -202,13 +206,11 @@ function createSpotFlow({
   function save(sym, market, tf, klines) {
     if (!klines) return 0;
     const t = now();
-    let n = 0;
-    for (const k of klines) {
-      const r = rowOf(k, t);
-      if (!r) continue;
-      st.upsert.run(sym, market, tf, r.t, r.vol, r.buy, r.open, r.close, r.trades);
-      n++;
-    }
+    const list = [];
+    for (const k of klines) { const r = rowOf(k, t); if (r) list.push(r); }
+    // tek transaction: çağrı başına tek WAL yazımı; hata olursa grup geri alınır (fetchBoth yakalar, sonraki turda upsert yeniden çeker)
+    db.transaction(rs => { for (const r of rs) st.upsert.run(sym, market, tf, r.t, r.vol, r.buy, r.open, r.close, r.trades); })(list);
+    const n = list.length;
     stats.rows += n;
     return n;
   }
@@ -390,9 +392,9 @@ function createSpotFlow({
     return { buyN: r.buyN || 0, buyUsd: r.buyUsd || 0, sellN: r.sellN || 0, sellUsd: r.sellUsd || 0, hours: r.hours };
   }
 
-  /** CSV dışa aktarma için: pencere satırları + türetilmiş alanlar (spot satırlarına pencerenin büyük işlem sayıları) */
-  function rowsSince(since) {
-    if (!st) return [];
+  /** CSV dışa aktarma: pencere satırlarını tek tek üretir (dizi biriktirmez; .iterate()). Yalnız büyük işlem Map'i bellekte tutulur */
+  function* iterateSince(since) {
+    if (!st) return;
     const big = new Map();
     for (const b of st.bigSince.all(since)) {
       for (const tf of TFS) {
@@ -402,20 +404,23 @@ function createSpotFlow({
         big.set(k, a);
       }
     }
-    return st.since.all(since).map(r => ({
-      symbol: r.symbol, market: r.market, tf: r.tf, time: new Date(r.t).toISOString(),
-      vol_usd: num(r.vol, 0), buy_usd: num(r.buy, 0), sell_usd: num(r.vol - r.buy, 0), net_usd: num(2 * r.buy - r.vol, 0),
-      buy_pct: r.vol > 0 ? num(r.buy / r.vol * 100, 2) : null, open: r.open, close: r.close,
-      chg_pct: r.open > 0 ? num((r.close / r.open - 1) * 100, 2) : null, trades: r.trades,
-      ...(() => {
-        const b = r.market === 'spot' ? big.get(`${r.symbol}|${r.tf}|${r.t}`) : null;
-        return { big_buy_n: b ? b.n1 : null, big_buy_usd: b ? num(b.u1, 0) : null, big_sell_n: b ? b.n2 : null, big_sell_usd: b ? num(b.u2, 0) : null };
-      })(),
-    }));
+    for (const r of st.since.iterate(since)) {
+      const b = r.market === 'spot' ? big.get(`${r.symbol}|${r.tf}|${r.t}`) : null;
+      yield {
+        symbol: r.symbol, market: r.market, tf: r.tf, time: new Date(r.t).toISOString(),
+        vol_usd: num(r.vol, 0), buy_usd: num(r.buy, 0), sell_usd: num(r.vol - r.buy, 0), net_usd: num(2 * r.buy - r.vol, 0),
+        buy_pct: r.vol > 0 ? num(r.buy / r.vol * 100, 2) : null, open: r.open, close: r.close,
+        chg_pct: r.open > 0 ? num((r.close / r.open - 1) * 100, 2) : null, trades: r.trades,
+        big_buy_n: b ? b.n1 : null, big_buy_usd: b ? num(b.u1, 0) : null, big_sell_n: b ? b.n2 : null, big_sell_usd: b ? num(b.u2, 0) : null,
+      };
+    }
   }
 
+  /** Dizi biçimi (eski arayüz; testler ve küçük veri için). Büyük dışa aktarma iterateSince kullanır */
+  function rowsSince(since) { return st ? [...iterateSince(since)] : []; }
+
   return {
-    enabled: () => Boolean(st), tick, universe: () => universe.slice(), summary, summaryTf, changes, rowsSince, rowsOf, stats, recordBig, bigSum, bigThreshold, table,
+    enabled: () => Boolean(st), tick, universe: () => universe.slice(), summary, summaryTf, changes, rowsSince, iterateSince, rowsOf, stats, recordBig, bigSum, bigThreshold, table,
     pairs: () => universe.map(f => [spotOf(f).spot, f]),
     hasSpot: sym => !noSpot.has(spotOf(sym).spot),
     close: () => { try { db?.close(); } catch { /* yok */ } },
@@ -475,4 +480,4 @@ function changesText(rows, hours = 24) {
   return `🌊 <b>Akış güncellemeleri</b> — son ${hours} saat (${rows.length})\n${rows.map(c => changeLine(c)).join('\n')}\n\nCoin ayrıntısı: /akis ETH`;
 }
 
-module.exports = { createSpotFlow, matchPairs, classify, windowStart, lastClosedStart, rowOf, flowText, changesText, LABELS, TFS, HISTORY, DEFAULTS };
+module.exports = { createSpotFlow, FLOW_EXPORT_COLS, matchPairs, classify, windowStart, lastClosedStart, rowOf, flowText, changesText, LABELS, TFS, HISTORY, DEFAULTS };
