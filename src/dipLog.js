@@ -26,6 +26,7 @@ const { tfIndicators, vwapSet, vwapFeatures, refLevels, nearest, TF_COLS, VWAP_C
 const { extraFeatures, cvdDivBull, quoteVol24h, EXTRA_COLS, EXTRA_AUDIT_COLS } = require('./peakFeatures');
 const { basisPct, ENRICH_COLS, LIQ_COLS } = require('./marketData');
 const { features, sepClosed, fromEntry } = require('./eventLog');
+const { structureFeatures, STRUCT_COLS } = require('./structure');
 const PKG_VERSION = String(require('../package.json').version ?? '');
 // Kayıt davranışı değişince elle artır (dipler.csv dipVer)
 const DIP_VER = '2026.11.25-1';
@@ -54,7 +55,8 @@ const DIP_AUDIT_COLS = ['sameBar', 'cardWhen', 'contSkipped', 'rsi15c', 'rsi1hc'
   'highC15', 'lowC60', 'closeC60', 'closeC240', 'bounceC15',
   'avwHigh_pct', 'cvdDivBull', 'bounces24h', 'minsSinceBounce',
   'cfgDumpPct', 'cfgBouncePct', 'cfgBounceWindowMin', 'cfgSampleGapMin', 'cfgVer', 'dipVer',
-  'breadth20', 'dumping', 'q24h'];
+  'breadth20', 'dumping', 'q24h',
+  ...STRUCT_COLS];   // fiyat yapısı (src/structure.js) en sonda
 const DIP_COLS = [...BASE_COLS, ...DIP_SPEC_COLS, ...TF_COLS, ...VWAP_COLS, ...EXTRA_COLS, 'basisPct', ...LIQ_COLS, ...ENRICH_COLS,
   ...REBOUND_COLS, ...DIP_OUTCOME_COLS, ...DIP_AUDIT_COLS];
 
@@ -99,6 +101,7 @@ function dipFeatures(series, s, ctx, low, dump, hiT, tc, history = {}) {
     ...gradeAudit(snap, s),
     cvdDivBull: cvdDivBull(d),
     breadth20: mk?.breadth20 ?? null, dumping: mk?.dumping ?? null, q24h: quoteVol24h(series),
+    ...structureFeatures(series, snap.price, tc),
   });
 }
 

@@ -26,6 +26,7 @@ const { annotateTouches, swingHighs, roundPx } = require('./levels');
 const { tfIndicators, vwapSet, vwapFeatures, TF_COLS, VWAP_COLS } = require('./marketSnap');
 const { extraFeatures, quoteVol24h } = require('./peakFeatures');
 const { basisPct, LIQ_COLS } = require('./marketData');
+const { structureFeatures, STRUCT_COLS } = require('./structure');
 
 const MIN = 60_000, DAY = 86_400_000;
 const TOUCH_PCT = 0.3;
@@ -38,7 +39,7 @@ const pct = (x, v) => +((x - v) / v * 100).toFixed(3);
 
 const EXTRA_PICK = ['bbB_5m', 'bbB_15m', 'bbB_1h', 'cvdNet15', 'cvdNet60', 'fromLow30', 'dayChg', 'breadth80', 'pumping', 'btc5', 'btc15'];
 /** Temas anı orta boy fotoğrafı (kolon adları tepeler.csv ile aynı anlamda) */
-const STOUCH_SNAP_COLS = [...TF_COLS, ...VWAP_COLS, ...LIQ_COLS, 'basisPct', ...EXTRA_PICK, 'breadth20', 'dumping', 'q24h'];
+const STOUCH_SNAP_COLS = [...TF_COLS, ...VWAP_COLS, ...LIQ_COLS, 'basisPct', ...EXTRA_PICK, 'breadth20', 'dumping', 'q24h', ...STRUCT_COLS];
 const STOUCH_HEAD_COLS = ['id', 'symbol', 'time', 'name', 'kind', 'value', 'lvTouches', 'card', 'dip', 'rsi3', 'rsi5', 'rsi15', 'emaGap', 'funding', 'btc1h',
   'wick0', 'aboveMin', 'brokeMin', 'held', 'rally', 'rallyMin', ...SNAPS.flatMap(w => [`up${w}`, `dn${w}`, `c${w}`]), 'up', 'dn', 'c60'];
 const STOUCH_COLS = [...STOUCH_HEAD_COLS, ...STOUCH_SNAP_COLS];
@@ -105,6 +106,7 @@ function snapshot(series, s, ctx, tClose, price) {
     breadth20: mk?.breadth20 ?? null, dumping: mk?.dumping ?? null, q24h: quoteVol24h(series),
     funding: prem ? num(prem.rate * 100, 4) : null,
     btc1h: ctx.btc1h ? num(ctx.btc1h(tClose)) : null,
+    ...structureFeatures(series, price, tClose),
   };
   return o;
 }
