@@ -41,8 +41,8 @@ const { extraFeatures, EXTRA_COLS, EXTRA_AUDIT_COLS } = require('./peakFeatures'
 const { setupScore, SETUP_DEFAULTS, SETUP_VER, FLAGS: SETUP_FLAGS } = require('./setupScore');
 const { basisPct, ENRICH_COLS, LIQ_COLS } = require('./marketData');
 const PKG_VERSION = String(require('../package.json').version ?? '');
-// Kayıt / derece davranışı değişince elle artır (tepeler.csv dataVer; cfgVer package.json sürümü kalır). 24.11.2026-2: derece = 1 + sep+h1+r15+atr+macd+stoch+rsi3hi; sepPct2 3.
-const DATA_VER = '2026.11.25-2';
+// Kayıt / derece davranışı değişince elle artır (tepeler.csv dataVer; cfgVer package.json sürümü kalır). 24.11.2026-2: derece = 1 + sep+h1+r15+atr+macd+stoch+rsi3hi; sepPct2 3. 25.11.2026-3: ⭐ v3 kurulum kartları da kart sayılır (card/cardGrade/cardWhen/cards24h).
+const DATA_VER = '2026.11.25-3';
 
 const MIN = 60_000;
 const TROUGH_MIN = 60;      // dip: tepeden sonraki 60 dk'nın en düşüğü

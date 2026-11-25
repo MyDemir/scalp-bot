@@ -309,7 +309,7 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   assert(rr.length && rr.every(x => Number.isFinite(x.feat.rsi3c) && Number.isFinite(x.feat.rsi5c) && Number.isFinite(x.feat.sep3c) && Number.isFinite(x.feat.sep5c)), 'rsi3c/5c, sep3c/5c sayı');
   assert(rr.some(x => x.feat.rsi3c !== x.feat.rsi3 || x.feat.rsi5c !== x.feat.rsi5), 'rsi*c kısmi mumlu rsi3/rsi5\'ten farklı olabilir');
   assert(rr.some(x => x.feat.sep3c !== x.feat.sep3), 'sep3c canlı sep3\'ten farklı olabilir');
-  assert(rr.every(x => x.feat.cfgPeakWindowMin === 15 && x.feat.cfgSampleGapMin === 7 && x.feat.cfgVer === require('../package.json').version && x.feat.dataVer === '2026.11.25-2'), 'cfg* ledger ayarları + sürüm');
+  assert(rr.every(x => x.feat.cfgPeakWindowMin === 15 && x.feat.cfgSampleGapMin === 7 && x.feat.cfgVer === require('../package.json').version && x.feat.dataVer === '2026.11.25-3'), 'cfg* ledger ayarları + sürüm');
   // sep3c: kapanmış mumla elle hesap (yeni seri; kısmi mum sep3c'yi değiştirmez)
   {
     const ta = require(`${REPO}/src/ta`); const { sepClosed } = require(`${REPO}/src/eventLog`);
@@ -434,7 +434,7 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   for (const k of GC) assert(pk.feat[k] != null, 'tepe feat dolu: ' + k);
   assert.strictEqual(pk.feat.gradeVer, 2); assert.strictEqual(pk.feat.cfgGradeMacd5m, 1); assert.strictEqual(pk.feat.cfgGradeStoch5m, 1);
   assert.strictEqual(pk.feat.cfgVer, require('../package.json').version, 'cfgVer package.json sürümü');
-  assert.strictEqual(pk.feat.dataVer, '2026.11.25-2', 'dataVer elle artırılan sürüm');
+  assert.strictEqual(pk.feat.dataVer, '2026.11.25-3', 'dataVer elle artırılan sürüm');
   assert(pk.feat.gradeOld <= pk.feat.grade || pk.feat.grade === 0, 'gradeOld ≤ grade (macd/stoch yalnız artırır)');
   assert(sc.length > 0, 'gerçek kart üretildi: ' + sc.length);
   const card = sc[0];
@@ -487,7 +487,7 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   assert.strictEqual(tc[tc.length - 8], 'atr2C15', 'atr2C15, v3 kolonlarından önce'); assert.strictEqual(tc[tc.length - 9], 'dataVer');
   assert(GC.every((k, i) => tv[tc.length - 9 - GC.length + i] !== ''), 'tepe satırı: 16 kolon dolu');
   assert.strictEqual(tv[tc.indexOf('cfgVer')], require('../package.json').version);
-  assert.strictEqual(tv[tc.indexOf('dataVer')], '2026.11.25-2');
+  assert.strictEqual(tv[tc.indexOf('dataVer')], '2026.11.25-3');
   assert(!hn.includes('dataVer'), 'kartlar.csv: dataVer yok');
   // MD: eski derece satırı + yeni kurulum grupları
   const md = cols[true].w.md;
