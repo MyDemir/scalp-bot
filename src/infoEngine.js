@@ -152,6 +152,11 @@ function checklist(snap, s) {
       const gapPct = Math.abs(L.value - ref.value) / ref.value * 100;
       if (gapPct <= s.confluencePct && (!conf || gapPct < conf.gapPct)) conf = { ...L, gapPct };
     }
+    // levels.js aynı fiyata (±%0.3) düşen ikinci seviyeyi ayrı satır yapmaz, ref.also'a adını ekler (kart "Çakışma" yazar).
+    if (!conf) {
+      const nm = (ref.also || []).find(n => n !== ref.name && !String(n).startsWith('Fib') && n !== '1h tepe');
+      if (nm) conf = { name: nm, value: ref.value, gapPct: 0 };
+    }
   }
 
   const inBand = v => v >= s.strongRsi && v <= s.rsiEntryMax;
@@ -663,7 +668,7 @@ function createTracker() {
       const out = [];
       const above = RSI_TFS.filter(tf => snap.rsi[tf].v >= s.rsiMin);
       if (!L) {
-        if (snap.rsiOk !== false) out.push('İlk kart');
+        if (snap.rsiOk !== false) out.push(m.xs > 0 ? 'İlk RSI kartı (⭐ kurulum kartından sonra)' : 'İlk kart');
         if (snap.discovery) out.push(discoveryText(snap.discovery));
         if (trig.move) out.push(moveText(trig.move));
         else if (trig.burst) out.push(burstText(trig.burst));
