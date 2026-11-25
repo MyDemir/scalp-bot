@@ -229,6 +229,31 @@ function extraFeatures(series, o = {}) {
   return out;
 }
 
+/**
+ * Boğa CVD ayrışması (dip defteri; cvdDiv'in aynası, cvdDiv'in anlamı değişmez): fiyat son 60 dk'nın önceki dibine
+ * (açılış [tLast−59dk, tLast−5dk]) indi ya da altına geçti ama o dipten bu yana net taker akışı pozitif (kümülatif CVD
+ * o dipteki seviyenin üstünde). Pencere yetersizse null.
+ */
+function cvdDivBull(d) {
+  const n = d.c.length;
+  if (n < 30) return null;
+  const pw = minWin(d, 59, 5);
+  if (!pw.ok) return null;
+  let j = -1;
+  for (let i = pw.a; i <= pw.b; i++) if (j < 0 || d.l[i] < d.l[j]) j = i;
+  if (j < 0 || !(d.l[n - 1] <= d.l[j])) return false;
+  let x = 0; for (let i = j + 1; i < n; i++) x += 2 * d.tq[i] - d.q[i];
+  return x > 0;
+}
+
+/** Coin büyüklüğü: son 24 KAPANMIŞ 1h mumun quote hacmi toplamı (USDT); 24 mum yoksa null */
+function quoteVol24h(series) {
+  const q = series.col('1h', 'q', false), n = q.length;
+  if (n < 24) return null;
+  let s = 0; for (let i = n - 24; i < n; i++) s += q[i];
+  return num(s, 0);
+}
+
 const EXTRA_COLS = ['cvdNet15', 'cvdNet60', 'cvdDiv', 'cvdDivPct', 'buyChg', 'wick_1m', 'clv_1m', 'body_1m', 'wick_5m', 'clv_5m', 'body_5m',
   'wick_15m', 'clv_15m', 'body_15m', 'greens_1m', 'greens_5m', 'volTrend15', 'volPeakX', 'neg5', 'neg15', 'neg1h', 'bbB_5m', 'bbW_5m',
   'bbB_15m', 'bbW_15m', 'bbB_1h', 'bbW_1h', 'spd15', 'spdPrev15', 'accel', 'pumpAtr', 'breadth80', 'pumping', 'btc5', 'btc15', 'btcRsi15',
@@ -238,4 +263,4 @@ const EXTRA_COLS = ['cvdNet15', 'cvdNet60', 'cvdDiv', 'cvdDivPct', 'buyChg', 'wi
 // Sona eklenen kolonlar (eventLog AUDIT_COLS'ta; EXTRA_COLS sırası değişmez)
 const EXTRA_AUDIT_COLS = ['wick_5mc', 'clv_5mc', 'wick_15mc', 'clv_15mc', 'bar5Pct', 'bar15Pct', 'volPeakXc', 'miss60', 'futQ60t'];
 
-module.exports = { extraFeatures, EXTRA_COLS, EXTRA_AUDIT_COLS, emaTrend, cvdFeatures, minWin, bollinger, ichiCloud, session, localHourDow };
+module.exports = { cvdDivBull, quoteVol24h, extraFeatures, EXTRA_COLS, EXTRA_AUDIT_COLS, emaTrend, cvdFeatures, minWin, bollinger, ichiCloud, session, localHourDow };

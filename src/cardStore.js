@@ -10,6 +10,8 @@
  *   Saklama: 90 gün.
  *   Seviye tepkisi (src/levelTouch.js): dirence alttan temas + sonraki 60 dk özeti, `touches` tablosu, 60 gün.
  *   Düşüş defteri (src/eventLog.js): pompa tepesinden düşüş (kartlı/kartsız) + tepe anındaki tüm göstergeler, `events`, 60 gün.
+ *   Dip defteri (src/dipLog.js): düşüşteki dip adayı (döndü/devam/yatay) + dip anındaki tüm göstergeler, `dips`, 60 gün.
+ *   Destek teması (src/supportTouch.js): desteğe ÜSTTEN temas + sonraki 60 dk, `stouches`, 60 gün.
  *
  * Hata olursa bot durmaz: yazma hataları loglanır, kart gönderimi etkilenmez.
  */
@@ -22,6 +24,8 @@ const WINDOWS = [5, 15, 30, 60, 240];          // kart sonrası (dk) — eski ve
 const KEEP_DAYS = 90;
 const TOUCH_KEEP_DAYS = 60;
 const EVENT_KEEP_DAYS = 60;
+const DIP_KEEP_DAYS = 60;
+const STOUCH_KEEP_DAYS = 60;
 const PATH_KEEP_DAYS = 60;                     // paths: haftalık rapordan sonra purgeBefore ile silinir; bu 60 gün güvenlik ağı
 const PATH_MIN = 15;                           // tepeden sonraki 1m yolu: en çok dakika
 const EVENT_WINDOWS = [5, 15, 30, 60, 240];    // tepe adayı sonrası (dk)
@@ -70,6 +74,19 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
         ${EVENT_WINDOWS.map(w => `low${w} REAL, high${w} REAL, close${w} REAL`).join(', ')}
       );
       CREATE INDEX IF NOT EXISTS events_t ON events(t);`);
+    db.exec(`CREATE TABLE IF NOT EXISTS dips (
+        id TEXT PRIMARY KEY, symbol TEXT NOT NULL, t INTEGER NOT NULL, price REAL, bouncet INTEGER, bouncemin INTEGER,
+        card INTEGER, cardgrade INTEGER, outcome TEXT, data TEXT,
+        ${EVENT_WINDOWS.map(w => `low${w} REAL, high${w} REAL, close${w} REAL`).join(', ')}
+      );
+      CREATE INDEX IF NOT EXISTS dips_t ON dips(t);
+      CREATE TABLE IF NOT EXISTS stouches (
+        id TEXT PRIMARY KEY, symbol TEXT NOT NULL, t INTEGER NOT NULL, name TEXT NOT NULL, kind TEXT, value REAL, lvtouches INTEGER,
+        card INTEGER, dip INTEGER, rally REAL, rallymin INTEGER, brokemin INTEGER, abovemin INTEGER, held INTEGER,
+        up REAL, dn REAL, c60 REAL, wick0 REAL,
+        ${TOUCH_SNAPS.map(w => `up${w} REAL, dn${w} REAL, c${w} REAL`).join(', ')}, data TEXT
+      );
+      CREATE INDEX IF NOT EXISTS stouches_t ON stouches(t);`);
     // Sonradan eklenen sütunlar (eski veritabanı): dibin indiği ortalama
     const tcols = new Set(db.prepare('PRAGMA table_info(touches)').all().map(c => c.name));
     for (const [c, type] of [['stop', 'TEXT'], ['stopdepth', 'REAL'], ['falling', 'INTEGER'], ['lvtouches', 'INTEGER'],
@@ -107,6 +124,12 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
     tPrune: db.prepare('DELETE FROM touches WHERE t < ?'),
     pIns: db.prepare('INSERT OR IGNORE INTO paths (id, symbol, t, entry, n, data) VALUES (?, ?, ?, ?, ?, ?)'),
     pPrune: db.prepare('DELETE FROM paths WHERE t < ?'),
+    dIns: db.prepare(`INSERT OR IGNORE INTO dips (id, symbol, t, price, bouncet, bouncemin, card, cardgrade, outcome, data, ${EVENT_WINDOWS.map(w => `low${w}, high${w}, close${w}`).join(', ')})
+      VALUES (@id, @symbol, @t, @price, @bouncet, @bouncemin, @card, @cardgrade, @outcome, @data, ${EVENT_WINDOWS.map(w => `@low${w}, @high${w}, @close${w}`).join(', ')})`),
+    dPrune: db.prepare('DELETE FROM dips WHERE t < ?'),
+    sIns: db.prepare(`INSERT OR IGNORE INTO stouches (id, symbol, t, name, kind, value, lvtouches, card, dip, rally, rallymin, brokemin, abovemin, held, up, dn, c60, wick0${TOUCH_SNAPS.map(w => `, up${w}, dn${w}, c${w}`).join('')}, data)
+      VALUES (@id, @symbol, @t, @name, @kind, @value, @lvtouches, @card, @dip, @rally, @rallymin, @brokemin, @abovemin, @held, @up, @dn, @c60, @wick0${TOUCH_SNAPS.map(w => `, @up${w}, @dn${w}, @c${w}`).join('')}, @data)`),
+    sPrune: db.prepare('DELETE FROM stouches WHERE t < ?'),
     // Panel (salt okunur): mevcut indeksler yeter (cards_t, touches_t, events_t, paths PK)
     rCards: db.prepare("SELECT * FROM cards WHERE kind = 'card' ORDER BY t DESC LIMIT ?"),
     rTouches: db.prepare('SELECT * FROM touches ORDER BY t DESC LIMIT ?'),
@@ -124,6 +147,22 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
   function safe(fn, label) {
     if (!db) return null;
     try { return fn(); } catch (err) { logger.error(`[GEÇMİŞ] ${label}: ${err.message}`); return null; }
+  }
+
+  /** rowid ile parça parça okuma; parçalar arasında olay döngüsüne nefes (setImmediate) */
+  async function chunked(table, since, until, batch, map, fn) {
+    if (!db) return 0;
+    const q = db.prepare(`SELECT rowid AS _rid, * FROM ${table} WHERE rowid > ? AND t >= ? AND t < ? ORDER BY rowid LIMIT ?`);
+    let last = 0, n = 0;
+    for (;;) {
+      const rows = safe(() => q.all(last, since, until, batch), 'sorgu') || [];
+      if (!rows.length) break;
+      last = rows[rows.length - 1]._rid;
+      for (const r of rows) { const x = fn(map(r)); if (x && typeof x.then === 'function') await x; n++; }
+      if (rows.length < batch) break;
+      await new Promise(res => setImmediate(res));
+    }
+    return n;
   }
 
   function track(id, symbol, t, price) {
@@ -179,6 +218,8 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
       safe(() => st.tPrune.run(now - TOUCH_KEEP_DAYS * 86_400_000), 'temizlik');
       safe(() => st.ePrune.run(now - EVENT_KEEP_DAYS * 86_400_000), 'temizlik');
       safe(() => st.pPrune.run(now - PATH_KEEP_DAYS * 86_400_000), 'temizlik');
+      safe(() => st.dPrune.run(now - DIP_KEEP_DAYS * 86_400_000), 'temizlik');
+      safe(() => st.sPrune.run(now - STOUCH_KEEP_DAYS * 86_400_000), 'temizlik');
     },
 
     /** Seviye tepkisi olayı (src/levelTouch.js finish() çıktısı) */
@@ -200,6 +241,37 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
       for (const w of EVENT_WINDOWS) for (const k of ['low', 'high', 'close']) row[`${k}${w}`] = e.out?.[w]?.[k] ?? null;
       safe(() => st.eIns.run(row), 'düşüş kaydı');
     },
+    /** Dip olayı (src/dipLog.js finish() çıktısı) — hata loglanır, bot devam eder */
+    addDip(e) {
+      if (!db) return;
+      try {
+        const row = { id: e.id, symbol: e.symbol, t: e.t, price: e.price, bouncet: e.bounceT ?? null, bouncemin: e.bounceMin ?? null, card: e.card ? 1 : 0,
+          cardgrade: e.cardGrade ?? null, outcome: e.outcome ?? null, data: JSON.stringify(e.feat ?? {}) };
+        for (const w of EVENT_WINDOWS) for (const k of ['low', 'high', 'close']) row[`${k}${w}`] = e.out?.[w]?.[k] ?? null;
+        st.dIns.run(row);
+      } catch (err) { logger.error(`[DİP] kayıt: ${err.message}`); }
+    },
+    /** Destek teması (src/supportTouch.js finish() çıktısı); göstergeler data (JSON) */
+    addSTouch(e) {
+      if (!db) return;
+      try {
+        const { id, symbol, t, name, kind, value, lvTouches, card, dip, rally, rallyMin, brokeMin, aboveMin, held, up, dn, c60, wick0, ...rest } = e;
+        const row = { id, symbol, t, name, kind: kind ?? null, value, lvtouches: lvTouches ?? null, card: card ? 1 : 0, dip: dip ? 1 : 0,
+          rally: rally ?? null, rallymin: rallyMin ?? null, brokemin: brokeMin ?? null, abovemin: aboveMin ?? null, held: held ? 1 : 0,
+          up: up ?? null, dn: dn ?? null, c60: c60 ?? null, wick0: wick0 ?? null };
+        for (const w of TOUCH_SNAPS) for (const k of ['up', 'dn', 'c']) { row[`${k}${w}`] = rest[`${k}${w}`] ?? null; delete rest[`${k}${w}`]; }
+        row.data = JSON.stringify(rest);
+        st.sIns.run(row);
+      } catch (err) { logger.error(`[DESTEK] kayıt: ${err.message}`); }
+    },
+    /** Dip adaylarını PARÇA PARÇA okur (forEachEvent gibi). fn(dip) → (async olabilir) */
+    async forEachDip({ since = 0, until = Number.MAX_SAFE_INTEGER, batch = 100 } = {}, fn) {
+      return chunked('dips', since, until, batch, rowToDip, fn);
+    },
+    /** Destek temaslarını PARÇA PARÇA okur (500'lük). fn(temas) → (async olabilir) */
+    async forEachSTouch({ since = 0, until = Number.MAX_SAFE_INTEGER, batch = 500 } = {}, fn) {
+      return chunked('stouches', since, until, batch, rowToSTouch, fn);
+    },
     /** Tepe sonrası 1m yolu (eventLog onPath): buf = Float32Array [h%, l%, c%] × n, girişe göre */
     addPath(r) {
       safe(() => st.pIns.run(r.id, r.symbol, r.t, r.entry, r.n, Buffer.from(r.buf.buffer, r.buf.byteOffset, r.buf.byteLength)), 'yol kaydı');
@@ -214,6 +286,8 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
         touches: db.prepare('DELETE FROM touches WHERE t < ?').run(cutoff).changes,
         events: db.prepare('DELETE FROM events WHERE t < ?').run(cutoff).changes,
         paths: db.prepare('DELETE FROM paths WHERE t < ?').run(cutoff).changes,
+        dips: db.prepare('DELETE FROM dips WHERE t < ?').run(cutoff).changes,
+        stouches: db.prepare('DELETE FROM stouches WHERE t < ?').run(cutoff).changes,
       }), 'silme');
       for (const [sym, arr] of open) {
         for (let k = arr.length - 1; k >= 0; k--) if (arr[k].t < cutoff) { arr.splice(k, 1); openN--; }
@@ -374,6 +448,26 @@ function rowToEvent(r) {
   return { id: r.id, symbol: r.symbol, t: r.t, price: r.price, outcome, dropT: r.dropt, dropMin: r.dropmin, card: Boolean(r.card), cardGrade: r.cardgrade, feat, out };
 }
 
+/** dips satırı → dipLog olay biçimi */
+function rowToDip(r) {
+  let feat = {};
+  try { feat = JSON.parse(r.data || '{}'); } catch { feat = {}; }
+  const out = {};
+  for (const w of EVENT_WINDOWS) if (r[`low${w}`] != null) out[w] = { low: r[`low${w}`], high: r[`high${w}`], close: r[`close${w}`] };
+  return { id: r.id, symbol: r.symbol, t: r.t, price: r.price, outcome: r.outcome, bounceT: r.bouncet, bounceMin: r.bouncemin, card: Boolean(r.card), cardGrade: r.cardgrade, feat, out };
+}
+
+/** stouches satırı → supportTouch olay biçimi (göstergeler data'dan düz alan olarak) */
+function rowToSTouch(r) {
+  let d = {};
+  try { d = JSON.parse(r.data || '{}'); } catch { d = {}; }
+  return {
+    ...d, id: r.id, symbol: r.symbol, t: r.t, name: r.name, kind: r.kind, value: r.value, lvTouches: r.lvtouches, card: Boolean(r.card), dip: Boolean(r.dip),
+    rally: r.rally, rallyMin: r.rallymin, brokeMin: r.brokemin, aboveMin: r.abovemin, held: Boolean(r.held), up: r.up, dn: r.dn, c60: r.c60, wick0: r.wick0,
+    ...Object.fromEntries(TOUCH_SNAPS.flatMap(w => ['up', 'dn', 'c'].map(k => [`${k}${w}`, r[`${k}${w}`] ?? null]))),
+  };
+}
+
 /** touches satırı → levelTouch olay biçimi */
 function rowToTouch(r) {
   return {
@@ -394,4 +488,4 @@ function pathRow(r) {
   return o;
 }
 
-module.exports = { createCardStore, PATH_COLS, pathRow, PATH_KEEP_DAYS, rowToStat, rowToTouch, rowToEvent, WINDOWS, EVENT_WINDOWS, TOUCH_SNAPS };
+module.exports = { createCardStore, PATH_COLS, pathRow, PATH_KEEP_DAYS, DIP_KEEP_DAYS, STOUCH_KEEP_DAYS, rowToDip, rowToSTouch, rowToStat, rowToTouch, rowToEvent, WINDOWS, EVENT_WINDOWS, TOUCH_SNAPS };

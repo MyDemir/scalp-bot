@@ -671,4 +671,4 @@ function flatDrop(r, windows = DEFAULTS.windows) {
 }
 const dropCols = (windows = DEFAULTS.windows) => Object.keys(flatDrop({ out: {}, feat: {} }, windows));
 
-module.exports = { sepClosed, teyitText, teyitRows, createTeyitAcc, slimDrop, DROP_REPORT_FIELDS, csvLine, csvHeader, CANDS, createDropLedger, createPeakLedger, features, peakFeatures, FEATURE_COLS, TROUGH_COLS, OUTCOME_COLS, DEFAULTS, dropText, toCsv, flatDrop, dropCols };
+module.exports = { fromEntry, sepClosed, teyitText, teyitRows, createTeyitAcc, slimDrop, DROP_REPORT_FIELDS, csvLine, csvHeader, CANDS, createDropLedger, createPeakLedger, features, peakFeatures, FEATURE_COLS, TROUGH_COLS, OUTCOME_COLS, DEFAULTS, dropText, toCsv, flatDrop, dropCols };
