@@ -464,8 +464,12 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
     const w = await W.buildWeekly(st2, { now, s: cfg.info, E: cfg.events }); const Z = unzip(w.files[0].buf);
     cols[firstNew] = { h: hdr(Z), Z, w }; st2.close();
   }
-  const hn = cols[true].h, ho = cols[false].h;
-  assert.deepStrictEqual(hn, ho, 'ilk satır yeni ya da eski olsa da aynı başlık');
+  const hnAll = cols[true].h, ho = cols[false].h;
+  assert.deepStrictEqual(hnAll, ho, 'ilk satır yeni ya da eski olsa da aynı başlık');
+  // ⭐ kurulum kolonları (25.11.2026) en sonda; derece 16 kolonu hemen önlerinde
+  const SC = ['setup', 'setupS', 'setupPump'];
+  assert.deepStrictEqual(hnAll.slice(-SC.length), SC, 'kartlar.csv: kurulum 3 kolonu en sonda');
+  const hn = hnAll.slice(0, -SC.length);
   assert.deepStrictEqual(hn.slice(-GC.length), GC, 'kartlar.csv: 16 derece kolonu sonda');
   const prefix = hn.slice(0, -GC.length);
   assert(!prefix.some(k => GC.includes(k)), 'derece kolonları önde yok');
@@ -474,7 +478,8 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   const gi = hn.indexOf('g_macd'), si = hn.indexOf('symbol');
   const newRow = rows.find(x => x[si] === 'AUSDT'), oldRow = rows.find(x => x[si] === 'BUSDT');
   assert(GC.every((k, i) => newRow[hn.length - GC.length + i] !== ''), 'yeni kart: 16 kolon DOLU');
-  assert(oldRow.slice(-GC.length).every(x => x === ''), 'eski kart: 16 kolon boş');
+  assert(oldRow.slice(-GC.length - SC.length, -SC.length).every(x => x === ''), 'eski kart: 16 kolon boş');
+  assert.strictEqual(newRow[hnAll.indexOf('setup')], '', 'setup verilmeden yazılan kart: kurulum kolonu boş');
   assert.strictEqual(newRow[hn.indexOf('gradeVer')], '2');
   // tepeler.csv: yeni kolonlar sonda ve dolu
   const th = parseCsv(cols[true].Z['tepeler.csv']); const tc = th[0], tv = th[1];
@@ -491,7 +496,8 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   assert(md.includes('Derece alanları') && md.includes('doğruluk sütunları'), 'MD sütun açıklaması');
   // /disaaktar aynı sıra
   const ex = await buildExports(createCardStoreFrom(dir + '/ctrue.db'), 30, now); const ez = unzip(ex.files[0].buf);
-  assert.deepStrictEqual(ez['kartlar.csv'].replace('\uFEFF', '').split('\n')[0].split(',').slice(-GC.length), GC, '/disaaktar kartlar.csv derece kolonları sonda');
+  assert.deepStrictEqual(ez['kartlar.csv'].replace('\uFEFF', '').split('\n')[0].split(',').slice(-GC.length - SC.length, -SC.length), GC, '/disaaktar kartlar.csv derece kolonları sonda (kurulum 3 kolonundan önce)');
+  assert.deepStrictEqual(ez['kartlar.csv'].replace('\uFEFF', '').split('\n')[0].split(',').slice(-SC.length), SC, '/disaaktar kurulum kolonları en sonda');
   assert(ez['kartlar.csv'].replace('\uFEFF', '').split('\n')[0].split(',').indexOf('time') < ez['kartlar.csv'].replace('\uFEFF', '').split('\n')[0].split(',').indexOf('partial'), '/disaaktar eski sıra: time, partial');
   function createCardStoreFrom(f) { return createCardStore({ file: f, logger: { log() {}, error: x => { throw new Error(x); } } }); }
   // /teyit: iki yeni aday satırı, en kötü uzunluk

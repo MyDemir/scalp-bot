@@ -45,6 +45,7 @@ const DEFS = [
   { key: 'levelsFib', short: 'Fib seviyeleri', label: 'Direnç: son 1h bacağın Fib 0.236/0.382/0.618', type: 'bool' },
   { key: 'sfpCards', short: 'Sahte kırılım', label: 'Sahte kırılım (SFP) kartı', type: 'bool' },
   { key: 'sfpBars', short: 'SFP süresi', label: 'Sahte kırılım: kırılımdan sonra en fazla … 5m mum', type: 'int', min: 1, max: 24, step: 1 },
+  { key: 'setupCards', short: 'v3 kurulum', label: '⭐ v3 kurulum kartı (S ≥ 4/5 + pompa ≥ %5, pompada ilk aday · her zaman sesli)', type: 'bool' },
   { key: 'discoveryCards', short: 'Fiyat keşfi', label: 'Fiyat keşfi kartı (yakında direnç yok, seviye kırıldı)', type: 'bool' },
   { key: 'dipBelowPct', short: 'Dirençte alt %', label: 'Dirençte: direncin en fazla % altında', type: 'num', min: 0.1, max: 3, step: 0.1 },
   { key: 'dipAbovePct', short: 'Dirençte üst %', label: 'Dirençte: direncin en fazla % üstünde (fitil payı)', type: 'num', min: 0, max: 2, step: 0.1 },

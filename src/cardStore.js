@@ -25,7 +25,8 @@ const EVENT_KEEP_DAYS = 60;
 const PATH_KEEP_DAYS = 60;                     // paths: haftalık rapordan sonra purgeBefore ile silinir; bu 60 gün güvenlik ağı
 const PATH_MIN = 15;                           // tepeden sonraki 1m yolu: en çok dakika
 const EVENT_WINDOWS = [5, 15, 30, 60, 240];    // tepe adayı sonrası (dk)
-const TOUCH_SNAPS = [5, 15, 30];               // seviye teması kısa pencereleri (60 dk ayrıca)
+const TOUCH_SNAPS = [5, 15, 30];
+const SETUP_COLS_DB = [['setup', 'INTEGER'], ['setupS', 'INTEGER'], ['setupPump', 'REAL']];   // cards sonu (yalnız ADD COLUMN)               // seviye teması kısa pencereleri (60 dk ayrıca)
 
 function defaultFile() {
   const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'signals.db');
@@ -83,6 +84,8 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
     for (const [tbl, have, ws] of [['cards', ccols, WINDOWS], ['events', ecols, EVENT_WINDOWS]]) {
       for (const w of ws) for (const k of ['low', 'high', 'close']) if (!have.has(`${k}${w}`)) db.exec(`ALTER TABLE ${tbl} ADD COLUMN ${k}${w} REAL`);
     }
+    // ⭐ v3 B kurulum kartı (25.11.2026): tablonun sonuna; eski satırlarda boş
+    for (const [c, type] of SETUP_COLS_DB) if (!ccols.has(c)) db.exec(`ALTER TABLE cards ADD COLUMN ${c} ${type}`);
     const n = recover ? db.prepare('UPDATE cards SET done = 1, partial = 1 WHERE done = 0').run().changes : 0;
     if (n) logger.log(`[GEÇMİŞ] Yeniden başlatma: ${n} yarım takip "eksik" olarak kapatıldı`);
   } catch (err) {
@@ -91,7 +94,7 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
   }
 
   const st = db && {
-    insert: db.prepare('INSERT OR IGNORE INTO cards (id, kind, symbol, t, seq, price, data) VALUES (?, ?, ?, ?, ?, ?, ?)'),
+    insert: db.prepare('INSERT OR IGNORE INTO cards (id, kind, symbol, t, seq, price, data, setup, setupS, setupPump) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
     upd: Object.fromEntries(WINDOWS.map(w => [w, db.prepare(`UPDATE cards SET low${w} = ?, high${w} = ?, close${w} = ?, done = ?, partial = ? WHERE id = ?`)])),
     close: db.prepare('UPDATE cards SET done = 1, partial = 1 WHERE id = ?'),
     recent: db.prepare('SELECT * FROM cards WHERE symbol = ? ORDER BY t DESC LIMIT ?'),
@@ -135,9 +138,10 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
   return {
     enabled: () => Boolean(db),
 
-    /** @param {object} row  { id, kind:'card'|'move', symbol, t, seq, price, data } */
+    /** @param {object} row  { id, kind:'card'|'move', symbol, t, seq, price, data, setup?:0|1, setupS?, setupPump? } */
     add(row) {
-      const r = safe(() => st.insert.run(row.id, row.kind, row.symbol, row.t, row.seq ?? null, row.price, JSON.stringify(row.data ?? {})), 'kayıt');
+      const r = safe(() => st.insert.run(row.id, row.kind, row.symbol, row.t, row.seq ?? null, row.price, JSON.stringify(row.data ?? {}),
+        row.setup ?? null, row.setupS ?? null, row.setupPump ?? null), 'kayıt');
       if (r && r.changes) track(row.id, row.symbol, row.t, row.price);
     },
 
@@ -360,7 +364,8 @@ function rowToStat(r) {
   try { d = JSON.parse(r.data || '{}'); } catch { d = {}; }
   const fwd = {};
   for (const w of WINDOWS) if (r[`low${w}`] != null) fwd[w] = { low: r[`low${w}`], high: r[`high${w}`], close: r[`close${w}`] };
-  return { ...d, kind: r.kind, symbol: r.symbol, t: r.t, seq: r.seq, price: r.price, fwd, partial: Boolean(r.partial), done: Boolean(r.done) };
+  return { ...d, kind: r.kind, symbol: r.symbol, t: r.t, seq: r.seq, price: r.price, fwd, partial: Boolean(r.partial), done: Boolean(r.done),
+    setup: r.setup ?? null, setupS: r.setupS ?? null, setupPump: r.setupPump ?? null };
 }
 
 /** events satırı → eventLog olay biçimi */

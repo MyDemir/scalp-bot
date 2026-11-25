@@ -654,7 +654,7 @@ function createTracker() {
     observe15m(sym, rsi15mClosed, s) {
       if (rsi15mClosed == null || rsi15mClosed >= s.resetRsi) return;
       const m = mem.get(sym);
-      if (m && m.seq) { m.seq = 0; m.last = null; m.maxGrade = 0; }
+      if (m && (m.seq || m.xs)) { m.seq = 0; m.last = null; m.maxGrade = 0; m.xs = 0; }
     },
 
     news(sym, snap, trig, s) {
@@ -742,9 +742,22 @@ function createTracker() {
         neg: { '1m': snap.neg?.['1m']?.count ?? 0, '3m': snap.neg?.['3m']?.count ?? 0 },
         negKey: { '1m': snap.neg?.['1m']?.key ?? null, '3m': snap.neg?.['3m']?.key ?? null },
       };
-      m.log.push({ t: snap.t, price: snap.price, seq: m.seq });
+      m.log.push({ t: snap.t, price: snap.price, seq: m.seq + (m.xs || 0) });
       while (m.log.length && m.log[0].t < snap.t - DAY) m.log.shift();
-      return m.seq;
+      return m.seq + (m.xs || 0);
+    },
+
+    /**
+     * ⭐ Kurulum kartı (tek başına): yalnız kart numarasını ilerletir. Seri durumu (last, maxGrade, active) DEĞİŞMEZ —
+     * mevcut kart kuralları (derece yükselme, seri içi patlama, "yeni veri yoksa kart yok") kurulum kartından etkilenmez.
+     */
+    commitExtra(sym, snap) {
+      const m = get(sym);
+      m.xs = (m.xs || 0) + 1;
+      const seq = m.seq + m.xs;
+      m.log.push({ t: snap.t, price: snap.price, seq });
+      while (m.log.length && m.log[0].t < snap.t - DAY) m.log.shift();
+      return seq;
     },
 
     active: sym => (mem.get(sym)?.seq ?? 0) > 0,
@@ -863,9 +876,74 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
   };
 }
 
+// RSI şartı kolu (ayar değil, tek nokta): true → kurulum kartı da kartın RSI şartını (snap.rsiOk = 3m/5m/15m'den minTFs tanesinde RSI ≥ rsiMin) ister.
+// 25.11.2026: şimdilik KAPALI (veri: şart 516 → 154 kart, 4 dönemde tutmuyor; kullanıcı kararı bekleniyor).
+const SETUP_RSI_REQUIRED = false;
+const SETUP_TXT = { v3_rsi1m: '1dk RSI ≥85', v3_bb15: '15dk BB %B>1', v3_stoch5: '5dk Stoch aşağı', v3_vol3: '3dk hacim ≥3 kat', v3_liq: 'short likidasyon' };
+/** "⭐ v3 kurulumu: S 4/5 (…) · pompa %6.3" — sağlanan bayraklar adlarıyla */
+function setupText(su) {
+  const fl = (su.flags || []).map(k => SETUP_TXT[k] || k).join(' · ');
+  return `⭐ v3 kurulumu: S ${su.S}/5${fl ? ` (${fl})` : ''} · pompa %${Number.isFinite(su.pumpPct) ? su.pumpPct.toFixed(1) : '—'}`;
+}
+
+/**
+ * ⭐ v3 B kurulum kartı (canlı ve backtest ortak). `setup` = drops.takeSetup(sym) (aday anındaki karar), `card` = aynı mumun step() kartı.
+ *   · setupCards kapalı ya da setup yok → card aynen döner (hiçbir değişiklik yok).
+ *   · aynı mumda normal kart varsa: ikinci kart yok, o karta ⭐ satırı + #KURULUM, trig.setup = true, sesli.
+ *   · yoksa: snap.ok / seri "derece yükselmeli" kuralı aranmadan yeni kart (bypassBy 'setup'); seri durumu değişmez (commitExtra).
+ * Derece hesabı aynen evaluate()'ten gelir.
+ */
+function setupCard(series, s, tracker, ctx = {}, setup = null, card = null) {
+  if (!setup || s.setupCards === false) return card;
+  if (SETUP_RSI_REQUIRED && card && card.snap?.rsiOk !== true) return card;   // RSI şartı (kart hattının snap.rsiOk'u) yoksa ⭐ yok
+  const info = { S: setup.S, flags: [...(setup.flags || [])], pumpPct: setup.pumpPct };
+  const line = setupText(setup);
+  if (card) {
+    if (card.trig.setup) return card;
+    card.trig.setup = true;
+    card.setup = info;
+    card.news.unshift(line);
+    card.tags.push('#KURULUM');
+    card.silent = false;
+    return card;
+  }
+  if (!series.ready()) return null;
+  const sym = series.symbol;
+  const snap = evaluate(series, s, ctx, true);
+  if (SETUP_RSI_REQUIRED && snap.rsiOk !== true) return null;   // RSI şartı: 3m/5m/15m'den en az minTFs tanesinde RSI ≥ rsiMin (evaluate)
+  if (ctx.isMuted && ctx.isMuted(sym, snap.t)) return null;
+  const trig = { tfs: [], burst: null, inSeries: false, sfp: null, move: null, setup: true };
+  const news = [line, ...tracker.news(sym, snap, trig, s)];
+  const seq = tracker.commitExtra(sym, snap);
+  const followed = ctx.isFollowed ? ctx.isFollowed(sym) : false;
+  const dip = snap.level?.zone === 'dip';
+  const tags = [
+    `#${sym}`, `#DERECE${snap.grade}`,
+    snap.level ? (dip ? '#DIRENCTE' : '#YAKLASIYOR') : null,
+    '#KURULUM',
+    snap.discovery ? '#FIYATKESFI' : null,
+    Math.max(snap.neg?.['1m']?.count ?? 0, snap.neg?.['3m']?.count ?? 0) >= 2 ? '#NEGTEPE' : null,
+    snap.sepOk ? '#AYRISMA' : null,
+    followed ? '#TAKIP' : null,
+  ].filter(Boolean);
+  return {
+    id: `${sym}-${snap.t}`, symbol: sym, seq, t: snap.t, price: snap.price,
+    snap, news, trig, tags, followed, inSeries: false,
+    moveStats: tracker.moveStats(sym, snap.t),
+    grade: snap.grade,
+    setup: info,
+    snapOk: snap.ok ? 1 : 0,
+    snapFails: (snap.fails || []).join('|'),
+    filterBypass: snap.ok ? 0 : 1,
+    bypassBy: snap.ok ? '' : 'setup',
+    gradeAudit: gradeAudit(snap, s),
+    silent: false,
+  };
+}
+
 function movePct(prevClose, prevT, c) {
   const base = prevClose > 0 && prevT === c.t - MIN ? prevClose : c.o;
   return base > 0 ? (c.c - base) / base * 100 : null;
 }
 
-module.exports = { macdState, stochState, rsiOf, findHiddenPU, findGoldenCross, volStats, emaRide, moveText, evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, detectSfp, discoveryOf, negPeaks, movePct, volGrade, rsiGrade, gradeOf, gradeOldOf, gradeAudit, gradeConds, checklist, circles, dirColor, RSI_TFS, separationPct };
+module.exports = { SETUP_RSI_REQUIRED, setupCard, setupText, macdState, stochState, rsiOf, findHiddenPU, findGoldenCross, volStats, emaRide, moveText, evaluate, step, createTracker, detectBurst, burstCounts, takerNet, burstAt, pickLevel, levelsOf, detectSfp, discoveryOf, negPeaks, movePct, volGrade, rsiGrade, gradeOf, gradeOldOf, gradeAudit, gradeConds, checklist, circles, dirColor, RSI_TFS, separationPct };

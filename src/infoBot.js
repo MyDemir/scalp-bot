@@ -314,9 +314,10 @@ async function emitCard(card) {
   const thread = (card.grade >= 3 && settings.topic('kart3')) || settings.topic('kart');
   
   telegram.sendCard({ text, keyboard, silent: card.silent, photo, thread });
-  store?.add({ id: card.id, kind: 'card', symbol: card.symbol, t: card.t, seq: card.seq, price: card.price, data: { ...compact(card), bursts: undefined, fwd: undefined } });
+  store?.add({ id: card.id, kind: 'card', symbol: card.symbol, t: card.t, seq: card.seq, price: card.price, data: { ...compact(card), bursts: undefined, fwd: undefined },
+    setup: card.trig?.setup ? 1 : 0, setupS: card.setup?.S ?? null, setupPump: card.setup?.pumpPct ?? null });
   const lv = card.snap.level;
-  console.log(`[KART] ${card.symbol} #${card.seq} derece ${card.grade} · RSI ${card.snap.hits}/3 · ${lv ? `${lv.name} ${lv.dist.toFixed(2)}\%${lv.zone}` : 'seviye yok'} · ${card.silent ? 'sessiz' : 'SESLİ'} · ${card.news.join(' | ')}`);
+  console.log(`[KART] ${card.symbol} #${card.seq}${card.trig?.setup ? ' ⭐ kurulum' : ''} derece ${card.grade} · RSI ${card.snap.hits}/3 · ${lv ? `${lv.name} ${lv.dist.toFixed(2)}\%${lv.zone}` : 'seviye yok'} · ${card.silent ? 'sessiz' : 'SESLİ'} · ${card.news.join(' | ')}`);
 }
 
 // ── Mum işleme ────────────────────────────────────────────────────────────
@@ -360,16 +361,29 @@ function processCandle0(sr, c, live) {
   if (card) {
     touches.noteCard(sr.symbol, card.t);
     drops.noteCard(sr.symbol, card.t, card.grade);
-    const sym = sr.symbol;
-    const prev = chains.get(sym) || Promise.resolve();
-    const next = prev.then(() => emitCard(card)).catch(err => console.error(`[KART] ${sym} gönderilemedi:`, err?.message || err));
-    chains.set(sym, next);
-    next.then(() => { if (chains.get(sym) === next) chains.delete(sym); });
   }
   try {
     for (const e of drops.observe(sr, settings.get(), ctx)) store?.addEvent(e);
   } catch (err) {
     console.error(`[DÜŞÜŞ] ${sr.symbol}:`, err?.message || err);
+  }
+  // ⭐ v3 B kurulum kartı: aday bu mumda oluştuysa (aynı mumda kart varsa ona eklenir, yoksa yeni kart)
+  try {
+    const setup = drops.takeSetup(sr.symbol);
+    if (setup) {
+      const had = card;
+      card = eng.setupCard(sr, settings.get(), tracker, ctx, setup, card);
+      if (card && !had) { touches.noteCard(sr.symbol, card.t); drops.noteCard(sr.symbol, card.t, card.grade); }
+    }
+  } catch (err) {
+    console.error(`[KURULUM] ${sr.symbol}:`, err?.message || err);
+  }
+  if (card) {
+    const sym = sr.symbol, c0 = card;
+    const prev = chains.get(sym) || Promise.resolve();
+    const next = prev.then(() => emitCard(c0)).catch(err => console.error(`[KART] ${sym} gönderilemedi:`, err?.message || err));
+    chains.set(sym, next);
+    next.then(() => { if (chains.get(sym) === next) chains.delete(sym); });
   }
 }
 const chains = new Map();

@@ -99,11 +99,11 @@ function formatCard(card, s, opt = {}) {
     ? `şart ${snap.ok ? 'sağlanıyor ✅' : `sağlanmıyor (${(snap.fails || []).join(', ') || '—'})`}`
     : T.sfp ? (T.sfp.type === 'wick' ? '⚠️ Sahte kırılım (fitil)' : '⚠️ Sahte kırılım')
       : snap.rsiOk ? `RSI ${s.rsiMin}+`
-        : card.inSeries ? 'Seri sürüyor (şart dışı)' : `RSI ${s.rsiMin}+`;
+        : card.inSeries ? 'Seri sürüyor (şart dışı)' : T.setup ? null : `RSI ${s.rsiMin}+`;
   // sart3'te daireler hep 🔴 (short olgunluğu); "RSI 85+" tetiği, kaçak pompa, 3m/5m RSI ≥ strongRsi ve 15 dk yön yazılmaz (Detay'da)
   const s3 = (s.gradeBy ?? 'sart3') !== 'liste';
   const plain = s3 && card.seq !== '–' && !T.sfp && snap.rsiOk;
-  L.push(`🔔: ${[plain ? null : why, card.seq === '–' ? null : `Kart ${card.seq}`, dip ? '⭐ Dirençte' : null].filter(Boolean).join(' · ')}`);
+  L.push(`🔔: ${[plain ? null : why, card.seq === '–' ? null : `Kart ${card.seq}`, T.setup && card.seq !== '–' ? '⭐ Kurulum' : null, dip ? '⭐ Dirençte' : null].filter(Boolean).join(' · ')}`);
   // Üstte (🔔 altında) yalnız sahte kırılım / fiyat keşfi; hacimli mum ve ⚡ 1 dk hareket kartın altında (saatten önce)
   const special = card.news.filter(n => /^(⚠️ Sahte kırılım|🚀 Fiyat keşfi)/.test(n));
   for (const n of special.slice(0, 2)) L.push(esc(n.replace(/^⚠️ Sahte kırılım(?: \(fitil\))?: /, '')));
