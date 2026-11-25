@@ -346,7 +346,7 @@ dinlenir; tek market emri coinin eşiğini geçerse alış ya da satış olarak 
 1B $ → 500K $). Sayaçlar saat başına `flow_big` tablosuna yazılır (180 gün saklanır); `/akis`, panel ve `akis.csv` pencere toplamlarını gösterir.
 Binance geçmiş büyük işlem listesi vermediği için sayım botun açılışından başlar. Kapatmak için `BIG_TRADES=0`.
 
-**Panel → Alım-Satım Akışı sekmesi:** tüm pariteler tek tabloda (günlük hacim, alış-satış %, değişim %, 1s/4s/günlük/haftalık/aylık
+**Panel → Akış sekmesi:** tüm pariteler tek tabloda (günlük hacim, alış-satış %, değişim %, 1s/4s/günlük/haftalık/aylık
 etiket, bugünkü 🐋 alım/satım), coin arama ve günlük etiket filtresi; satıra tıklayınca pencere ayrıntısı (spot + futures) ve spot 4s
 geçmişi, yanda son 7 günün etiket güncellemeleri. Taker alış "piyasa emriyle alan" demektir; etiket yorumdur, mal toplamanın kanıtı değildir.
 
@@ -485,20 +485,48 @@ cp .env.example .env   # düzenle
 npm start
 ```
 
-## Canlı Web Paneli & Multi-Bot Hub (Port 3000)
+## Canlı Web Paneli (Port 3000)
 
-Scalp botu, hem kendi sinyallerini canlı izleyebileceğiniz hem de **farklı repolardaki diğer Telegram botlarınızı** tek çatı altında toplayabileceğiniz Bloomberg/Linear tarzı kurumsal bir web terminali içerir (`src/server.js`).
+Bot, aynı süreçte salt okunur bir web paneli çalıştırır. Sunucu `src/server.js`, panelin kendisi `src/panel/`
+(`index.html`, `app.js`, `app.css`; derleme adımı, CDN ve harici yazı tipi yok, sistem fontu). Açık ve koyu tema
+(sistem tercihine uyar, üstteki **Tema** düğmesiyle değişir). Saatler TSİ yazılır.
 
 ```bash
 # Paneli başlat (veya npm run dev)
 npm start
 ```
-Tarayıcınızdan `http://localhost:3000` adresine giderek:
-* **Bot Merkezi (Multi-Bot Hub):** Tüm Telegram botlarınızın durumunu, son nabızlarını ve sinyallerini canlı izleyin.
-* **Sinyal Akışı:** Canlı RSI değerleri, EMA21 ayrışması ve seviye kartları.
-* **Direnç & Temas Kayıtları:** SQLite veritabanındaki seviye tepkileri tablosu.
-* **Motor Ayarları (salt okunur):** Çalışan motorun güncel ayarlarının tamamı. Panel yalnızca yansıtma ekranıdır; ayarlar Telegram komutlarıyla değiştirilir, panelden hiçbir yazma işlemi yapılamaz (`/api/*` yazma istekleri 405 döner).
-* **Hata & Olay Günlüğü:** Sistem hataları, WebSocket kopuklukları ve Telegram hız sınırlarını anlık log akışından filtreleme.
+Tarayıcınızdan `http://localhost:3000` adresine gidin. Sekmeler:
+* **Şimdi (varsayılan):** KPI şeridi (izlenen parite, bugünkü kart, veri akışı sağlığı, Telegram kuyruğu, hata/uyarı, bellek) ve son 50 kart. Her kartta Telegram'daki derece daireleri (🔴, derece 0 → ⚪), RSI 3dk/5dk/15dk/1s/4s, seviye (`Seviye: … (%x kala)`, ⭐ Dirençte / Yaklaşıyor), EMA21 ayrışma 3dk/5dk, 5dk ATR, funding / OI / BTC, derece v2 şart bayrakları (✓ sağlandı · sağlanmadı, kaçak pompa tavanı, eski formül), 🔔 sesli / 🔕 sessiz ve kart sonrası 5/15/30/60/240 dk **fiyat değişimi** (kart fiyatına göre kapanış %; kazanç/kayıp değildir). Takip yarım kaldıysa kayıt **eksik** işaretlenir, eksik pencere uydurulmaz. Kayıtta filtre dışı alanı varsa (`filterBypass`) **filtre dışı** rozeti çıkar. **Kart türü** süzgeci: ⚡ 1 dk hareket içeren, hacimli mum içeren, sahte kırılım, fiyat keşfi, seri içi, ⭐ dirençte, filtre dışı ve eski ⚡ uyarı kayıtları (`kind=move`). Kartın altındaki **📋 Detay** Telegram'daki ayrıntı metnini açar (bellekte son 3000 kart; yeniden başlatmada silinir). Coin adına dokununca coin sayfası açılır.
+* **Takip:** sonrası hâlâ izlenen kartlar (kart zamanı, kart fiyatı, şimdiye kadarki fiyat değişimi, en düşük / en yüksek, dolan pencereler ✓ ve sıradaki pencereye kalan dakika), süren kart serileri (kart no, 24 saatteki kart sayısı, serideki en yüksek derece), bugünkü ⚡ 1 dk hareket sayıları (▲ / ▼), ⭐ takip listesi ve 🔕 susturulanlar (bitiş saatiyle). Takip ve susturma Telegram'dan yönetilir.
+* **Piyasa:** piyasa geneli (15m RSI ≥ 80 coin oranı, 60 dk'da ≥ %3 yükselen coin sayısı, BTC 5/15 dk değişimi, BTC 15m RSI; botun dakikalık hesabı), 🐋 spot büyük işlemler (son 1 / 4 / 24 saat, coin başına alım ve satım adedi / $, net, toplam) ve son 60 dakikanın likidasyonları (short tasfiyesi = zorla alım, long tasfiyesi = zorla satış; 15 / 60 dk, USDT). Funding listesi: botun bellekteki son oranlarından en yüksek ve en düşük 10 pariteyi (% ve sonraki funding zamanı) gösterir; ek istek yapmaz.
+* **Coin sayfası** (başlıktaki **Coin ara** kutusu ya da herhangi bir coin adı; adres `#coin/ETHUSDT`): `/coin` anlık durumu ve grafiği, özet (izleniyor mu, takip, susturma, seri, ⚡ bugün, likidasyon, izlenen kart, 🐋 24 s), son kartlar, son 7 günün tepe adayları ve seviye temasları, 24 saatlik büyük işlem saatleri ve alım-satım akışı.
+* **Tepe defteri:** son 100 pompa tepesi adayı (kartlı ve kartsız): sonuç (Düştü / Devam etti / Yatay), düşüşe kadar dakika, kart derecesi, tepe anındaki derece, pompa %, RSI, tepe sonrası 15 dk dip ve 60 dk kapanış. Satıra dokununca göstergeler, derece bayrakları ve tepeden sonraki 15 dk 1m yolunun grafiği açılır. `v3` önekli alanlar **gölge** etiketiyle gösterilir (karta ve dereceye girmez).
+* **Seviyeler:** son 50 seviye teması (dirence alttan temas + 60 dk). Sonuç 60. dk kapanışına göredir: seviyenin üstündeyse **Kırıp üstte kaldı**, altındaysa **Altında kaldı (ret)**.
+* **Akış:** spot + futures alım-satım akışı tablosu, coin ayrıntısı ve son 7 günün etiket değişiklikleri.
+* **Raporlar:** Telegram'daki salt okunur komutların (`/istatistik`, `/gecmis`, `/coin`, `/akis`, `/seviye`, `/kacan`, `/teyit`, `/takip`, `/sessiz`, `/durum`) aynısı.
+* **Sistem:** veri akışı sağlığı, Telegram kuyruğu, ek veri akışlarının sayaçları (likidasyon, spot büyük işlem, akış, tepe ek verisi) ve son gönderimler; yöneticiye ayrıca loglar (canlı + kalıcı günler, indirme), harici botlar, ayar aynası (salt okunur) ve harici bot nabız (webhook) bilgisi.
+
+Her sayfanın üstünde kapsam şeridi vardır: "Kayıtlar dd.mm SS:DD TSİ'den beri · son haftalık rapor … · sonraki …".
+Haftalık rapordan sonra kart, temas, tepe ve yol kayıtları silindiği için Pazartesi sabahı listeler boş görünebilir;
+boş listede bu açıklama yazar. Akış kayıtları haftalık silmeye girmez.
+
+**Erişim ve roller:** panel Telegram grubunun üyelerine açıktır. Giriş kodu botun **özel mesajıyla** gelir, bu yüzden
+önce botla özel sohbet açıp `/start` gönderin. Üye kartları, tepe defterini, seviyeleri, akışı, raporları ve sistem
+sağlığını görür; **loglar, harici botlar, ayar aynası ve webhook yalnız yöneticiye** açıktır (`/api/logs*`,
+`/api/external-bots`, `/api/settings` üyeye 403 döner; panel bu bölümleri üyeye göstermez ve uçlarını çağırmaz).
+Üstteki rozet rolü yazar (Üye / Yönetici). Takip, Piyasa, Coin ve 📋 Detay uçları (`/api/tracking`,
+`/api/market?hours=1|4|24`, `/api/coin/:symbol`, `/api/cards/:id/detail`, `/api/feeds`; `/api/cards?symbol=&kind=card|move|all`)
+üyeye de açıktır, yalnız GET'tir ve LIMIT'lidir (en çok 100 satır).
+
+**Telefonda:** sekmeler tek satırlık, yana kayan ve sayfa kayarken üstte kalan bir şerittir (8 sayfa alt çubuğa
+sığmaz). Tablolar dar ekranda satır kartlarına dönüşür (her değerin etiketi yanında), düğme ve kutular en az 44 px'tir.
+
+**Salt okunur:** panelden hiçbir ayar ya da durum değişmez; ayarlar yalnız Telegram'dan (`/ayarlar`). Oturumlu
+kullanıcının `/api/*` yazma istekleri 405 döner; panelin yaptığı tek POST çıkıştır.
+
+**Yenileme:** sekme arka plandayken panel hiç istek atmaz, öne gelince hemen yeniler. Yalnız açık sayfanın verisi
+çekilir: durum/KPI 15 sn; kartlar, temaslar, tepe defteri, akış, piyasa ve coin sayfası 60 sn; takip ve ek akış sayaçları 30 sn; loglar 10 sn (yalnız log bölümü açıkken);
+log günleri 5 dk.
 
 ---
 
@@ -534,13 +562,13 @@ import requests
 
 def report_to_hub(error_msg=None):
     requests.post("https://<PANEL_ADRESI>/api/external-bots/heartbeat", headers={"X-Bot-Key": "<EXTERNAL_BOT_KEY>"}, json={
-        "id": "trend-bot-1",
-        "name": "BTC Trend Botu",
-        "telegram": "@BtcTrendBot",
+        "id": "ornek-bot",
+        "name": "Örnek Bilgi Botu",
+        "telegram": "@OrnekBot",
         "status": "error" if error_msg else "online",
         "error": error_msg,
-        "lastSignal": "BTC LONG @ 64,200",
-        "metrics": { "Açık Pozisyon": "2", "Kâr": "+%4.2" }
+        "lastSignal": "Son bildirim 14:05",
+        "metrics": { "İzlenen coin": "120", "Bugünkü mesaj": "8" }
     }, timeout=5)
 ```
 
@@ -552,10 +580,10 @@ def report_to_hub(error_msg=None):
 * **Telegram Kuyruk Koruması:** `TELEGRAM_MAX_QUEUE_LEN` (250) sınırı ve 20-30 dk üzeri bayat scalp sinyalleri için TTL temizliği (`droppedExpired`) ile OOM bellek patlamaları önlenir. Kullanıcı komut yanıtları önceliklidir (`kind: 'reply'`).
 * **Mükerrer Mum Koruması:** WebSocket kopması sonrasında REST tamamlama (`backfillGap`) sırasında son işlenen mum zaman damgası (`lastT`) kontrol edilerek çift sinyal üretimi kesin olarak engellenir.
 * **Deterministik Docker Derlemesi:** `package-lock.json` ile `COPY package*.json ./` ve `npm ci` kullanılır.
-* **Panel API Güvenliği:** Tüm `/api/*` uçları Telegram OTP oturumu ister; kullanıcının grupta hâlâ yönetici olduğu 5 dakikada bir canlı doğrulanır (çıkarılan yöneticinin oturumu iptal edilir), panel salt okunurdur, farklı kaynaktan gelen yazma istekleri (CSRF) reddedilir, URL'deki `?token=` yalnızca panel açılışında kabul edilir. Harici bot alanları tür/uzunluk sınırıyla saklanır ve panelde HTML kaçışıyla gösterilir.
+* **Panel API Güvenliği:** Tüm `/api/*` uçları Telegram OTP oturumu ister; kullanıcının grupta hâlâ yönetici olduğu 5 dakikada bir canlı doğrulanır (çıkarılan yöneticinin oturumu iptal edilir), panel salt okunurdur, farklı kaynaktan gelen yazma istekleri (CSRF) reddedilir, oturum yalnız HttpOnly çerezdedir (ayrıntı: "Web Paneli Güvenliği"). Harici bot alanları tür/uzunluk sınırıyla saklanır ve panelde HTML kaçışıyla gösterilir.
 * **Sert Kuyruk Sınırı:** Telegram 429 sonrası yeniden deneme de `TELEGRAM_MAX_QUEUE_LEN` sınırını aşamaz.
 * **Kontrollü Backfill:** Tohumlama (`SEED_CONCURRENCY`, varsayılan 4) ve boşluk doldurma (`GAP_FILL_CONCURRENCY`, varsayılan 8, en fazla 16) sınırlı paralellikle, REST weight bütçesi (`BINANCE_REST_WEIGHT_PER_MIN`) içinde çalışır. Her coin için doldurma sonrası eksik 1m mum ve son mum yaşı kontrol edilir; delik ya da eski veri kalırsa coin sinyalleri durdurulup kurtarma kuyruğuna alınır.
-* **Otomatik Test Paketi:** 26 adet kapsamlı test (`npm test`) ve GitHub Actions CI iş akışı (`.github/workflows/test.yml`).
+* **Otomatik Test Paketi:** 30'dan fazla test (`npm test`) ve GitHub Actions CI iş akışı (`.github/workflows/test.yml`).
 
 ---
 
@@ -594,10 +622,14 @@ fly deploy
 Deploy tamamlandığında Telegram botunuz gruba ve adminlere doğrudan canlı panel bağlantısını butonlu mesaj olarak gönderecektir!
 
 
-## Web Yönetici Paneli Güvenliği
+## Web Paneli Güvenliği
 
 Web paneli bağlantısı Telegram'daki `/panel` komutuyla ve dağıtım bildirimi içindeki **🌐 Web Panelini Aç** butonuyla açılır. Panel/API erişimi tek kullanımlık Telegram doğrulama kodu ile açılan oturumla korunur.
 
-Panel girişinde izin listesi elle tutmanız gerekmez: sunucu, `TELEGRAM_CHAT_ID` ile yapılandırılmış grup/kanalın yöneticilerini Telegram Bot API `getChatAdministrators` üzerinden güncel olarak alır. Kod yalnızca bu listedeki yöneticiye botun özel mesajı olarak gönderilir ve kod doğrulanırken yöneticilik tekrar kontrol edilir. Telegram yöneticileri önce botla özel sohbeti açıp `/start` göndermelidir; aksi durumda bot özel mesaj gönderemez. Bot, ilgili grup/kanalda yönetici olmalı ve `TELEGRAM_BOT_TOKEN` ile `TELEGRAM_CHAT_ID` doğru tanımlanmalıdır.
+Panel girişinde izin listesi elle tutmanız gerekmez: erişim `TELEGRAM_CHAT_ID` ile yapılandırılmış grubun üyelerine açıktır; yöneticiler Telegram Bot API `getChatAdministrators` üzerinden güncel olarak alınır ve yönetici bölümlerini (loglar, harici botlar, ayar aynası, webhook) yalnız onlar görür. Kod botun **özel mesajı** olarak gönderilir; bu yüzden önce botla özel sohbeti açıp `/start` gönderin, aksi durumda bot özel mesaj gönderemez. Bot, ilgili grupta yönetici olmalı ve `TELEGRAM_BOT_TOKEN` ile `TELEGRAM_CHAT_ID` doğru tanımlanmalıdır.
 
-Kod 5 dakika geçerlidir, en fazla 5 doğrulama denemesi yapılabilir ve yeniden kod gönderimi yönetici başına 60 saniyede bir sınırlandırılır. Oturum çerezi HttpOnly, SameSite=Strict ve production ortamında Secure bayraklarıyla ayarlanır; oturum 8 saat sonra sona erer. Grup/kanal yöneticiliği Telegram üzerinden doğrulanamazsa giriş reddedilir.
+Kod 5 dakika geçerlidir; kod başına en fazla 5 doğrulama denemesi yapılabilir, yeniden kod gönderimi kullanıcı başına 60 saniyede bir sınırlıdır. Kaba kuvvete karşı ayrıca hız sınırı vardır: kullanıcı başına saatte en fazla 5 kod; 24 saatte 15 yanlış denemede o kullanıcı ID aynı IP'den 24 saat kilitlenir (kod isteme ve doğrulama 429; başka IP'den yapılan yanlışlar yöneticiyi kendi IP'sinden kilitlemez), ayrıca IP'den bağımsız olarak 24 saatte 60 yanlışta o ID için doğrulama 24 saat kapanır (yönetici Telegram'dan ayar yapmaya devam eder); `fly-client-ip` başlığına yalnız Fly ortamında güvenilir; IP başına 10 dakikada en fazla 20 giriş isteği. Oturum 8 saat sonra sona erer.
+
+Oturum **yalnız HttpOnly çerezde** tutulur (SameSite=Lax, production'da Secure): belirteç adres çubuğuna (`?token=`), tarayıcı deposuna (localStorage) ya da sayfa HTML'ine yazılmaz; panel isteklerinde ayrıca bir belirteç başlığı gönderilmez. Oturum düşerse (401) panel giriş sayfasına döner. Panel sayfası (`/`) önbelleğe alınmaz (`Cache-Control: no-store`).
+
+Tarayıcı kısıtları: sıkı Content-Security-Policy (`default-src 'self'; script-src 'self'`; satır içi betik ve olay özniteliği yok, harici CDN / yazı tipi yok, `frame-ancestors 'none'`, `object-src 'none'`), `X-Frame-Options: DENY`, production'da HSTS. Dışarıdan gelen her metin (harici bot alanları, loglar, coin adları) HTML kaçışından geçer; rapor metninde yalnız `b/i/u/code/pre` etiketleri açılır.

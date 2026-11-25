@@ -430,7 +430,7 @@ function createSpotFlow({
   function rowsSince(since) { return st ? [...iterateSince(since)] : []; }
 
   return {
-    enabled: () => Boolean(st), tick, universe: () => universe.slice(), summary, summaryTf, changes, rowsSince, iterateSince, rowsOf, stats, recordBig, bigSum, bigThreshold, table,
+    enabled: () => Boolean(st), tick, universe: () => universe.slice(), summary, summaryTf, changes, rowsSince, iterateSince, rowsOf, stats, recordBig, bigSum, bigThreshold, table, bigTop, bigHours,
     pairs: () => universe.map(f => [spotOf(f).spot, f]),
     hasSpot: sym => !noSpot.has(spotOf(sym).spot),
     close: () => { try { db?.close(); } catch { /* yok */ } },

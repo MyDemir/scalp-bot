@@ -97,11 +97,28 @@ function createLogStore({ dir = defaultDir(), retentionDays = Number(process.env
     return { day, total, entries: list.reverse().slice(0, Math.max(1, Math.min(Number(limit) || 500, 5000))) };
   }
 
-  /** Gün başına kayıt / hata / uyarı sayıları (en yeni gün önce). */
+  /**
+   * Gün başına kayıt / hata / uyarı sayıları (en yeni gün önce).
+   * Bugünden önceki günlerin sayacı önbellekte tutulur ve dosya mtime/boyutu değişmedikçe yeniden okunmaz
+   * (panel 5 dk'da bir sorar; 14 dosyayı her seferinde ayrıştırmak bot döngüsünü bekletir). Bugün her seferinde okunur.
+   */
+  const dayCache = new Map();   // day → { sig, row }
   function summary() {
-    return days().map(day => {
-      const list = readDay(day);
-      return { day, total: list.length, errors: list.filter(e => e.level === 'error').length, warnings: list.filter(e => e.level === 'warn').length };
+    flushSync();
+    const today = dayOf(now());
+    const list = days();
+    for (const k of dayCache.keys()) if (!list.includes(k)) dayCache.delete(k);
+    return list.map(day => {
+      let sig = null;
+      if (day !== today) {
+        try { const st = fs.statSync(fileFor(day)); sig = st.mtimeMs + ':' + st.size; } catch { /* dosya yok */ }
+        const hit = dayCache.get(day);
+        if (hit && sig && hit.sig === sig) return hit.row;
+      }
+      const entries = readDay(day);
+      const row = { day, total: entries.length, errors: entries.filter(e => e.level === 'error').length, warnings: entries.filter(e => e.level === 'warn').length };
+      if (sig) dayCache.set(day, { sig, row });
+      return row;
     });
   }
 

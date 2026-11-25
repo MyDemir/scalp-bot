@@ -476,7 +476,8 @@ async function isMember(userId) {
   let ok = false;
   try {
     const m = await api('getChatMember', { chat_id: CHAT_ID, user_id: userId });
-    ok = ['creator', 'administrator', 'member', 'restricted'].includes(m?.status);
+    ok = ['creator', 'administrator', 'member'].includes(m?.status) ||
+      (m?.status === 'restricted' && m?.is_member === true);
   } catch (err) {
     console.warn(`[TELEGRAM] getChatMember (üyelik) başarısız: ${err.message}`);
   }
