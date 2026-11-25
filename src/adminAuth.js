@@ -110,6 +110,10 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
     const trustFly = Boolean(env.FLY_APP_NAME || env.FLY_MACHINE_ID);
     return String((trustFly && req.headers?.['fly-client-ip']) || req.socket?.remoteAddress || 'bilinmiyor').slice(0, 64);
   }
+  /** Kota dolu mu (tüketmeden bakar) */
+  function quotaFull(id) {
+    return (reqLog.get(id) || []).filter(t => now() - t < REQ_WINDOW_MS).length >= MAX_REQS_PER_ID;
+  }
   /** Kullanıcı ID başına saatte en fazla MAX_REQS_PER_ID kod isteği; true = izin var */
   function takeRequestSlot(id) {
     const arr = (reqLog.get(id) || []).filter(t => now() - t < REQ_WINDOW_MS);
@@ -188,6 +192,8 @@ function createAdminAuth({ telegram, env = process.env, now = () => Date.now(), 
     if (!(await roleOf(String(userId), admins))) return { ok: true };   // yönetici de üye de değil: sessizce aynı yanıt
     const id = String(userId);
     const last = cooldowns.get(id) || 0;
+    // Saatlik kota bekleme süresinden önce bakılır (dolu kotada 429); kota yalnız kod gönderilecekse tüketilir.
+    if (quotaFull(id)) return { ok: false, status: 429, error: 'Bu kullanıcı ID için saatte en fazla 5 kod istenebilir; daha sonra tekrar deneyin.' };
     if (now() - last < OTP_COOLDOWN_MS) return { ok: true };
     // Yalnızca gerçekten grup üyesi olduğu doğrulanan kullanıcı kota tüketebilir.
     if (!takeRequestSlot(id)) return { ok: false, status: 429, error: 'Bu kullanıcı ID için saatte en fazla 5 kod istenebilir; daha sonra tekrar deneyin.' };

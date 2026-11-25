@@ -182,6 +182,8 @@ function createSpotFlow({
       sell_n = sell_n + excluded.sell_n, sell_usd = sell_usd + excluded.sell_usd`),
     bigSum: db.prepare('SELECT COUNT(*) AS hours, SUM(buy_n) AS buyN, SUM(buy_usd) AS buyUsd, SUM(sell_n) AS sellN, SUM(sell_usd) AS sellUsd FROM flow_big WHERE symbol = ? AND t >= ? AND t < ?'),
     bigSince: db.prepare('SELECT symbol, t, buy_n, buy_usd, sell_n, sell_usd FROM flow_big WHERE t >= ?'),
+    bigRange: db.prepare('SELECT symbol, SUM(buy_n) AS buyN, SUM(buy_usd) AS buyUsd, SUM(sell_n) AS sellN, SUM(sell_usd) AS sellUsd FROM flow_big WHERE t >= ? AND t < ? GROUP BY symbol'),
+    bigHours: db.prepare('SELECT t, buy_n AS buyN, buy_usd AS buyUsd, sell_n AS sellN, sell_usd AS sellUsd FROM flow_big WHERE symbol = ? AND t >= ? ORDER BY t DESC LIMIT ?'),
   };
 
   const noSpot = new Set();
@@ -393,6 +395,26 @@ function createSpotFlow({
     const r = st.bigSum.get(sym, from, to);
     if (!r || !r.hours) return null;
     return { buyN: r.buyN || 0, buyUsd: r.buyUsd || 0, sellN: r.sellN || 0, sellUsd: r.sellUsd || 0, hours: r.hours };
+  }
+
+  /** Panel (Piyasa): [since, until) aralığında büyük işlem toplamı en yüksek coinler; yalnız `symbols` içindekiler, toplam $'a göre azalan */
+  function bigTop({ symbols, since, until, limit = 30 } = {}) {
+    if (!st) return [];
+    const only = Array.isArray(symbols) ? new Set(symbols) : null;
+    const out = [];
+    for (const r of st.bigRange.all(since, until)) {
+      if (only && !only.has(r.symbol)) continue;
+      const buyUsd = r.buyUsd || 0, sellUsd = r.sellUsd || 0;
+      out.push({ symbol: r.symbol, buyN: r.buyN || 0, buyUsd: num(buyUsd, 0), sellN: r.sellN || 0, sellUsd: num(sellUsd, 0),
+        netUsd: num(buyUsd - sellUsd, 0), totalUsd: num(buyUsd + sellUsd, 0) });
+    }
+    out.sort((a, b) => b.totalUsd - a.totalUsd || (a.symbol < b.symbol ? -1 : 1));
+    return out.slice(0, Math.max(0, limit));
+  }
+
+  /** Panel (Coin): coinin `from` sonrası saatlik büyük işlem sayaçları, yeniden eskiye, en fazla `limit` saat */
+  function bigHours(sym, from, limit = 24) {
+    return st ? st.bigHours.all(sym, from, limit) : [];
   }
 
   /** CSV dışa aktarma: pencere satırlarını tek tek üretir (dizi biriktirmez; .iterate()). Yalnız büyük işlem Map'i bellekte tutulur */
