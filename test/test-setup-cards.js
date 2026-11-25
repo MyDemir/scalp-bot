@@ -126,7 +126,7 @@ const A = run();
   const k1 = eng.setupCard(on2.S, lo2, trk, {}, su, null), k2 = eng.setupCard(on2.S, lo2, trk, {}, su, null);
   assert(k1 && k2 && k1.seq === 1 && k2.seq === 2, 'kart numarası ilerler');
   assert.strictEqual(trk.active('SETUPUSDT'), false, 'seri başlamadı (seri içi patlama açılmaz)'); assert.strictEqual(trk.maxGrade('SETUPUSDT'), 0, 'seri en yüksek derecesi değişmedi');
-  assert(k2.news.includes('İlk RSI kartı (⭐ kurulum kartından sonra)') || k1.snap.rsiOk === false, 'son kart durumu değişmedi (seride kurulum kartı varken): ikinci kurulum kartında "İlk RSI kartı (⭐ kurulum kartından sonra)"');
+  assert(!k1.news.concat(k2.news).some(n => n.startsWith('İlk')), 'kurulum kartı RSI kartı değil: "İlk ..." satırı yok');
   assert.strictEqual(on.cards.length, base.cards.length + on.cards.filter(c => c.trig.setup && !base.cards.some(b => b.t === c.t)).length, 'fark yalnız tek başına kurulum kartları');
   ok(`(d) setupCards=false: ${B.cards.length} + ${B2.cards.length} kart ve ${B.ev.length} tepe kaydı birebir aynı; açıkken ${base.cards.length} mevcut kartın hepsi aynı derecede duruyor`);
 }

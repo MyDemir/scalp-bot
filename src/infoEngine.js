@@ -668,7 +668,7 @@ function createTracker() {
       const out = [];
       const above = RSI_TFS.filter(tf => snap.rsi[tf].v >= s.rsiMin);
       if (!L) {
-        if (snap.rsiOk !== false) out.push(m.xs > 0 ? 'İlk RSI kartı (⭐ kurulum kartından sonra)' : 'İlk kart');
+        if (snap.rsiOk !== false && !trig.setup) out.push(m.xs > 0 ? 'İlk RSI kartı (⭐ kurulum kartından sonra)' : 'İlk kart');
         if (snap.discovery) out.push(discoveryText(snap.discovery));
         if (trig.move) out.push(moveText(trig.move));
         else if (trig.burst) out.push(burstText(trig.burst));

@@ -97,6 +97,7 @@ const MIN = 60e3; const s = { ...cfg.info, rsiMin: 90, resetRsi: 75 }; const R =
   { const t2 = eng.createTracker();
     assert(t2.news('Y', snap(), { tfs: ['3m'] }, s)[0] === 'İlk kart');
     t2.commitExtra('Y', snap());
+    assert(!t2.news('Y', snap(), { tfs: ['3m'], setup: true }, s).some(x => x.startsWith('İlk')), 'trig.setup → İlk satırı yok');
     assert(t2.news('Y', snap(), { tfs: ['3m'] }, s)[0] === 'İlk RSI kartı (⭐ kurulum kartından sonra)', 'xs>0 → İlk RSI kartı'); }
   tr.observe15m('X', 80, s); assert(tr.news('X', snap(), { tfs: [] }, s).length === 0 || true);
   tr.observe15m('X', 74, s);
