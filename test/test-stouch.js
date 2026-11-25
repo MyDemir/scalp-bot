@@ -133,9 +133,9 @@ const now = Date.UTC(2026, 9, 5, 0, 2), D = 86_400_000;
   for (const f of w.files) for (const [k, v] of Object.entries(unzip(f.buf))) if (k.startsWith('destekler')) { const L = v.replace('﻿', '').trim().split('\n'); heads.add(L[0]); n += L.length - 1; }
   assert.strictEqual(n, N + 1, 'tüm temaslar zip parçalarında'); assert.deepStrictEqual([...heads], [STOUCH_COLS.join(',')], 'her parçada aynı başlık');
   assert.strictEqual(w.stouches, N + 1); assert(w.md.includes(`Destek teması: ${N + 1}`) && w.md.includes('- destekler.csv:'));
-  const ex = await buildExports(st, 7, now, { supports: true });
-  assert.strictEqual(ex.counts.destekler, N + 1);
-  assert.strictEqual((await buildExports(st, 7, now)).counts.destekler, undefined, 'varsayılan (/disaaktar): destekler.csv yok');
+  const ex = await buildExports(st, 7, now);
+  assert.strictEqual(ex.counts.destekler, N + 1, 'varsayılan (/disaaktar): destekler.csv var');
+  assert.strictEqual((await buildExports(st, 7, now, { supports: false })).counts.destekler, undefined, 'supports: false → yok');
   const zipBytes = w.files.reduce((x, f) => x + f.buf.length, 0);
   const pr = st.purgeBefore(now - 3 * D + 1500 * 20e3);
   assert.strictEqual(pr.stouches, 1501); assert.strictEqual(await st.forEachSTouch({}, () => {}), N - 1500);
