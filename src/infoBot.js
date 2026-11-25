@@ -14,6 +14,8 @@ const { compact } = require('./infoStats');
 const { createCardStore } = require('./cardStore');
 const { createTouchTracker } = require('./levelTouch');
 const { createDropLedger, DEFAULTS: DROP_DEFAULTS } = require('./eventLog');
+const { createDipLedger } = require('./dipLog');
+const { createSupportTouches } = require('./supportTouch');
 const { createEnricher, createLiqStream } = require('./marketData');
 const { emaTrend } = require('./peakFeatures');
 const ta = require('./ta');
@@ -50,6 +52,10 @@ const enricher = createEnricher({ client: binance });
 const liqStream = createLiqStream();
 const drops    = createDropLedger({ ...cfg.events, enrich: (sym, o) => enricher.enrich(sym, o), orderBook: sym => enricher.orderBook(sym),
   onPath: r => { try { store?.addPath(r); } catch (err) { console.error('[YOL]', err?.message || err); } } });
+// Dip defteri (tepe defterinin aynası; kartı etkilemez) — ek veri (enrich/orderBook) tepe defteriyle aynı kuyruk ve atlama kuralı
+const dips     = createDipLedger({ ...cfg.dips, enrich: (sym, o) => enricher.enrich(sym, o), orderBook: sym => enricher.orderBook(sym) });
+// Destek teması (levelTouch aynası; REST yok) — ±5 dk dip adayı bilgisi dip defterinin belleğinden
+const stouches = createSupportTouches({ dipNear: (sym, t, w) => dips.hasDipNear(sym, t, w) });
 let store = null;
 let flow = null;              // spot/futures akış takibi (src/spotFlow.js) — main'de kurulur
 let bigTrades = null;         // spot büyük alım/satım sayacı (src/bigTrades.js) — akış evreniyle çalışır
@@ -241,24 +247,27 @@ function btc1h() {
   return n > 60 ? (c[n - 1] / c[n - 61] - 1) * 100 : null;
 }
 
-// Piyasa geneli (dakikada bir hesaplanır): 15m RSI ≥ 80 coin %, 60 dk'da ≥ %3 yükselen coin sayısı, BTC 5/15 dk ve 15m RSI
+// Piyasa geneli (dakikada bir hesaplanır): 15m RSI ≥ 80 / ≤ 20 coin % (breadth80 / breadth20), 60 dk'da ≥ %3 yükselen / düşen coin sayısı (pumping / dumping), BTC 5/15 dk ve 15m RSI
 let marketCache = { t: 0, v: null };
 function marketState(t) {
   const minute = Math.floor((t || Date.now()) / 60_000);
   if (marketCache.t === minute) return marketCache.v;
-  let n = 0, hot = 0, pumping = 0;
+  let n = 0, hot = 0, pumping = 0, cold = 0, dumping = 0;
   for (const sr of series.values()) {
     if (!sr.ready()) continue;
     n++;
     const r = ta.rsiLast(sr.col('15m', 'c', true), 14);
     if (r >= 80) hot++;
+    if (r != null && r <= 20) cold++;
     const c = sr.d['1m'].c, k = c.length;
     if (k > 60 && c[k - 61] > 0 && c[k - 1] / c[k - 61] - 1 >= 0.03) pumping++;
+    if (k > 60 && c[k - 61] > 0 && c[k - 1] / c[k - 61] - 1 <= -0.03) dumping++;
   }
   const b = series.get('BTCUSDT'), bc = b ? b.d['1m'].c : [], bn = bc.length;
   const chg = m => (bn > m && bc[bn - 1 - m] > 0 ? +((bc[bn - 1] / bc[bn - 1 - m] - 1) * 100).toFixed(2) : null);
   const v = { breadth80: n ? +(hot / n * 100).toFixed(1) : null, pumping, btc5: chg(5), btc15: chg(15),
-    btcRsi15: (() => { const r = b ? ta.rsiLast(b.col('15m', 'c', true), 14) : null; return r != null ? +r.toFixed(1) : null; })() };   // veri yoksa boş (0 uydurulmaz)
+    btcRsi15: (() => { const r = b ? ta.rsiLast(b.col('15m', 'c', true), 14) : null; return r != null ? +r.toFixed(1) : null; })(),
+    breadth20: n ? +(cold / n * 100).toFixed(1) : null, dumping };   // veri yoksa boş (0 uydurulmaz)
   marketCache = { t: minute, v };
   return v;
 }
@@ -350,6 +359,11 @@ function processCandle0(sr, c, live) {
     } catch (err) {
       console.error(`[SEVİYE] ${sr.symbol}:`, err?.message || err);
     }
+    try {
+      for (const e of stouches.observe(sr, closed, settings.get(), ctx)) store?.addSTouch(e);
+    } catch (err) {
+      console.error(`[DESTEK] ${sr.symbol}:`, err?.message || err);
+    }
   }
   let card = null;
   try {
@@ -360,6 +374,8 @@ function processCandle0(sr, c, live) {
   if (card) {
     touches.noteCard(sr.symbol, card.t);
     drops.noteCard(sr.symbol, card.t, card.grade);
+    dips.noteCard(sr.symbol, card.t, card.grade);
+    stouches.noteCard(sr.symbol, card.t);
     const sym = sr.symbol;
     const prev = chains.get(sym) || Promise.resolve();
     const next = prev.then(() => emitCard(card)).catch(err => console.error(`[KART] ${sym} gönderilemedi:`, err?.message || err));
@@ -370,6 +386,11 @@ function processCandle0(sr, c, live) {
     for (const e of drops.observe(sr, settings.get(), ctx)) store?.addEvent(e);
   } catch (err) {
     console.error(`[DÜŞÜŞ] ${sr.symbol}:`, err?.message || err);
+  }
+  try {
+    for (const e of dips.observe(sr, settings.get(), ctx)) store?.addDip(e);
+  } catch (err) {
+    console.error(`[DİP] ${sr.symbol}:`, err?.message || err);
   }
 }
 const chains = new Map();
@@ -720,6 +741,8 @@ function heartbeat() {
   store?.sweep();
   touches.sweep();
   drops.sweep();
+  dips.sweep();
+  stouches.sweep();
   lastDiag = { ...diag, to: Date.now() };
   const dTxt = diagText(diag), stale = staleList();
   const load = takeLoad();
@@ -731,7 +754,7 @@ function heartbeat() {
     ` | ${dTxt}` +
     `${blockedWin ? ` | kilitte atlanan 1m değerlendirme: ${blockedWin}` : ''}` +
     ` | ${loadText(load)}` +
-    ` | takipte ${store?.openCount() ?? 0} kart, ${touches.openCount()} seviye teması, ${drops.openCount()} tepe adayı · ek veri ${delta('enrOk', enricher.stats.ok)} (atlanan ${delta('enrSkip', enricher.stats.skipped)}) · likidasyon mesajı ${delta('liq', liqStream.stats().messages)}${flow?.enabled() ? ` · akış ${delta('flowRows', flow.stats.rows)} satır/${delta('flowChg', flow.stats.changes)} değişim` : ''}${bigTrades ? ` · 🐋 ${delta('big', bigTrades.stats.big)} büyük işlem (${delta('bigMsg', bigTrades.stats.messages)} mesaj)` : ''}` +
+    ` | takipte ${store?.openCount() ?? 0} kart, ${touches.openCount()} seviye teması, ${drops.openCount()} tepe adayı, ${dips.openCount()} dip adayı, ${stouches.openCount()} destek teması · ek veri ${delta('enrOk', enricher.stats.ok)} (atlanan ${delta('enrSkip', enricher.stats.skipped)}) · likidasyon mesajı ${delta('liq', liqStream.stats().messages)}${flow?.enabled() ? ` · akış ${delta('flowRows', flow.stats.rows)} satır/${delta('flowChg', flow.stats.changes)} değişim` : ''}${bigTrades ? ` · 🐋 ${delta('big', bigTrades.stats.big)} büyük işlem (${delta('bigMsg', bigTrades.stats.messages)} mesaj)` : ''}` +
     ` | telegram: ${tg.sent} gönderildi, ${tg.queued} kuyrukta${tg.failed ? `, ${tg.failed} BAŞARISIZ` : ''}` +
     ` | bellek: ${mem} MB`,
   );
@@ -842,4 +865,4 @@ async function main() {
   console.log('\n✅ Bilgi botu çalışıyor.\n');
 }
 
-module.exports = { main, _internal: { series, settings, tracker, touches, drops, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, seedMany, checkCoverage, seedMetrics, health, runReport, PANEL_REPORTS, runRecoveryCycle, scanStaleRecovery, queueRecovery, isFreshSymbol, recoveryBlocked, recoveryQueue, recoveryAttempts, recoveryNotBefore, gapMetrics, statusText, stats, busy, pending, details, getStore: () => store, getFlow: () => flow, getBigTrades: () => bigTrades, getWeekly: () => weekly, getPremium: () => premium } };
+module.exports = { main, _internal: { series, settings, tracker, touches, drops, dips, stouches, enricher, liqStream, marketState, processCandle, onKline, seedSymbol, refreshUniverse, backfillGap, seedMany, checkCoverage, seedMetrics, health, runReport, PANEL_REPORTS, runRecoveryCycle, scanStaleRecovery, queueRecovery, isFreshSymbol, recoveryBlocked, recoveryQueue, recoveryAttempts, recoveryNotBefore, gapMetrics, statusText, stats, busy, pending, details, getStore: () => store, getFlow: () => flow, getBigTrades: () => bigTrades, getWeekly: () => weekly, getPremium: () => premium } };

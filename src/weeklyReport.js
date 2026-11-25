@@ -3,7 +3,8 @@
 /**
  * Haftalık istatistik dosyası — her Pazartesi 03:01 (TSİ) gruba gönderilir, sonra veritabanından silinir.
  *
- *   Dosya    : veri-<yıl>-H<hafta>.zip (tek belge) — haftalik-<yıl>-H<hafta>.md (okunur özet + olay listesi) · tepeler.csv (tüm tepe adayları) · kartlar.csv · temaslar.csv (Sheets / Excel / Python)
+ *   Dosya    : veri-<yıl>-H<hafta>.zip (tek belge) — haftalik-<yıl>-H<hafta>.md (okunur özet + olay listesi) · tepeler.csv (tüm tepe adayları) · kartlar.csv · temaslar.csv
+ *              · dipler.csv (dip defteri) · destekler.csv (destek temasları) — ikisi kayıt varsa (Sheets / Excel / Python)
  *              Zip 40 MB'ı aşarsa (Telegram sınırı 50 MB) kalan satırlar veri-…-2.zip'e geçer.
  *   Bellek   : tepe adayları (haftada on binlerce, 214 sütun) ve seviye temasları (haftada ~50 bin) veritabanından PARÇA
  *              PARÇA okunur, CSV satırı doğrudan zip'e sıkıştırılır; özet sayaçlarla / yalnız özetin kullandığı alanlarla
@@ -11,7 +12,7 @@
  *              kopyası çıkarılıyordu: +300 MB heap → 2026-10-26 03:01'de 512 MB makinede heap taşması.)
  *   Kapsam   : rapor anından 5 saat öncesine kadarki TÜM kayıtlar (kartın 240 dk takibi ve düşüşün 240 dk sonrası
  *              dolmuş olsun diye; son 5 saat bir sonraki haftaya kalır). Önceki raporda gönderilemeyenler de girer.
- *   Silme    : dosyaların HEPSİ gruba gittikten sonra kapsamdaki kartlar, temaslar ve düşüşler silinir (VACUUM ile
+ *   Silme    : dosyaların HEPSİ gruba gittikten sonra kapsamdaki kartlar, temaslar, düşüşler, dipler ve destek temasları silinir (VACUUM ile
  *              disk geri kazanılır). Gönderim başarısızsa hiçbir şey silinmez, 10 dk sonra tekrar denenir.
  *   Zaman    : son "Pazartesi 03:01 TSİ" geçmiş ve daha önce yapılmamışsa çalışır (bot o saatte kapalıysa açılınca).
  *              İlk kurulumda durum dosyası yoksa ilk rapor bir SONRAKİ Pazartesi'dir (deploy anında veri silinmez).
@@ -26,6 +27,8 @@ const { flatDrop, dropCols, dropText, teyitText, createTeyitAcc, slimDrop, csvLi
 const { createZipSet } = require('./zipWriter');
 const { touchText } = require('./infoStats');
 const { flatten, cardRow, colsOf } = require('./exportData');
+const { flatDip, dipCols } = require('./dipLog');
+const { stouchRow, STOUCH_COLS } = require('./supportTouch');
 
 const MIN = 60_000, HOUR = 3_600_000, DAY = 86_400_000, WEEK = 7 * DAY, MONDAY0 = 4 * DAY;
 const TZ = process.env.DISPLAY_TZ || 'Europe/Istanbul';
@@ -155,7 +158,30 @@ async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = n
     });
     if (pe) await pe.end();
   }
+  // Dip adayları ve destek temasları: parça parça → CSV satırı doğrudan zip'e (kayıt yoksa dosya açılmaz); bellekte yalnız sayaçlar
+  const dipOc = { döndü: 0, devam: 0, yatay: 0 };
+  let nDips = 0, nST = 0, stHeld = 0;
+  if (store.forEachDip) {
+    let de = null; const dc = dipCols();
+    await store.forEachDip({ until: cutoff }, async r => {
+      if (!de) de = zip.entry('dipler.csv', csvHeader(dc));
+      nDips++; if (r.t < from) from = r.t;
+      if (r.outcome in dipOc) dipOc[r.outcome]++;
+      await de.write(csvLine(flatDip(r), dc));
+    });
+    if (de) await de.end();
+  }
+  if (store.forEachSTouch) {
+    let se = null;
+    await store.forEachSTouch({ until: cutoff }, async r => {
+      if (!se) se = zip.entry('destekler.csv', csvHeader(STOUCH_COLS));
+      nST++; if (r.t < from) from = r.t; if (r.held) stHeld++;
+      await se.write(csvLine(stouchRow(r), STOUCH_COLS));
+    });
+    if (se) await se.end();
+  }
   drops.sort((a, b) => a.t - b.t);
+  const pc = (a, n) => (n ? `%${Math.round(a / n * 100)}` : '—');
 
   const grade = g => cards.filter(c => c.grade === g).length;
   const gradeOld = g => cards.filter(c => c.gradeOld === g).length;
@@ -192,6 +218,11 @@ async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = n
     '## Kurulum tablosu (pompa başına ilk aday, giriş 1dk kapanış)',
     setup.text(),
     '',
+    '## Dip defteri (özet)',
+    `Dip adayı: ${nDips} · döndü ${dipOc.döndü} (${pc(dipOc.döndü, nDips)}) · devam ${dipOc.devam} (${pc(dipOc.devam, nDips)}) · yatay ${dipOc.yatay} (${pc(dipOc.yatay, nDips)}) — tamamı dipler.csv'de`,
+    `Destek teması: ${nST} · 60. dk kapanışı seviyenin üstünde ${stHeld} (${pc(stHeld, nST)}) — tamamı destekler.csv'de`,
+    'Yalnız kayıt: kart, derece ve bildirim bunları kullanmaz. "Döndü" yalnız fiyatın dipten belirli bir yüzde yükseldiğini anlatır; kazanç/kayıp değildir.',
+    '',
     '## Seviye tepkisi (özet)',
     '```',
     plain(touchText(touches, { title: `${counts.touches} temas`, s })),
@@ -221,6 +252,9 @@ async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = n
     '- Derece alanları (tepeler.csv sonda; kartlar.csv son 16 kolon): grade = o anki kart derecesi (gradeVer 2: 1 + ayrışma + 1s + 15dk + ATR + MACD 5m + Stoch 5m + 3dk RSI), gradeOld = MACD/Stoch/3dk RSI şartsız eski formül (ayrışma eşiği güncel), g_sep/g_h1/g_r15/g_atr/g_macd/g_stoch/g_rsi3hi/g_runaway (0/1), cfgGradeRsi15m/cfgGradeAtr5Pct/cfgGradeMacd5m/cfgGradeStoch5m/cfgSepPct2/cfgGradeRsi3m (o andaki ayar). Eski satırlarda boş',
     '- Filtre dışı kart (kartlar.csv; mevcut kolonlardan sonra, derece alanlarından önce): snapOk (0/1: kart anında zorunlu filtreler sağlandı mı), snapFails (sağlanmayan şartlar, | ile), filterBypass (1: kart snapOk=0 iken SFP / seri patlaması / hareket yüzünden çıktı), bypassBy (sfp | burst | move). Yalnız kayıt, kural değişmedi; eski satırlarda boş. MD satırındaki "aşağı" = 60 dk kapanış < 0 (tam pencereli kartlar, n parantezde)',
     '- temaslar.csv: pb0, belowMin (sonda)',
+    '- dipler.csv: her satır bir düşüş dip adayı (tepeler.csv\'nin aynası). Baş: id, symbol, time, dip (adayın 1m low\'u), outcome (döndü = 15 dk içinde önce dibin %1.5 üstü · devam = önce dibin altı · yatay = ikisi de değil; aynı mumda ikisi: kapanış > açılış ise döndü, sameBar=1), bounceMin, card, cardGrade · low/high/close 5–240 (dibe göre %) · ardından tepeler.csv ile aynı adlı ve aynı anlamlı gösterge kolonları (rsi_<tf>, vwD_sig, cvdNet15, cvdDiv (ayı ayrışması, anlamı değişmedi), funding, liqLong15, btc1h …)',
+    '- dipler.csv dipe özel: dumpPct/dumpMin (4s tepeden düşüş % ve dk), dpLv/dpLvKind/dpLvDist/dpLvTouches/dpNear/dpLvTouchUp/dpLvTouchDn (dibin %0.3 içindeki en yakın seviye), rbPct/rbMin/rbLv… (dipten sonraki 60 dk\'nın tepesi ve oradaki en yakın direnç), downBeforeBounce (dönmeden önce dibin en fazla ne kadar altı, %, ≤ 0), u1/u2/u3 (dipten +%1/+%2/+%3\'e dk), c5Green/c5Engulf (boğa yutan)/c5AbovePrev/c5ClosePct/c5Next60High (ilk tam 5dk mum), highC15/lowC60/closeC60/closeC240/bounceC15 (giriş = aday 1m kapanışı), avwHigh_pct (düşüşün 4s tepesinden sabitlenmiş VWAP; avwLow_pct dipte boş), cvdDivBull (boğa CVD ayrışması), bounces24h/minsSinceBounce (drops24h/minsSinceDrop dipte boş), pumpAtr = dumpPct / 1s ATR %, volPeakX/volPeakXc = dip 1dk hacmi / düşüş süresi ortalaması, cfgDumpPct/cfgBouncePct/cfgBounceWindowMin/cfgSampleGapMin, dipVer, breadth20/dumping/q24h',
+    '- destekler.csv: her satır bir desteğe ÜSTTEN temas (önceki 1m kapanış seviyenin %0.3 üstünde, mumun dibi %0.3 yakınında ya da altında; aynı seviye 60 dk\'da bir). name (Fib oranı adı içinde), kind, value, lvTouches · card/dip (±5 dk kart / dip adayı) · rsi3/rsi5/rsi15, emaGap (3dk EMA21\'e %), funding, btc1h · wick0 (temas mumu dibinden kapanışa %), aboveMin (seviyenin altına indikten sonra 1m kapanışın üstüne döndüğü ilk dk), brokeMin (5dk kapanış seviyenin %0.3 altında), held (60. dk kapanış üstte), rally/rallyMin (o ana kadarki dipten en yüksek tepki %) · up/dn/c <5,15,30> ve up/dn/c60 (seviyeye göre %) · temas anı göstergeleri (rsi_<tf>, VWAP, likidasyon, bbB_*, cvdNet15/60, breadth*, q24h …)',
     '- Kart şartı: rsiOk, hits, ok, fails (rsi|seviye…), score, checkOk · sonrası: low/high/close 5, 15, 30, 60, 240 (tepeye göre %)',
     '',
   ].filter(x => x != null).join('\n');
@@ -230,7 +264,7 @@ async function buildWeekly(store, { now = Date.now(), s = {}, E = {}, cutoff = n
   await mz.write(md);
   await mz.end();
   const files = await zip.finish();
-  return { label, md, files, counts, cutoff, from };
+  return { label, md, files, counts, cutoff, from, dips: { n: nDips, ...dipOc }, stouches: nST };
 }
 
 /**

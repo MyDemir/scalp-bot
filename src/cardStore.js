@@ -256,7 +256,7 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
       if (!db) return;
       try {
         const { id, symbol, t, name, kind, value, lvTouches, card, dip, rally, rallyMin, brokeMin, aboveMin, held, up, dn, c60, wick0, ...rest } = e;
-        const row = { id, symbol, t, name, kind: kind ?? null, value, lvtouches: lvTouches ?? null, card: card ? 1 : 0, dip: dip ? 1 : 0,
+        const row = { id, symbol, t, name, kind: kind ?? null, value, lvtouches: lvTouches ?? null, card: card ? 1 : 0, dip: dip == null ? null : dip ? 1 : 0,
           rally: rally ?? null, rallymin: rallyMin ?? null, brokemin: brokeMin ?? null, abovemin: aboveMin ?? null, held: held ? 1 : 0,
           up: up ?? null, dn: dn ?? null, c60: c60 ?? null, wick0: wick0 ?? null };
         for (const w of TOUCH_SNAPS) for (const k of ['up', 'dn', 'c']) { row[`${k}${w}`] = rest[`${k}${w}`] ?? null; delete rest[`${k}${w}`]; }
@@ -462,7 +462,7 @@ function rowToSTouch(r) {
   let d = {};
   try { d = JSON.parse(r.data || '{}'); } catch { d = {}; }
   return {
-    ...d, id: r.id, symbol: r.symbol, t: r.t, name: r.name, kind: r.kind, value: r.value, lvTouches: r.lvtouches, card: Boolean(r.card), dip: Boolean(r.dip),
+    ...d, id: r.id, symbol: r.symbol, t: r.t, name: r.name, kind: r.kind, value: r.value, lvTouches: r.lvtouches, card: Boolean(r.card), dip: r.dip == null ? null : Boolean(r.dip),
     rally: r.rally, rallyMin: r.rallymin, brokeMin: r.brokemin, aboveMin: r.abovemin, held: Boolean(r.held), up: r.up, dn: r.dn, c60: r.c60, wick0: r.wick0,
     ...Object.fromEntries(TOUCH_SNAPS.flatMap(w => ['up', 'dn', 'c'].map(k => [`${k}${w}`, r[`${k}${w}`] ?? null]))),
   };
