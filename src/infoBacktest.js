@@ -185,7 +185,7 @@ async function runSymbol(symbol, { start, end, s, btcClose, btcMarket, keepCards
 
 // ── Rapor ──────────────────────────────────────────────────────────────────
 
-const { median, pctS, fmtDate, compact, CLASSES, classTable, excluded60, excludedNote, load, touchText } = require('./infoStats');
+const { median, pctS, fmtDate, compact, CLASSES, classTable, nLabel, excluded60, excludedNote, load, touchText } = require('./infoStats');
 
 function printReport(p, cards, perSym) {
   const days = (p.end - p.start) / DAY;
@@ -202,7 +202,7 @@ function printReport(p, cards, perSym) {
   console.log('\nKart sınıfları ve sonrasında fiyat (medyan, kart anındaki fiyata göre):');
   console.log('  Sınıf                   Kart   15dk en düşük   60dk en düşük   60dk en yüksek   60dk sonra');
   for (const r of classTable(cards)) {
-    console.log(`  ${r.name.padEnd(22)} ${String(r.n).padStart(5)}   ${pctS(r.low15).padStart(13)}   ${pctS(r.low60).padStart(13)}   ${pctS(r.high60).padStart(14)}   ${pctS(r.close60).padStart(10)}`);
+    console.log(`  ${r.name.padEnd(22)} ${nLabel(r).padStart(5)}   ${pctS(r.low15).padStart(13)}   ${pctS(r.low60).padStart(13)}   ${pctS(r.high60).padStart(14)}   ${pctS(r.close60).padStart(10)}`);
   }
   if (excluded60(cards)) console.log(`  60dk sütunları:${excludedNote(excluded60(cards))}`);
   const top = perSym.filter(x => x.n).sort((a, b) => b.n - a.n).slice(0, 12);
@@ -230,7 +230,7 @@ function printMoves(p, moves, s) {
 function telegramSummary(p, cards, perSym, s, moves = []) {
   const days = (p.end - p.start) / DAY;
   const L = load(cards);
-  const rows = classTable(cards).map(r => `${esc(r.name.trim())}: <b>${r.n}</b> · 60dk en düşük ${pctS(r.low60)} · en yüksek ${pctS(r.high60)}`);
+  const rows = classTable(cards).map(r => `${esc(r.name.trim())}: <b>${nLabel(r)}</b> · 60dk en düşük ${pctS(r.low60)} · en yüksek ${pctS(r.high60)}`);
   const exclNote = excludedNote(excluded60(cards));
   const top = perSym.filter(x => x.n).sort((a, b) => b.n - a.n).slice(0, 8).map(x => `${esc(x.symbol)} ${x.n}`).join(' · ');
   return `🧪 <b>Bilgi botu backtest</b>
