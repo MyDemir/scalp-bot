@@ -73,5 +73,64 @@ console.log('--- Gap Tamamlama, Tekrar Mum ve Telegram Kuyruk Testleri ---');
   console.log('✅ Telegram: Kuyruk öncelik, sınır ve metrik yapısı doğrulandı');
 })();
 
+// 3. Test (S1-100): 1m akışında 10 dk boşluk — mevcut davranış sabitlenir (src değişmeden)
+(() => {
+  const { MIN } = require('../src/series');
+  const infoBot = require('../src/infoBot'); const I = infoBot._internal;
+  const minimum = { '1m': 25, '3m': 60, '5m': 60, '15m': 40, '1h': 15, '4h': 0, '1d': 0 };
+  const now = Math.floor(Date.now() / MIN) * MIN;
+  // Hizalı fixture: 1m son mumu lastT; üst TF'ler lastT+1dk'dan önce kapanan son periyoda kadar
+  const TFM = { '3m': 3, '5m': 5, '15m': 15, '1h': 60 };
+  const mkReady = (sym, lastT) => {
+    const sr = new Series(sym);
+    sr.seed('1m', Array.from({ length: 25 }, (_, i) => ({ t: lastT - (24 - i) * MIN, o: 100, h: 102, l: 99, c: 101, v: 1000, closed: true })));
+    for (const [tf, count] of Object.entries(minimum)) {
+      if (!count || tf === '1m') continue;
+      const ms = TFM[tf] * MIN, end = Math.floor((lastT + MIN) / ms) * ms - ms;
+      sr.seed(tf, Array.from({ length: count }, (_, i) => ({ t: end - (count - 1 - i) * ms, o: 100, h: 102, l: 99, c: 101, v: 1000, closed: true })));
+    }
+    assert(sr.ready(), sym + ' hazır olmalı');
+    return sr;
+  };
+  const clear = sym => { I.recoveryBlocked.delete(sym); I.recoveryQueue.delete(sym); I.series.delete(sym); };
+  const quiet = (fn) => { const w = console.warn, e = console.error, l = console.log; console.warn = console.error = console.log = () => {}; try { return fn(); } finally { console.warn = w; console.error = e; console.log = l; } };
+  const candle = t => ({ t, o: 101, h: 102, l: 100, c: 101, v: 1000, tb: 500, q: 101000, tq: 50500, closed: true });
+
+  // (a) Taze ama içinde boşluk olan akış: scanStaleRecovery kilitlemez (yalnız SON mum yaşına bakar);
+  //     processCandle boşluklu mumu uygular, kilit koymaz; boşluk checkCoverage'da görünür, Series'te "eksik" işaretlenir.
+  const A = 'GAPAUSDT'; clear(A);
+  const base = Math.floor(now / (60 * MIN)) * 60 * MIN - 2 * 60 * MIN;     // saat başı (3/5/15 dk hizalı), geçmişte
+  I.series.set(A, mkReady(A, base - MIN));
+  const srA = I.series.get(A);
+  for (let i = 0; i <= 2; i++) quiet(() => I.processCandle(srA, candle(base + i * MIN), true));   // base..base+2 canlı (5m ve 15m dilimi yarım)
+  const resumeT = base + 13 * MIN;                                          // base+3 .. base+12 = 10 dk eksik
+  const feedN = 20;                                                         // boşluk sonrası 20 ardışık canlı mum
+  for (let i = 0; i < feedN; i++) quiet(() => I.processCandle(srA, candle(resumeT + i * MIN), true));
+  assert.strictEqual(srA.lastT('1m'), resumeT + (feedN - 1) * MIN, 'boşluk sonrası mumlar seriye uygulanır');
+  const nowA = resumeT + feedN * MIN + 5_000;
+  quiet(() => I.scanStaleRecovery(nowA));
+  assert(!I.recoveryBlocked.has(A), 'son mum taze: scanStaleRecovery kilitlemez (kilit yalnız bayat akışta)');
+  const cov = I.checkCoverage(srA, { since: base - MIN, now: nowA });
+  assert.strictEqual(cov.missing, 10, 'checkCoverage 10 dk boşluğu sayar'); assert.strictEqual(cov.ok, false, 'boşluk varken ok=false');
+  const inc = ['3m', '5m', '15m'].filter(tf => srA.incomplete(tf, 14) > 0);
+  assert.deepStrictEqual(inc, ['3m', '5m', '15m'], 'boşluktan etkilenen 3m/5m/15m mumları eksik işaretli (incTf kaynağı): ' + inc);
+  assert.strictEqual(srA.incomplete('1h', 1), 0, 'boşluk 1h dilimine değmeden bitti ve 1h henüz kapanmadı');
+  clear(A);
+
+  // (b) Bayat akış (son mum 10 dk önce): kilitlenir + kurtarma kuyruğuna girer; kilitliyken canlı mum seriye işlenir
+  //     ama değerlendirme (kart) atlanır ve sayılır.
+  const B = 'GAPBUSDT'; clear(B);
+  I.series.set(B, mkReady(B, now - 10 * MIN));
+  quiet(() => I.scanStaleRecovery(now));
+  assert(I.recoveryBlocked.has(B) && I.recoveryQueue.has(B), 'bayat akış kilitlenir ve kuyruğa alınır');
+  const srB = I.series.get(B); const be0 = I.stats.blockedEvals, cards0 = I.stats.cards;
+  quiet(() => I.processCandle(srB, candle(now - MIN), true));
+  assert.strictEqual(I.stats.blockedEvals, be0 + 1, 'kilitte atlanan değerlendirme sayılır');
+  assert.strictEqual(I.stats.cards, cards0, 'kilitliyken kart üretilmez');
+  assert.strictEqual(srB.lastT('1m'), now - MIN, 'mum seriye yine de işlenir');
+  clear(B);
+  console.log('✅ Veri boşluğu: taze+delikli akış kilitlenmez ama checkCoverage/incomplete işaretler; bayat akış kilitlenir, kilitte kart yok');
+})();
+
 console.log('Tüm gap ve kuyruk testleri başarıyla tamamlandı.');
 process.exit(0);
