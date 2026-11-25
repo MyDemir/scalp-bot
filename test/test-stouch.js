@@ -75,6 +75,14 @@ let rC;
   assert(x && x.aboveMin === 3 && x.held === true, 'süpürme: ' + JSON.stringify(x && { a: x.aboveMin, h: x.held }));
   ok(`Süpürme: seviyenin altında kapanış, ${x.aboveMin}. dk'da üstüne döndü (aboveMin), 60. dk üstte`);
 }
+// ── 3b) Seviyenin altına hiç inmeyen temas: aboveMin boş (üstte kapanış "geri dönüş" sayılmaz) ──
+{
+  const v = a.value;
+  const r = run([...lead, v * 1.004, ...seg(v * 1.004, v * 1.02, 20), ...seg(v * 1.02, v * 1.02, 80)], { overrides: { [tIdx]: { l: v * 1.001 } } });
+  const x = r.ev.find(e => e.value === v);
+  assert(x && x.aboveMin === null && x.dn > 0 && x.held === true, 'altına inmedi: ' + JSON.stringify(x && { a: x.aboveMin, dn: x.dn }));
+  ok('Altına inmeyen temas (dip seviyenin %0.1 üstü): aboveMin boş, held');
+}
 // ── 4) Aynı seviye 60 dk içinde tekrar yazılmaz; 60 dk sonra yeni temas yazılır ──
 {
   const back = [...seg(97.4, 99, 10), ...seg(99, 97.15, 10)];
