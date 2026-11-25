@@ -646,6 +646,8 @@ function dayKey(t) {
 
 const GRADE_TXT = { 0: 'şart dışı', 1: 'kart şartı', 2: 'kontrol listesi', 3: 'kontrol listesi', 4: 'kontrol listesi' };
 
+const AFTER_SETUP_MS = 60 * 60_000;
+
 function createTracker() {
   const mem = new Map();
 
@@ -659,7 +661,7 @@ function createTracker() {
     observe15m(sym, rsi15mClosed, s) {
       if (rsi15mClosed == null || rsi15mClosed >= s.resetRsi) return;
       const m = mem.get(sym);
-      if (m && (m.seq || m.xs)) { m.seq = 0; m.last = null; m.maxGrade = 0; m.xs = 0; }
+      if (m && (m.seq || m.xs)) { m.seq = 0; m.last = null; m.maxGrade = 0; m.xs = 0; m.xt = null; }
     },
 
     news(sym, snap, trig, s) {
@@ -759,10 +761,18 @@ function createTracker() {
     commitExtra(sym, snap) {
       const m = get(sym);
       m.xs = (m.xs || 0) + 1;
+      m.xt = { t: snap.t, price: snap.price };   // son tek başına kurulum kartı (afterSetup için; sembol başına 2 sayı)
       const seq = m.seq + m.xs;
       m.log.push({ t: snap.t, price: snap.price, seq });
       while (m.log.length && m.log[0].t < snap.t - DAY) m.log.shift();
       return seq;
+    },
+
+    /** Son 60 dk içinde tek başına ⭐ kurulum kartı çıkmışsa { min, pct } (fiyat kurulumdan % değişim), yoksa null. */
+    afterSetup(sym, t, price) {
+      const x = mem.get(sym)?.xt;
+      if (!x || !(x.price > 0) || t < x.t || t - x.t > AFTER_SETUP_MS) return null;
+      return { min: Math.floor((t - x.t) / 60_000), pct: (price - x.price) / x.price * 100 };
     },
 
     active: sym => (mem.get(sym)?.seq ?? 0) > 0,
@@ -849,6 +859,12 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
   // Seri içinde 3m/5m/15m kapanışından gelen yeni kart yalnız derece serideki en yükseği geçince; sahte kırılım, hacimli mum
   // ve ⚡ hareket her zaman kart olur. Atlanan değişiklikler (RSI, MACD, negatif tepe…) sonraki karta birikir.
   if (!sfp && !burst && !move && tracker.maxGrade(sym) > 0 && !(snap.grade > tracker.maxGrade(sym))) return null;
+  // Kurulum kartından sonraki RSI kartı: işaret (yalnız bilgi; derece/ses/seri kuralı değişmez)
+  const afterSetup = tracker.afterSetup(sym, snap.t, snap.price);
+  if (afterSetup) {
+    trig.afterSetup = afterSetup;
+    news.push(`⭐ Kurulum kartından ${afterSetup.min} dk sonra · fiyat kurulumdan ${ps(afterSetup.pct)}`);
+  }
   const seq = tracker.commit(sym, snap, s);
 
   const followed = ctx.isFollowed ? ctx.isFollowed(sym) : false;
@@ -856,6 +872,7 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
   const tags = [
     `#${sym}`, `#DERECE${snap.grade}`,
     snap.level ? (dip ? '#DIRENCTE' : '#YAKLASIYOR') : null,
+    afterSetup ? '#KURULUMSONRASI' : null,
     burst ? '#HACIM' : null,
     move ? '#HAREKET' : null,
     inSeries ? '#SERI' : null,
