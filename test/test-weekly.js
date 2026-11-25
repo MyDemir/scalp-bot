@@ -66,7 +66,8 @@ assert(Z['temaslar.csv'].split('\n')[0].trim().split(',').slice(-2).join() === '
 {
   const L = Z['kartlar.csv'].trim().split('\n'), H = L[0].replace('\uFEFF', '').split(',');
   const { GRADE_COLS, BYPASS_COLS } = require('../src/exportData');
-  assert.deepStrictEqual(H.slice(-20, -16), BYPASS_COLS, 'kartlar.csv: yeni 4 kolon GRADE_COLS\'tan önce'); assert.deepStrictEqual(H.slice(-16), GRADE_COLS);
+  assert.deepStrictEqual(H.slice(-3), ['setup', 'setupS', 'setupPump'], 'kartlar.csv: kurulum 3 kolonu en sonda');
+  assert.deepStrictEqual(H.slice(-23, -19), BYPASS_COLS, 'kartlar.csv: yeni 4 kolon GRADE_COLS\'tan önce'); assert.deepStrictEqual(H.slice(-19, -3), GRADE_COLS);
   assert(L.length === 3, 'iki kart satırı');
   const pick = (line, k) => line.split(',')[H.indexOf(k)];
   const rowOf = sym => L.slice(1).find(l => l.includes(sym));

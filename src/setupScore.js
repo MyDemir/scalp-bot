@@ -1,6 +1,6 @@
 'use strict';
 /**
- * v3 kurulum puanı (GÖLGE kayıt: kart, ses ve derece kuralı bunu kullanmaz).
+ * v3 kurulum puanı. Derece kuralı bunu kullanmaz; 25.11.2026'dan beri v3 B (eventLog v3Next) ⭐ kurulum kartını tetikler (infoEngine.setupCard).
  * Saf ve deterministik: aynı (feat, s) → aynı sonuç; durum ve saat yok.
  * Eşikler ayar değildir (config.js'e yazılmaz); s.setupRsi1m / s.setupVol3 verilirse onlar, yoksa SETUP_DEFAULTS.
  * Kayıt sürümü: cfgSetupVer.
