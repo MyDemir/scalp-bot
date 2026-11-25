@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="light dark">
+  <title>SCALP ENGINE · Panel (salt okunur)</title>
+  <link rel="stylesheet" href="/panel/app.css">
+  <script src="/panel/app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">İçeriğe geç</a>
+
+  <header class="top">
+    <div class="top-row wrap">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">S</span>
+        <span class="brand-name">SCALP ENGINE</span>
+        <span class="tag ro">salt okunur</span>
+        <span class="tag role" id="role-badge" hidden>Üye</span>
+      </div>
+      <form class="coin-search" id="coin-form" role="search" autocomplete="off">
+        <label class="sr" for="coin-q">Coin ara</label>
+        <input type="search" id="coin-q" class="inp" maxlength="20" placeholder="Coin ara: ETH, SOL…" autocapitalize="characters" spellcheck="false" enterkeyhint="search">
+        <button type="submit" class="btn">Aç</button>
+      </form>
+      <div class="top-actions">
+        <button type="button" class="chip-btn" id="err-btn" title="Sistem → Loglar">
+          <span class="dot" id="err-dot"></span><span id="err-text">— hata</span>
+        </button>
+        <button type="button" class="chip-btn" id="theme-btn" title="Açık / koyu tema">Tema</button>
+        <button type="button" class="chip-btn" id="logout-btn" title="Oturumu kapat">Çıkış</button>
+      </div>
+    </div>
+  </header>
+  <!-- Sekme şeridi: başlıktan ayrı, yapışkan; dar ekranda tek satır yatay kayar (etkin sekme görünür alana kaydırılır) -->
+  <nav class="tabs-bar" aria-label="Sayfalar">
+    <div class="tabs wrap">
+      <button type="button" class="tab" data-tab="simdi">Şimdi</button>
+      <button type="button" class="tab" data-tab="takip">Takip</button>
+      <button type="button" class="tab" data-tab="piyasa">Piyasa</button>
+      <button type="button" class="tab" data-tab="tepe">Tepe defteri</button>
+      <button type="button" class="tab" data-tab="seviye">Seviyeler</button>
+      <button type="button" class="tab" data-tab="akis">Akış</button>
+      <button type="button" class="tab" data-tab="rapor">Raporlar</button>
+      <button type="button" class="tab" data-tab="sistem">Sistem</button>
+    </div>
+  </nav>
+  <div class="coverage" id="coverage-bar"><div class="wrap" id="coverage" aria-live="polite">Kapsam yükleniyor…</div></div>
+
+  <main id="main" class="wrap">
+
+    <!-- ── Şimdi: KPI şeridi + son kartlar ── -->
+    <section class="page" id="page-simdi" hidden>
+      <div class="kpis" id="kpis"></div>
+      <div class="sec-head">
+        <h2>Son kartlar <span class="muted" id="cards-count"></span></h2>
+        <div class="row-gap">
+          <select id="cards-type" class="inp" aria-label="Kart türü">
+            <option value="">Tüm kartlar</option>
+            <option value="move">⚡ 1 dk hareket içeren</option>
+            <option value="burst">Hacimli mum içeren</option>
+            <option value="sfp">Sahte kırılım</option>
+            <option value="disc">Fiyat keşfi</option>
+            <option value="series">Seri içi</option>
+            <option value="dip">⭐ Dirençte</option>
+            <option value="bypass">Filtre dışı</option>
+            <option value="old-move">Eski ⚡ uyarı kayıtları</option>
+          </select>
+          <input type="search" id="cards-filter" class="inp" maxlength="20" placeholder="Süz: BTC, SOL…" aria-label="Kartlarda coin süz" autocomplete="off">
+        </div>
+      </div>
+      <p class="note">Kart sonrası değerler yalnız fiyat değişimidir (kart anındaki fiyata göre, kapanış). Derece daireleri Telegram kartıyla aynıdır.</p>
+      <div class="cards" id="cards"><div class="empty">Yükleniyor…</div></div>
+    </section>
+
+    <!-- ── Takip: sonrası izlenen kartlar, süren seriler, ⚡ bugün, takip / susturma ── -->
+    <section class="page" id="page-takip" hidden>
+      <div class="sec-head"><h2>Sonrası izlenen kartlar <span class="muted" id="open-count"></span></h2></div>
+      <p class="note">Kart gönderildikten sonra fiyat 5 / 15 / 30 / 60 / 240 dk izlenir. Değerler kart fiyatına göre yalnız fiyat değişimidir (son 1m kapanışı, en düşük ve en yüksek). Coin adına dokun: coin ayrıntısı.</p>
+      <div class="table-wrap">
+        <table class="tbl mstack">
+          <thead><tr><th>Parite</th><th>Kart</th><th class="r">Kart fiyatı</th><th class="r">Şimdiye kadar</th><th class="r">En düşük / en yüksek</th><th>Pencereler</th></tr></thead>
+          <tbody id="open-tracks"><tr><td colspan="6" class="empty">Yükleniyor…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="two-col gap-top">
+        <div class="box"><h3>Süren kart serileri</h3><p class="note small">Seri, 15m RSI sıfırlama eşiğinin altına inince biter. Daireler serideki en yüksek derece.</p><div id="series-list" class="list">—</div></div>
+        <div class="box"><h3>Bugün ⚡ 1 dk hareket</h3><p class="note small">Telegram 📋 Detay’daki ▲ / ▼ sayacı (TSİ günü).</p><div id="moves-list" class="list">—</div></div>
+      </div>
+      <div class="box"><h3>Takip ve susturma</h3><p class="note small">Telegram’dan yönetilir (/takip, /sustur); panel yalnız gösterir.</p><div id="watch-list" class="list">—</div></div>
+    </section>
+
+    <!-- ── Piyasa: piyasa geneli, spot büyük işlemler, likidasyonlar ── -->
+    <section class="page" id="page-piyasa" hidden>
+      <div class="sec-head"><h2>Piyasa geneli</h2></div>
+      <p class="note">Botun dakikada bir hesapladığı genel durum (kartlarda ve tepe defterinde kullanılan değerler).</p>
+      <div class="kpis kpis-4" id="market-kpis"></div>
+      <div class="two-col">
+        <div class="box">
+          <div class="sec-head small"><h3>🐋 Spot büyük işlemler</h3>
+            <div class="seg" id="big-hours" role="group" aria-label="Süre">
+              <button type="button" class="seg-btn" data-h="1">1 s</button>
+              <button type="button" class="seg-btn" data-h="4">4 s</button>
+              <button type="button" class="seg-btn active" data-h="24">24 s</button>
+            </div>
+          </div>
+          <p class="note small">Spotta tek market emri, coin eşiğinin (günlük spot hacminin binde yarısı, en az 5K $) üstünde. Alım / satım taker yönüdür; dakikada bir kaydedilir.</p>
+          <div class="table-wrap">
+            <table class="tbl mstack grid2">
+              <thead><tr><th>Parite</th><th class="r">Alım (adet · $)</th><th class="r">Satım (adet · $)</th><th class="r">Net $</th><th class="r">Toplam $</th></tr></thead>
+              <tbody id="big-body"><tr><td colspan="5" class="empty">Yükleniyor…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="box">
+          <h3>Likidasyonlar (son 60 dk, tüm piyasa)</h3>
+          <p class="note small">Binance zorla kapatma akışı, USDT. Short tasfiyesi zorla alım, long tasfiyesi zorla satıştır. Yalnız son 60 dk bellekte tutulur.</p>
+          <div class="table-wrap">
+            <table class="tbl mstack grid2">
+              <thead><tr><th>Parite</th><th class="r">Short tasfiyesi 15 / 60 dk</th><th class="r">Long tasfiyesi 15 / 60 dk</th></tr></thead>
+              <tbody id="liq-body"><tr><td colspan="3" class="empty">Yükleniyor…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="box">
+          <h3>Funding (en yüksek)</h3>
+          <p class="note small">Botun bellekteki son funding oranları (%). Bilgi amaçlıdır.</p>
+          <div class="table-wrap">
+            <table class="tbl mstack grid2">
+              <thead><tr><th>Parite</th><th class="r">Funding</th><th class="r">Sonraki</th></tr></thead>
+              <tbody id="fund-top-body"><tr><td colspan="3" class="empty">Yükleniyor…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="box">
+          <h3>Funding (en düşük)</h3>
+          <p class="note small">Negatif oran: kısa pozisyonlar uzun pozisyonlara öder.</p>
+          <div class="table-wrap">
+            <table class="tbl mstack grid2">
+              <thead><tr><th>Parite</th><th class="r">Funding</th><th class="r">Sonraki</th></tr></thead>
+              <tbody id="fund-bot-body"><tr><td colspan="3" class="empty">Yükleniyor…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Coin ayrıntısı (#coin/ETHUSDT): başlıktaki aramadan ya da coin adına dokunarak ── -->
+    <section class="page" id="page-coin" hidden>
+      <div class="sec-head"><h2 id="coin-title">Coin</h2><div class="badges" id="coin-badges"></div></div>
+      <div class="two-col">
+        <div class="box">
+          <div class="sec-head small"><h3>Anlık durum <span class="muted small">(/coin · kart değil) <span id="coin-now-at"></span></span></h3><button type="button" class="btn ghost" id="coin-now-refresh">Yenile</button></div>
+          <div id="coin-now-img" hidden></div>
+          <div class="report" id="coin-now">—</div>
+        </div>
+        <div class="box"><h3>Özet</h3><div id="coin-summary" class="rows">Yükleniyor…</div></div>
+      </div>
+      <h3 class="sec-title">Son kartlar</h3>
+      <div class="cards" id="coin-cards"></div>
+      <div class="two-col gap-top">
+        <div class="box"><h3>Tepe adayları (7 gün)</h3><div id="coin-events" class="list"></div></div>
+        <div class="box"><h3>🐋 Büyük işlemler (24 s, saatlik)</h3><div id="coin-big" class="list"></div></div>
+      </div>
+      <div class="box">
+        <h3>Seviye temasları (7 gün)</h3>
+        <div class="table-wrap">
+          <table class="tbl mstack">
+            <thead><tr>
+              <th>Zaman</th><th>Parite</th><th>Seviye</th><th class="r">Değer</th><th class="r">Seviye gücü</th><th class="r">RSI</th><th>Kart</th>
+              <th class="r">En derin çekilme</th><th class="r">60 dk tepe / dip</th><th class="r">60. dk</th><th>Sonuç</th>
+            </tr></thead>
+            <tbody id="coin-touches-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="box"><h3>Alım-satım akışı</h3><div id="coin-flow"></div></div>
+    </section>
+
+    <!-- ── Tepe defteri ── -->
+    <section class="page" id="page-tepe" hidden>
+      <div class="sec-head">
+        <h2>Tepe defteri <span class="muted" id="events-count"></span></h2>
+        <label class="inline">Sonuç
+          <select id="events-outcome" class="inp">
+            <option value="">Tümü</option>
+            <option value="düştü">Düştü</option>
+            <option value="devam">Devam etti</option>
+            <option value="yatay">Yatay</option>
+          </select>
+        </label>
+      </div>
+      <p class="note">Pompa tepesi adayları (kartlı ve kartsız). Satıra dokun: göstergeler ve tepeden sonraki 15 dk 1m yolu. <span class="shadow-tag">gölge</span> etiketli alanlar kart derecesine girmez, yalnız kayıttır.</p>
+      <div class="table-wrap">
+        <table class="tbl mstack" id="events-table">
+          <thead><tr>
+            <th>Zaman</th><th>Parite</th><th>Sonuç</th><th class="r">Düşüşe dk</th><th>Kart</th><th title="Tepe anındaki derece (kart çıkmasa da hesaplanır)">Tepe derecesi</th>
+            <th class="r">Pompa</th><th class="r">RSI 3/5/15</th><th class="r">15 dk dip</th><th class="r">60 dk son</th><th>v3 <span class="shadow-tag">gölge</span></th>
+          </tr></thead>
+          <tbody id="events-body"><tr><td colspan="11" class="empty">Yükleniyor…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── Seviyeler (temaslar) ── -->
+    <section class="page" id="page-seviye" hidden>
+      <div class="sec-head">
+        <h2>Seviye temasları <span class="muted" id="touches-count"></span></h2>
+      </div>
+      <p class="note">Fiyat bir dirence alttan değdi, sonraki 60 dk izlendi. Sonuç 60. dk kapanışına göredir: seviyenin üstünde kaldıysa “Kırıp üstte kaldı”, altında kaldıysa “Altında kaldı (ret)”. Değişimler seviyeye göre %.</p>
+      <div class="table-wrap">
+        <table class="tbl mstack">
+          <thead><tr>
+            <th>Zaman</th><th>Parite</th><th>Seviye</th><th class="r">Değer</th><th class="r">Seviye gücü</th><th class="r">RSI</th><th>Kart</th>
+            <th class="r">En derin çekilme</th><th class="r">60 dk tepe / dip</th><th class="r">60. dk</th><th>Sonuç</th>
+          </tr></thead>
+          <tbody id="touches-body"><tr><td colspan="11" class="empty">Yükleniyor…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── Akış ── -->
+    <section class="page" id="page-akis" hidden>
+      <div class="sec-head">
+        <h2>Alım-satım akışı <span class="muted" id="flow-count"></span></h2>
+        <div class="row-gap">
+          <input type="search" id="flow-filter" class="inp" maxlength="20" placeholder="Coin ara" autocomplete="off">
+          <select id="flow-label" class="inp">
+            <option value="">Tüm etiketler</option>
+            <option value="birikim">Günlük: Toplanıyor</option>
+            <option value="dagitim">Günlük: Dağıtım</option>
+            <option value="trendUp">Günlük: Trend (alım)</option>
+            <option value="trendDown">Günlük: Trend (satış)</option>
+          </select>
+        </div>
+      </div>
+      <p class="note">Spotu olan USDT pariteleri, kapanmış pencereler. Etiket: son pencerelerde fiyat ve net akış (CVD) birlikte; yorumdur, kanıt değildir. ● güçlü hacim (ortalamanın ≥ 1,5 katı) · ○ zayıf hacim · 🐋 spotta tek market emri ≥ günlük spot hacminin binde yarısı (en az 5K $). Satıra dokun: ayrıntı.</p>
+      <div class="table-wrap tall">
+        <table class="tbl mstack grid2">
+          <thead><tr>
+            <th>Parite</th><th class="r">Hacim (gün)</th><th class="r">Alış − satış %</th><th class="r">Değişim %</th>
+            <th>1s</th><th>4s</th><th>Günlük</th><th>Haftalık</th><th>Aylık</th><th class="r">🐋 bugün alım / satım</th>
+          </tr></thead>
+          <tbody id="flow-body"><tr><td colspan="10" class="empty">Yükleniyor…</td></tr></tbody>
+        </table>
+      </div>
+      <button type="button" class="btn ghost more" id="flow-more" hidden>Daha fazla göster</button>
+      <div class="two-col">
+        <div class="box">
+          <h3 id="flow-detail-title">Ayrıntı: bir parite seç</h3>
+          <div id="flow-detail" class="muted">Tablodan bir satıra dokun.</div>
+        </div>
+        <div class="box">
+          <h3>Etiket değişiklikleri (son 7 gün)</h3>
+          <div id="flow-changes" class="list">—</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Raporlar ── -->
+    <section class="page" id="page-rapor" hidden>
+      <div class="sec-head"><h2>Raporlar</h2></div>
+      <p class="note">Telegram komutlarıyla aynı raporlar (aynı kod). Hiçbiri botun ayarını ya da durumunu değiştirmez.</p>
+      <div class="row-gap form">
+        <label class="stack">Rapor
+          <select id="report-name" class="inp">
+            <option value="istatistik">Kart istatistiği (/istatistik)</option>
+            <option value="gecmis">Coin kart geçmişi (/gecmis)</option>
+            <option value="coin">Coin anlık durumu (/coin)</option>
+            <option value="akis">Alım-satım akışı (/akis)</option>
+            <option value="seviye">Seviye tepkisi (/seviye)</option>
+            <option value="kacan">Düşüş defteri (/kacan)</option>
+            <option value="teyit">Short teyidi (/teyit)</option>
+            <option value="takip">Takip listesi (/takip)</option>
+            <option value="sessiz">Susturulanlar (/sessiz)</option>
+            <option value="durum">Motor durumu (/durum)</option>
+          </select>
+        </label>
+        <label class="stack"><span id="report-args-label">Gün</span>
+          <input id="report-args" class="inp" maxlength="40" placeholder="7" autocomplete="off">
+        </label>
+        <button type="button" class="btn" id="report-run">Göster</button>
+      </div>
+      <div id="report-image" hidden></div>
+      <pre class="report" id="report-output">Bir rapor seçip “Göster”e dokun.</pre>
+    </section>
+
+    <!-- ── Sistem ── -->
+    <section class="page" id="page-sistem" hidden>
+      <nav class="subtabs" aria-label="Sistem bölümleri">
+        <button type="button" class="subtab" data-sub="saglik">Sağlık ve kuyruk</button>
+        <button type="button" class="subtab" data-sub="loglar">Loglar <span class="badge-err" id="log-err-badge" hidden></span></button>
+        <button type="button" class="subtab" data-sub="botlar">Harici botlar</button>
+        <button type="button" class="subtab" data-sub="ayarlar">Ayar aynası</button>
+        <button type="button" class="subtab" data-sub="webhook">Webhook</button>
+      </nav>
+
+      <div class="sub" id="sub-saglik" hidden>
+        <div class="two-col">
+          <div class="box"><h3>Veri akışı sağlığı <span id="health-badge"></span></h3><div id="health-rows" class="rows">Yükleniyor…</div></div>
+          <div class="box"><h3>Telegram kuyruğu</h3><div id="tg-rows" class="rows">Yükleniyor…</div></div>
+        </div>
+        <div class="box"><h3>Ek veri akışları</h3><div id="feeds-rows" class="rows">Yükleniyor…</div></div>
+        <div class="box"><h3>Son gönderimler</h3><div id="tg-recent" class="list">—</div></div>
+      </div>
+
+      <div class="sub" id="sub-loglar" hidden>
+        <div class="row-gap form">
+          <div class="seg" role="group" aria-label="Seviye">
+            <button type="button" class="seg-btn" data-level="all">Tümü</button>
+            <button type="button" class="seg-btn" data-level="error">Hatalar</button>
+            <button type="button" class="seg-btn" data-level="warn">Uyarılar</button>
+            <button type="button" class="seg-btn" data-level="info">Sistem</button>
+          </div>
+          <input type="search" id="log-search" class="inp" maxlength="100" placeholder="Loglarda ara" autocomplete="off">
+          <select id="log-day" class="inp"><option value="">Canlı (son kayıtlar)</option></select>
+          <button type="button" class="btn ghost" id="log-download">İndir</button>
+          <button type="button" class="btn ghost" id="log-copy">Kopyala</button>
+        </div>
+        <p class="note"><span id="log-mode">Canlı akış</span> · <span id="log-count">0 kayıt</span> · saatler TSİ, gün listesi UTC günüdür.</p>
+        <div class="logs" id="logs"><div class="empty">Yükleniyor…</div></div>
+      </div>
+
+      <div class="sub" id="sub-botlar" hidden>
+        <p class="note">Bu süreçteki motor ve nabız gönderen harici botlar. Harici botun durumu son nabzından okunur (2 dk nabız yoksa çevrimdışı).</p>
+        <div class="bots" id="bots"><div class="empty">Yükleniyor…</div></div>
+      </div>
+
+      <div class="sub" id="sub-ayarlar" hidden>
+        <p class="note">Çalışan motorun ayarları. Panel yalnız yansıtır; ayarlar Telegram’da <code>/ayarlar</code> ile değişir.</p>
+        <div class="box"><div id="settings" class="rows">Yükleniyor…</div></div>
+      </div>
+
+      <div class="sub" id="sub-webhook" hidden>
+        <div class="box">
+          <h3>Harici botu panele bağlama</h3>
+          <p class="note">Başka bir botun durumunu bu panelde görmek için nabız (heartbeat) gönderilir. Uç yetki ister: sunucuda en az 16 karakterlik <code>EXTERNAL_BOT_KEY</code> tanımlanır, istek <code>X-Bot-Key</code> başlığıyla gelir. Anahtar yalnız nabız yazar, panel verisini okuyamaz. <code>error</code> doluysa bot “hata” görünür ve kalıcı loga düşer.</p>
+          <div class="kv-line"><span class="muted">Uç</span> <code class="sel" id="webhook-url">POST /api/external-bots/heartbeat</code></div>
+          <div class="sec-head small"><h3>Python örneği</h3><button type="button" class="btn ghost" id="code-copy">Kopyala</button></div>
+          <pre class="code" id="code-python"></pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+</body>
+</html>

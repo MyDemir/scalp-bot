@@ -107,6 +107,15 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
     tPrune: db.prepare('DELETE FROM touches WHERE t < ?'),
     pIns: db.prepare('INSERT OR IGNORE INTO paths (id, symbol, t, entry, n, data) VALUES (?, ?, ?, ?, ?, ?)'),
     pPrune: db.prepare('DELETE FROM paths WHERE t < ?'),
+    // Panel (salt okunur): mevcut indeksler yeter (cards_t, touches_t, events_t, paths PK)
+    rCards: db.prepare("SELECT * FROM cards WHERE kind = 'card' ORDER BY t DESC LIMIT ?"),
+    rTouches: db.prepare('SELECT * FROM touches ORDER BY t DESC LIMIT ?'),
+    rEvents: db.prepare('SELECT e.*, EXISTS(SELECT 1 FROM paths p WHERE p.id = e.id) AS haspath FROM events e ORDER BY e.t DESC LIMIT ?'),
+    rEventsBy: db.prepare('SELECT e.*, EXISTS(SELECT 1 FROM paths p WHERE p.id = e.id) AS haspath FROM events e WHERE COALESCE(e.outcome, \'düştü\') = ? ORDER BY e.t DESC LIMIT ?'),
+    pById: db.prepare('SELECT * FROM paths WHERE id = ?'),
+    oCard: db.prepare("SELECT MIN(t) AS t FROM cards WHERE kind = 'card'"),
+    oEvent: db.prepare('SELECT MIN(t) AS t FROM events'),
+    oTouch: db.prepare('SELECT MIN(t) AS t FROM touches'),
   };
 
   const open = new Map();   // symbol → [{ id, t, price, lo, hi, last, rec }]
@@ -282,12 +291,68 @@ function createCardStore({ file = defaultFile(), logger = console, recover = tru
       return n;
     },
 
+    /** Panel: en yeni kartlar (yalnız kind='card'), rowToStat biçimi */
+    recentCards: limit => (safe(() => st.rCards.all(clampLimit(limit)), 'sorgu') || []).map(rowToStat),
+    /** Panel: en yeni seviye temasları */
+    recentTouches: limit => (safe(() => st.rTouches.all(clampLimit(limit)), 'sorgu') || []).map(rowToTouch),
+    /** Panel: en yeni tepe adayları (+ hasPath: 15 dk yol kaydı var mı); outcome verilirse yalnız o sonuç */
+    recentEvents: (limit, outcome = null) => (safe(() => (outcome ? st.rEventsBy.all(String(outcome), clampLimit(limit)) : st.rEvents.all(clampLimit(limit))), 'sorgu') || [])
+      .map(r => ({ ...rowToEvent(r), hasPath: Boolean(r.haspath) })),
+    /** Panel: tek yol { id, symbol, t, entry, n, buf:Float32Array [h%,l%,c%]×n } ya da null */
+    pathById: id => {
+      const r = safe(() => st.pById.get(String(id)), 'sorgu');
+      if (!r) return null;
+      const b = r.data;
+      const buf = b ? new Float32Array(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)) : new Float32Array(0);
+      return { id: r.id, symbol: r.symbol, t: r.t, entry: r.entry, n: r.n, buf };
+    },
+    /** Panel: kayıtların en eski zamanı { card, event, touch } (kayıt yoksa null) */
+    oldest: () => ({
+      card: safe(() => st.oCard.get()?.t ?? null, 'sorgu') ?? null,
+      event: safe(() => st.oEvent.get()?.t ?? null, 'sorgu') ?? null,
+      touch: safe(() => st.oTouch.get()?.t ?? null, 'sorgu') ?? null,
+    }),
+
+    // ── Panel ek okumaları (salt okunur; şema ve saklama değişmez) ──
+    /**
+     * Panel: süzgeçli kart listesi, en yeni başta; kayıt kimliği (`id`, 📋 Detay için) eklenir.
+     * symbol verilirse cards_sym_t, verilmezse cards_t indeksi. kind: 'card' | 'move' | null (hepsi).
+     */
+    cardsBy({ symbol = null, kind = 'card', limit = 50 } = {}) {
+      const where = [symbol ? 'symbol = ?' : null, kind ? 'kind = ?' : null].filter(Boolean);
+      const sql = `SELECT * FROM cards${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY t DESC LIMIT ?`;
+      const args = [symbol, kind].filter(x => x != null).map(String);
+      return (safe(() => db.prepare(sql).all(...args, clampLimit(limit)), 'sorgu') || []).map(r => ({ ...rowToStat(r), id: r.id }));
+    },
+    /** Panel: bir coinin `since` sonrasındaki tepe adayları (events_t aralığıyla sınırlı tarama) */
+    eventsOf: (symbol, since, limit = 20) => (safe(() => db.prepare('SELECT e.*, EXISTS(SELECT 1 FROM paths p WHERE p.id = e.id) AS haspath FROM events e WHERE e.t >= ? AND e.symbol = ? ORDER BY e.t DESC LIMIT ?')
+      .all(Number(since) || 0, String(symbol), clampLimit(limit)), 'sorgu') || []).map(r => ({ ...rowToEvent(r), hasPath: Boolean(r.haspath) })),
+    /** Panel: bir coinin `since` sonrasındaki seviye temasları (touches_t aralığıyla sınırlı tarama) */
+    touchesOf: (symbol, since, limit = 20) => (safe(() => db.prepare('SELECT * FROM touches WHERE t >= ? AND symbol = ? ORDER BY t DESC LIMIT ?')
+      .all(Number(since) || 0, String(symbol), clampLimit(limit)), 'sorgu') || []).map(rowToTouch),
+    /**
+     * Panel: sonrası hâlâ izlenen kartlar (bellekteki takip listesinin kopyası; yeni bellek tutulmaz).
+     * chg/low/high: kart fiyatına göre % (son 1m kapanış / en düşük / en yüksek) — yalnız fiyat değişimi.
+     */
+    openTracks(limit = 50) {
+      const out = [];
+      for (const [symbol, arr] of open) {
+        for (const e of arr) {
+          const pct = v => (Number.isFinite(v) && e.price > 0 ? +((v - e.price) / e.price * 100).toFixed(2) : null);
+          out.push({ id: e.id, symbol, t: e.t, price: e.price, chg: pct(e.last), low: pct(e.lo), high: pct(e.hi), done: WINDOWS.filter(w => e.rec[w]) });
+        }
+      }
+      return out.sort((a, b) => b.t - a.t).slice(0, clampLimit(limit));
+    },
+
     recent: (symbol, n = 10) => safe(() => st.recent.all(symbol, n), 'sorgu') || [],
     since: t => safe(() => st.since.all(t), 'sorgu') || [],
     openCount: () => openN,
     close: () => { try { db?.close(); } catch { /* yok */ } },
   };
 }
+
+const clampLimit = n => Math.max(1, Math.min(Math.floor(Number(n)) || 50, 200));
 
 /** DB satırı → istatistik (infoStats.classTable) biçimi */
 function rowToStat(r) {
