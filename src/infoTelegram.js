@@ -245,7 +245,7 @@ function installInfoTelegram({ telegram, settings, tracker, store = null, detail
 /seviye [gün] [ad] — dirence alttan temastan sonraki 60 dk: geri çekilme, 3dk EMA21'e dönüş, kırılım (ör. <code>/seviye 7 fib</code>)
 /kacan [gün] — düşüş defteri: pompa tepesinden düşüşler, kartlı/kartsız, kartsızlarda eksik şart
 /teyit [gün] — teyit adayları: her pompa tepe adayında hangi durum varken daha sık düştü (varken / yokken düşüş oranı)
-/disaaktar [gün] — (yönetici) istatistik verisi CSV olarak özelden: düşüşler, kartlar, temaslar, akış
+/disaaktar [gün] — (yönetici) istatistik verisi CSV olarak özelden: düşüşler, kartlar, temaslar, dipler, destekler, akış
 /haftalik — (yönetici) haftalık dosyanın ön izlemesi özelden (silmez). Asıl dosya her Pazartesi 03:01'de gruba gider ve veritabanı temizlenir
 /konu [ad] — konulu grupta yönlendirme (konunun içinde yaz: /konu kart · /konu sistem · /konu kart3 · /konu backtest · /konu rapor)
 /durum — bot durumu

@@ -84,6 +84,14 @@ function dailyVwapLevels(series) {
   return out.filter(L => L.value > 0);
 }
 
+/**
+ * 60 dk bekleme anahtarı: değeri kayan seviyelerde (MA/EMA200, trend çizgisi, VWAP bandı) ad + tür — değer her mumda değiştiği için
+ * `ad@değer` beklemeyi işlemez hale getirirdi. Sabit seviyelerde ad@değer: aynı adı taşıyan farklı seviyeler (ör. birden çok
+ * "Günlük bölge" ya da "1h dip") birbirini bekletmesin.
+ */
+const MOVING = L => L.kind === 'vwap' || L.kind === 'trend' || /MA200|EMA200/.test(L.name);
+const coolKey = L => (MOVING(L) ? `${L.name}|${L.kind}` : `${L.name}@${L.value}`);
+
 function ema21of(series) {
   const e = ta.emaSeries(series.col('3m', 'c', false), 21);
   return e.length ? e[e.length - 1] : null;
@@ -180,7 +188,7 @@ function createSupportTouches({ window = WINDOW, touchPct = TOUCH_PCT, dipNear =
       for (const L of levels) {
         const thr = L.value * (1 + touchPct / 100);
         if (!(prev > thr && l <= thr)) continue;
-        const key = L.kind === 'vwap' ? L.name : `${L.name}@${L.value}`;   // VWAP her dakika kayar: adla bekletilir
+        const key = coolKey(L);
         if (cm && cm.get(key) > tClose) continue;
         if (!cm) { cm = new Map(); cool.set(sym, cm); }
         cm.set(key, tClose + window * MIN);
@@ -242,4 +250,4 @@ function stouchRow(r) {
   return o;
 }
 
-module.exports = { createSupportTouches, stouchRow, STOUCH_COLS, STOUCH_SNAP_COLS, extraSupports, dailyVwapLevels, TOUCH_PCT, WINDOW, SNAPS };
+module.exports = { coolKey, createSupportTouches, stouchRow, STOUCH_COLS, STOUCH_SNAP_COLS, extraSupports, dailyVwapLevels, TOUCH_PCT, WINDOW, SNAPS };

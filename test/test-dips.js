@@ -192,7 +192,8 @@ const now = Date.UTC(2026, 9, 5, 0, 2);
   assert.strictEqual(await st2.forEachDip({}, () => {}), 150); st2.close();
   // kayıt hatası botu durdurmaz: logla, devam
   const errs = []; const st3 = createCardStore({ file: dir + '/err.db', logger: { log() {}, error: x => errs.push(x) } });
-  st3.addDip({ id: 'X', symbol: 'A', t: 1, price: {} });   // bağlanamayan değer → hata assert(errs.some(x => x.includes('[DİP]')), 'hata loglandı: ' + errs.join('|')); st3.close();
+  st3.addDip({ id: 'X', symbol: 'A', t: 1, price: {} });   // bağlanamayan değer → hata
+  assert(errs.some(x => x.includes('[DİP]')), 'hata loglandı: ' + errs.join('|')); st3.close();
   ok(`cards.db dips: ${n} satır parça parça okundu (100'lük), tekrar id yok, alanlar birebir; 60 gün budama; purgeBefore dips'i siler; yeniden açılışta korunur; kayıt hatası [DİP] ile loglanır`);
 }
 

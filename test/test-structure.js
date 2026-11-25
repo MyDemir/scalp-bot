@@ -79,6 +79,31 @@ const zig = (start, legs) => { const a = [start]; for (const [to, n] of legs) { 
   assert(td.tk_15m === 0 && td.tkCloud_15m === 'alt');
   ok(`EMA21/50: yön, işaretli kesişim (${x.e2150X_3m} mum önce yukarı), boşluk; Tenkan/Kijun: tk/tkX (${tv.tkX_5m})/tkGap/tkCloud üst-alt; yetersiz seride boş`);
 }
+// ── BOS pivot kesinleşmesi: yeni pivot tepe (B) ancak sağındaki 3 mum KAPANDIKTAN sonra (B + 3 < k) bilinir. B'nin 3. sağ mumunda
+//    gelen kapanış hâlâ ÖNCEKİ pivot tepeyi (A) kırar; B erken bilinseydi (look-ahead) bu kırılım kaçardı ──
+{
+  //            0    1      2    3      4(A) 5      6    7      8    9      10     11   12(B) 13   14   15(k)  16     17   18
+  const c = [100, 100.5, 101, 101.5, 105, 101.5, 101, 100.5, 100, 100.2, 100.4, 102, 104, 103, 104, 105.5, 105.2, 105, 104.8];
+  const m = mock(c, { w: 0, over: { 12: { h: 108 } } });
+  const p = S.pivots(m.d.h, m.d.l, 0);
+  assert(p.hi.includes(4) && p.hi.includes(12), 'A ve B pivot tepe: ' + p.hi);
+  const n = c.length, nowT = (n - 1) * 5 * MIN + 5 * MIN;
+  const st = S.structureTf(m, '5m', nowT).out;
+  assert.strictEqual(st.bos_5m, 'up', 'k=15 kapanışı A\'yı (105) kırar: ' + JSON.stringify(st));
+  assert.strictEqual(st.bosMin_5m, (n - 1 - 15) * 5, 'kırılım 15. mumda');
+  ok(`BOS: yeni pivot tepe sağındaki 3 mum kapanmadan kullanılmaz (15. mum kapanışı önceki pivot tepeyi kırdı, ${st.bosMin_5m} dk önce)`);
+}
+// ── Bulut 26 mum kaydırmalı: şimdiki Senkou A/B değil, 26 mum önce hesaplanan bulut ──
+{
+  const c = [...Array(60).fill(100), ...Array.from({ length: 40 }, (_, i) => 100 + 30 * (i + 1) / 40), ...Array(7).fill(130), 124, 120, 118];
+  const m = mock(c, { w: 0 });
+  const { h, l } = m.d, n = c.length;
+  const mid = (len, end) => (Math.max(...h.slice(end - len + 1, end + 1)) + Math.min(...l.slice(end - len + 1, end + 1))) / 2;
+  const cls = k => { const A = (mid(9, k) + mid(26, k)) / 2, B = mid(52, k), p = c[n - 1]; return p > Math.max(A, B) ? 'üst' : p < Math.min(A, B) ? 'alt' : 'içinde'; };
+  assert.strictEqual(cls(n - 1 - 26), 'üst', 'elle: 26 mum önceki bulut'); assert.strictEqual(cls(n - 1), 'içinde', 'elle: kaydırmasız bulut farklı');
+  assert.strictEqual(S.tkCross(m, '15m').tkCloud_15m, 'üst', 'tkCloud 26 mum önceki buluta göre');
+  ok('Bulut: 26 mum önce hesaplanan Senkou A/B ile "üst" (kaydırmasız hesap "içinde" verirdi), elle hesapla eşit');
+}
 // ── Look-ahead: kısmi (devam eden) mum ve gelecek mumlar sonucu değiştirmez; alanlar tam ──
 {
   const c = zig(100, [[105, 12], [101, 12], [107, 12], [103, 12], [110, 12], [104, 30], [108, 30], [100, 30], [106, 30]]);

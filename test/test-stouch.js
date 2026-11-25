@@ -92,6 +92,22 @@ let rC;
   assert(xs[1].t - xs[0].t >= 60 * MIN);
   ok(`Bekleme: aynı seviyeye 20. dk'daki ikinci temas yazılmadı; ${(xs[1].t - xs[0].t) / MIN}. dk'daki yazıldı`);
 }
+// ── 4b) Kayan seviye (Günlük VWAP): değeri her dakika değişse de 60 dk içinde ikinci temas yazılmaz ──
+{
+  const { coolKey } = require(`${REPO}/src/supportTouch`);
+  const osc = [...seg(100, 101, 10), ...Array(10).fill(101), ...seg(101, 100.05, 5), ...seg(100.05, 101, 5), ...Array(5).fill(101), ...seg(101, 100.05, 5), ...seg(100.05, 101, 5), ...Array(100).fill(101)];
+  const r = run(osc);
+  const vw = r.ev.filter(e => e.name === 'Günlük VWAP');
+  assert(vw.length >= 1, 'VWAP teması: ' + r.ev.map(e => e.name).join(','));
+  assert(vw.every((e, i) => i === 0 || e.t - vw[i - 1].t >= 60 * MIN), 'VWAP 60 dk içinde tekrar yazılmadı: ' + vw.map(e => (e.t - vw[0].t) / MIN).join(','));
+  assert(new Set(vw.map(e => e.value)).size === vw.length, 'değerler farklı (kayan seviye)');
+  // anahtar: kayan seviyelerde ad + tür, sabitlerde ad@değer
+  assert.strictEqual(coolKey({ name: '4h MA200', kind: 'major', value: 1 }), coolKey({ name: '4h MA200', kind: 'major', value: 2 }));
+  assert.strictEqual(coolKey({ name: 'Günlük trend çizgisi', kind: 'trend', value: 1 }), coolKey({ name: 'Günlük trend çizgisi', kind: 'trend', value: 2 }));
+  assert.strictEqual(coolKey({ name: 'Günlük VWAP −1σ', kind: 'vwap', value: 1 }), coolKey({ name: 'Günlük VWAP −1σ', kind: 'vwap', value: 2 }));
+  assert.notStrictEqual(coolKey({ name: 'Günlük bölge', kind: 'zone', value: 1 }), coolKey({ name: 'Günlük bölge', kind: 'zone', value: 2 }), 'aynı adlı farklı sabit seviyeler ayrı');
+  ok(`Kayan seviye: Günlük VWAP iki kez yaklaşıldı, 60 dk içinde tek kayıt (${vw.length}); MA/EMA200, trend, VWAP bandı ad+tür ile; sabit seviyeler ad@değer ile bekletilir`);
+}
 // ── 5) Look-ahead yok: aynı temasta farklı gelecek → temas anı alanları aynı ──
 {
   const rB = run([...lead, 97.4, ...seg(97.4, 94, 20), ...seg(94, 94, 80)], { overrides: ovA });

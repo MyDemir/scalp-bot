@@ -268,9 +268,9 @@ likidasyonu, funding, spot prim, piyasa geneli …): o koşul **varken / yokken*
 (📈 varken daha sık düşüyor · 📉 varken daha az — devam riski) + 5dk teyit mumu oranları. Her koşul en az 5 örnekle;
 ilk günlerde az örnek olur, backtest hemen geçmiş veriden verir.
 
-`/disaaktar [gün]` (yönetici) — tek **zip** **özelden** gelir (önce bota özelden bir kez /start yaz); içinde 4 CSV:
+`/disaaktar [gün]` (yönetici) — tek **zip** **özelden** gelir (önce bota özelden bir kez /start yaz); içinde CSV'ler:
 `tepeler.csv` (tüm tepe adayları + `outcome`, tüm göstergeler), `kartlar.csv` (kartlar + kart anı göstergeleri — funding, 5dk ATR, 3/5dk ayrışma, OI 1s, 1s trend dahil — + 5/15/30/60/240 dk sonrası),
-`temaslar.csv` (seviye tepkisi), `akis.csv` (alım-satım akışı pencereleri + 🐋 büyük işlem sayıları; akış kapalıysa yok). UTF-8, virgülle ayrılmış, ondalık nokta → Google Sheets / Excel / Python (pandas).
+`temaslar.csv` (seviye tepkisi), `dipler.csv` (dip defteri; kayıt varsa), `destekler.csv` (destek teması; kayıt varsa), varsa `yollar.csv`, `akis.csv` (alım-satım akışı pencereleri + 🐋 büyük işlem sayıları; akış kapalıysa yok). UTF-8, virgülle ayrılmış, ondalık nokta → Google Sheets / Excel / Python (pandas).
 Zip 40 MB'ı aşarsa (Telegram sınırı 50 MB) kalan satırlar `…-2.zip`'e geçer (`tepeler-2.csv`).
 
 `yollar.csv` (zipte yalnız yol kaydı varsa; haftalık raporda da) — her kaydedilen tepe adayının tepeden sonraki 15 dakikasının 1dk yolu, stop/hedef sırası ve giriş gecikmesi ölçülebilsin diye.
@@ -386,7 +386,7 @@ geçmişi, yanda son 7 günün etiket güncellemeleri. Taker alış "piyasa emri
 | `/akis [ETH]` | herkes | spot/futures alım-satım akışı (1s/4s/günlük/haftalık/aylık) ve Toplanıyor/Dağıtım etiketi; argümansız: son etiket değişiklikleri |
 | `/kacan [gün]` | herkes | tepe defteri: pompa tepesinden düşüşler, kartlı/kartsız, kartsızlarda eksik şart |
 | `/teyit [gün]` | herkes | short teyidi: hangi koşul varken tepe adayları daha sık düştü (varken / yokken) |
-| `/disaaktar [gün]` | yönetici | istatistik verisi CSV olarak özelden (tepeler, kartlar, temaslar, akış) |
+| `/disaaktar [gün]` | yönetici | istatistik verisi CSV olarak özelden (tepeler, kartlar, temaslar, dipler, destekler, akış) |
 | `/haftalik` | yönetici | haftalık dosyanın (MD'yi de içeren tek zip) ön izlemesi özelden (silmez); asıl dosya Pazartesi 03:01'de gruba gider |
 | `/seviye [gün] [ad]` | herkes | seviye tepkisi: temastan sonra çekilme / 3dk EMA21'e dönüş / kırılım (ör. `/seviye 7 fib`) |
 | `/konu [ad]` · `/konu sil ad` | liste herkes, bağlama yönetici | konulu grupta yönlendirme |
