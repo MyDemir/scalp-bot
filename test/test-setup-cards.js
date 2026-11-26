@@ -23,7 +23,7 @@ const SC4 = { rsi_1m: 90, bbB_15m: 1.4, stochCross: 'down', volx_3m: 4, liqShort
  * Canlı processCandle0 / infoBacktest.runSymbol sırası: step → noteCard → observe → takeSetup → setupCard (mode 'setup')
  * mode 'base': kurulum hattı hiç yok (bu değişiklikten önceki davranış)
  */
-function run({ s = cfg.info, mode = 'setup', inject = () => SC4, skip = [], tailMut = null } = {}) {
+function run({ s = cfg.info, mode = 'setup', inject = () => SC4, skip = [], tailMut = null, pre = null } = {}) {
   const all = [...hist, ...pathV];
   if (tailMut != null) for (let i = tailMut; i < all.length; i++) all[i] = all[i] * 1.5 + 7;   // kart mumundan SONRAKİ mumlar değişir
   const m1 = all.map((c, i) => candle(i, c, i ? all[i - 1] : c));
@@ -39,6 +39,7 @@ function run({ s = cfg.info, mode = 'setup', inject = () => SC4, skip = [], tail
   const ev = [], cards = [], decisions = [], stepAt = new Map(), perCandle = [];
   for (const c of m1.filter(c => c.t >= T0)) {
     if (skip.includes((c.t - T0) / MIN)) continue;
+    if (pre && c.t === t0 + pre.at * MIN) trk.commitExtra('SETUPUSDT', { t: c.t - MIN, price: 100 });   // sentetik tek başına kurulum kartı (step'ten önce)
     const closed = S.apply1m(c);
     let card = eng.step(S, closed, s, trk, ctx);
     if (card) { stepAt.set(card.t, card); L.noteCard('SETUPUSDT', card.t, card.grade); }
@@ -181,6 +182,8 @@ const A = run();
     assert(c.tags.includes('#KURULUMSONRASI') && c.news.includes(`⭐ Kurulum kartından ${mn} dk sonra · fiyat kurulumdan ${pc > 0 ? '+' : pc < 0 ? '−' : ''}%${Math.abs(pc).toFixed(2)}`), c.news.join('|'));
     assert(/⭐ Kurulum sonrası/.test(formatCard(c, cfg.info, { now: c.t }).text));
   }
+  { // akışta aynı kurulumun işaretini taşıyan ikinci kart olmamalı
+    const seen = new Set(); for (const c of marked) { const prev = lone.filter(x => x.t < c.t && c.t - x.t <= 3600_000).pop(); assert(!seen.has(prev.t), 'kurulum başına tek işaret'); seen.add(prev.t); } }
   assert(A.cards.filter(c => !c.trig.afterSetup).every(c => !c.tags.includes('#KURULUMSONRASI')));
 }
 // ── ⭐ Kurulum sonrası işareti: tek başına kurulum kartından ≤ 60 dk sonra gelen normal kart ──
@@ -200,6 +203,18 @@ const A = run();
     eng.setupCard(null, lo, trk, {}, su, card); assert.strictEqual(trk.afterSetup('X', card.t + 5 * MINm, 100), null, '(d) birleşik ⭐ sonrası yok'); }
   // sıfırlama (15m RSI düşük) işareti de siler
   { const trk = mk(); trk.observe15m('X', 10, { resetRsi: 50 }); assert.strictEqual(trk.afterSetup('X', t0 + MINm, 100), null, 'reset siler'); }
+  // ilk karttan sonra tüketilir; yeni kurulum kartı bir kez daha açar
+  { const trk = mk(); assert(trk.afterSetup('X', t0 + 5 * MINm, 101), 'ilk kart işaretli'); trk.useAfterSetup('X');
+    assert.strictEqual(trk.afterSetup('X', t0 + 10 * MINm, 101), null, 'ikinci kart işaretsiz');
+    trk.commitExtra('X', { t: t0 + 20 * MINm, price: 100 }); assert(trk.afterSetup('X', t0 + 25 * MINm, 101), 'yeni kurulum yeniden açar');
+    trk.useAfterSetup('X'); assert.strictEqual(trk.afterSetup('X', t0 + 26 * MINm, 101), null, 'yine bir kez'); trk.useAfterSetup('YOK'); }
+  // akış (step): kurulum kartından sonra art arda gelen normal kartlarda yalnız ilki işaret taşır
+  { const lo2 = { ...cfg.info, rsiMin: 55, rsiMin2: 60, minTFs: 1, levelRequired: false, moveAlertPct: 0.13, cardSound: false };
+    const F = run({ s: lo2, mode: 'base', pre: { at: 3091 } });
+    const win = F.cards.filter(c => c.t >= t0 + 3091 * MINm && c.t <= t0 + 3150 * MINm), am = win.filter(c => c.trig.afterSetup);
+    assert(win.length >= 4, 'pencerede en az 4 normal kart: ' + win.length);
+    assert(am.length === 1 && win.indexOf(am[0]) <= 1, 'pencerede tek işaretli kart, ilk uygun kartta: ' + am.length);
+    assert(win.slice(win.indexOf(am[0]) + 1).length >= 3 && win.slice(win.indexOf(am[0]) + 1).every(c => !c.tags.includes('#KURULUMSONRASI') && !c.news.some(n => n.startsWith('⭐ Kurulum kartından'))), 'sonraki kartlarda etiket/yenilik yok'); }
   // kart etiketi: 🔔 satırı + ⭐ satırı; yokken metin birebir aynı
   const plainTxt = formatCard(c0, lo, { now: c0.t }), mark = { min: 5, pct: -1.234 };
   const c1 = { ...c0, trig: { ...c0.trig, afterSetup: mark }, news: [...c0.news, '⭐ Kurulum kartından 5 dk sonra · fiyat kurulumdan −%1.23'] };

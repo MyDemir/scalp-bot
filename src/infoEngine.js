@@ -776,6 +776,9 @@ function createTracker() {
       return { min: Math.floor((t - x.t) / 60_000), pct: (price - x.price) / x.price * 100 };
     },
 
+    /** İşaret karta eklenince çağrılır: sonraki kartlarda tekrarlanmaz (yeni commitExtra yeniden açar). */
+    useAfterSetup(sym) { const m = mem.get(sym); if (m) m.xt = null; },
+
     active: sym => (mem.get(sym)?.seq ?? 0) > 0,
 
     countMove(sym, t, dir) {
@@ -864,6 +867,7 @@ function step(series, closedTfs, s, tracker, ctx = {}) {
   const afterSetup = tracker.afterSetup(sym, snap.t, snap.price);
   if (afterSetup) {
     trig.afterSetup = afterSetup;
+    tracker.useAfterSetup(sym);   // işaret yalnız kurulumdan sonraki İLK normal kartta (26.11.2026)
     news.push(`⭐ Kurulum kartından ${afterSetup.min} dk sonra · fiyat kurulumdan ${ps(afterSetup.pct)}`);
   }
   const seq = tracker.commit(sym, snap, s);
