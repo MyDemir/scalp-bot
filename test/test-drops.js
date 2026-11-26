@@ -469,8 +469,8 @@ ok('İki ayrı tepe → iki "düştü" (bekleme yok); ikinci tepenin coin geçmi
   const hnAll = cols[true].h, ho = cols[false].h;
   assert.deepStrictEqual(hnAll, ho, 'ilk satır yeni ya da eski olsa da aynı başlık');
   // ⭐ kurulum kolonları (25.11.2026) en sonda; derece 16 kolonu hemen önlerinde
-  const SC = ['setup', 'setupS', 'setupPump'];
-  assert.deepStrictEqual(hnAll.slice(-SC.length), SC, 'kartlar.csv: kurulum 3 kolonu en sonda');
+  const SC = ['setup', 'setupS', 'setupPump', 'v3S'];
+  assert.deepStrictEqual(hnAll.slice(-SC.length), SC, 'kartlar.csv: kurulum 3 kolonu + v3S en sonda');
   const hn = hnAll.slice(0, -SC.length);
   assert.deepStrictEqual(hn.slice(-GC.length), GC, 'kartlar.csv: 16 derece kolonu sonda');
   const prefix = hn.slice(0, -GC.length);

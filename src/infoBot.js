@@ -324,7 +324,7 @@ async function emitCard(card) {
   
   telegram.sendCard({ text, keyboard, silent: card.silent, photo, thread });
   store?.add({ id: card.id, kind: 'card', symbol: card.symbol, t: card.t, seq: card.seq, price: card.price, data: { ...compact(card), bursts: undefined, fwd: undefined },
-    setup: card.trig?.setup ? 1 : 0, setupS: card.setup?.S ?? null, setupPump: card.setup?.pumpPct ?? null });
+    setup: card.trig?.setup ? 1 : 0, setupS: card.setup?.S ?? null, setupPump: card.setup?.pumpPct ?? null, v3S: card.v3?.v3S ?? null });
   const lv = card.snap.level;
   console.log(`[KART] ${card.symbol} #${card.seq}${card.trig?.setup ? ' ⭐ kurulum' : ''} derece ${card.grade} · RSI ${card.snap.hits}/3 · ${lv ? `${lv.name} ${lv.dist.toFixed(2)}\%${lv.zone}` : 'seviye yok'} · ${card.silent ? 'sessiz' : 'SESLİ'} · ${card.news.join(' | ')}`);
 }

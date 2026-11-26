@@ -41,11 +41,13 @@ const GRADE_COLS = ['gradeOld', 'g_sep', 'g_h1', 'g_r15', 'g_atr', 'g_macd', 'g_
 const BYPASS_COLS = ['snapOk', 'snapFails', 'filterBypass', 'bypassBy'];
 /** ⭐ v3 B kurulum kartı alanları (kartlar.csv'nin en sonu, derece alanlarından sonra; eski satırlarda boş): setup 0/1, setupS = v3S, setupPump = pumpPct */
 const SETUP_COLS = ['setup', 'setupS', 'setupPump'];
+/** Kart anındaki v3 puanı (her kartta; kartlar.csv'nin en son kolonu, 25.11.2026; eski satırlarda boş). setupS yalnız kurulum kartı, v3S her kart */
+const V3_COLS = ['v3S'];
 /** Kart istatistiği → düz CSV satırı: mevcut kolonlar eski sırada, filtre dışı 4 kolon, ardından derece alanları en sonda (16 kolon) */
 function cardRow(r, partialFirst = false) {
   const { bursts, text, kind, done, ...rest } = r;
   const g = {};
-  for (const k of [...BYPASS_COLS, ...GRADE_COLS, ...SETUP_COLS]) { g[k] = rest[k] ?? null; delete rest[k]; }
+  for (const k of [...BYPASS_COLS, ...GRADE_COLS, ...SETUP_COLS, ...V3_COLS]) { g[k] = rest[k] ?? null; delete rest[k]; }
   // eski sıra korunur: haftalıkta partial, time'dan önce; /disaaktar'da sonra
   if (!partialFirst) delete rest.partial;
   return { ...flatten({ ...rest, time: new Date(r.t).toISOString(), partial: r.partial ? 1 : 0 }), ...g };
@@ -53,7 +55,7 @@ function cardRow(r, partialFirst = false) {
 /** Kolon birleşimi (ilk görülene göre); derece kolonları birleşimden çıkarılıp başlığın en sonuna sabit sırayla eklenir */
 const colsOf = rows => { const set = new Set(); for (const r of rows) for (const k of Object.keys(r)) set.add(k); for (const k of [...BYPASS_COLS, ...GRADE_COLS]) set.delete(k); return [...set, ...BYPASS_COLS, ...GRADE_COLS]; };
 /** kartlar.csv başlığı: colsOf + kurulum kolonları en sonda (akis.csv colsOf'u aynen kullanır, kurulum kolonu almaz) */
-const cardColsOf = rows => [...colsOf(rows).filter(k => !SETUP_COLS.includes(k)), ...SETUP_COLS];
+const cardColsOf = rows => [...colsOf(rows).filter(k => !SETUP_COLS.includes(k) && !V3_COLS.includes(k)), ...SETUP_COLS, ...V3_COLS];
 
 /**
  * Tek zip: tepeler.csv · kartlar.csv · temaslar.csv · akis.csv (flow verilirse; 40 MB'ı aşarsa veri-…-2.zip …). Tepe adayları parça parça okunur.
@@ -121,7 +123,7 @@ async function buildExports(store, days = 30, now = Date.now(), { maxZipBytes = 
   return { files: await zip.finish(), counts };
 }
 
-module.exports = { buildExports, flatten, cardRow, GRADE_COLS, BYPASS_COLS, SETUP_COLS, colsOf, cardColsOf };
+module.exports = { buildExports, flatten, cardRow, GRADE_COLS, BYPASS_COLS, SETUP_COLS, V3_COLS, colsOf, cardColsOf };
 
 if (require.main === module) {
   const a = process.argv.slice(2);

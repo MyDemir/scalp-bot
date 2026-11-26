@@ -392,7 +392,7 @@ async function main() {
     const eta = i ? Math.round((Date.now() - t0) / i * (symbols.length - i) / 60000) : null;
     try {
       const r = await runSymbol(sym, { start, end, s, btcClose, btcMarket, keepCards: ORNEK > 0 || Boolean(a.telegram) });
-      const cards = r.cards.map(c => ({ ...compact(c), text: c.text, setup: c.trig?.setup ? 1 : 0, setupS: c.setup?.S ?? null, setupPump: c.setup?.pumpPct ?? null }));
+      const cards = r.cards.map(c => ({ ...compact(c), text: c.text, setup: c.trig?.setup ? 1 : 0, setupS: c.setup?.S ?? null, setupPump: c.setup?.pumpPct ?? null, v3S: c.v3?.v3S ?? null }));
       all.push(...cards);
       allMoves.push(...(r.moves || []));
       allTouches.push(...(r.touches || []));

@@ -263,4 +263,27 @@ const EXTRA_COLS = ['cvdNet15', 'cvdNet60', 'cvdDiv', 'cvdDivPct', 'buyChg', 'wi
 // Sona eklenen kolonlar (eventLog AUDIT_COLS'ta; EXTRA_COLS sırası değişmez)
 const EXTRA_AUDIT_COLS = ['wick_5mc', 'clv_5mc', 'wick_15mc', 'clv_15mc', 'bar5Pct', 'bar15Pct', 'volPeakXc', 'miss60', 'futQ60t'];
 
-module.exports = { cvdDivBull, quoteVol24h, extraFeatures, EXTRA_COLS, EXTRA_AUDIT_COLS, emaTrend, cvdFeatures, minWin, bollinger, ichiCloud, session, localHourDow };
+/**
+ * v3 kurulum puanının 5 girdisi (rsi_1m, bbB_15m, stochCross, volx_3m, liqShortPct15) — yalnız gerekli alanlar, tüm TF'leri hesaplamaz.
+ * Kart anı (infoEngine.v3Of) ve tepe kaydı aynı tanımı kullanır: rsi_1m = marketSnap.tfIndicators, bbB_15m = extraFeatures (bollinger),
+ * volx_3m = marketSnap.lastClosedVol, stochCross = evaluate().stoch.cross, liq = ctx.liq(sym, t, son 15 dk 1m quote). Yalnız kapanmış/eldeki mumlar (look-ahead yok).
+ * @param {object} [o] { snap, t }  snap.stoch varsa yeniden hesaplanmaz; t = serinin son 1m açılışı + 1 dk
+ */
+function v3Features(series, s = {}, ctx = {}, o = {}) {
+  const { lastClosedVol } = require('./marketSnap');   // tembel: marketSnap ↔ infoEngine ↔ peakFeatures döngüsü
+  const { stochState } = require('./infoEngine');
+  const t = o.t ?? (series.lastT('1m') ?? 0) + MIN;
+  const d = series.d['1m'], n = d.q.length;
+  const st = o.snap && o.snap.stoch !== undefined ? o.snap.stoch : stochState(series, '5m');
+  let liqShortPct15 = null;
+  if (ctx.liq) { let q15 = 0; for (let i = Math.max(0, n - 15); i < n; i++) q15 += d.q[i]; liqShortPct15 = ctx.liq(series.symbol, t, q15).liqShortPct15 ?? null; }
+  return {
+    rsi_1m: num(ta.rsiLast(series.col('1m', 'c', true), s.rsiPeriod || 14), 1),
+    bbB_15m: bollinger(series, '15m').bbB_15m ?? null,
+    stochCross: st?.cross ?? null,
+    volx_3m: num(lastClosedVol(series, '3m').x),
+    liqShortPct15,
+  };
+}
+
+module.exports = { v3Features, cvdDivBull, quoteVol24h, extraFeatures, EXTRA_COLS, EXTRA_AUDIT_COLS, emaTrend, cvdFeatures, minWin, bollinger, ichiCloud, session, localHourDow };
